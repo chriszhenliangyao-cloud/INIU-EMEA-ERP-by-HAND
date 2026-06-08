@@ -40,7 +40,7 @@ type Cell = {
 type Country = {
   id: number
   code: string
-  name_zh: string
+  name_en: string
   flag_emoji: string
   region: string
 }
@@ -175,11 +175,11 @@ export function ForecastSummaryView({
   // ============== 状态徽章 ==============
   const statusBadge = (() => {
     const map: Record<string, { bg: string; label: string }> = {
-      draft: { bg: 'bg-gray-100 text-gray-700', label: '📝 草稿' },
-      submitted: { bg: 'bg-blue-100 text-blue-700', label: '📤 已提交' },
-      approved: { bg: 'bg-purple-100 text-purple-700', label: '✓ 已审批' },
-      published: { bg: 'bg-green-100 text-green-700', label: '🎉 已发布' },
-      archived: { bg: 'bg-gray-100 text-gray-500', label: '📦 已归档' },
+      draft: { bg: 'bg-gray-100 text-gray-700', label: '📝 Draft' },
+      submitted: { bg: 'bg-blue-100 text-blue-700', label: '📤 Submitted' },
+      approved: { bg: 'bg-purple-100 text-purple-700', label: '✓ Approved' },
+      published: { bg: 'bg-green-100 text-green-700', label: '🎉 Published' },
+      archived: { bg: 'bg-gray-100 text-gray-500', label: '📦 Archived' },
     }
     const s = map[selectedRun.status] ?? { bg: 'bg-gray-100', label: selectedRun.status }
     return <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${s.bg}`}>{s.label}</span>
@@ -219,24 +219,24 @@ export function ForecastSummaryView({
   // ============== 渲染 ==============
   return (
     <div className="p-6 max-w-[1700px] mx-auto">
-      {/* 页头 + 身份提示 */}
+      {/* Header + identity */}
       <div className="flex items-baseline justify-between mb-4 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            📋 EU FCST 总览
-            <span className="text-base text-gray-500 ml-2 font-normal">· GTM → 总部提报视图</span>
+            📋 EU FCST Overview
+            <span className="text-base text-gray-500 ml-2 font-normal">· GTM → HQ submission view</span>
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             {viewerIsAdmin
-              ? <>当前以 <span className="text-purple-600 font-medium">🌍 Admin（{viewerName}）</span> 身份查看全部 4 国汇总 · 基于 <code className="bg-gray-100 px-1 rounded">forecast_eu_summary</code> 视图</>
-              : <>当前以 <span className="text-blue-600 font-medium">🧑‍💼 Sales（{viewerName}）</span> 身份查看 · RLS 自动过滤到你的国家</>}
+              ? <>Signed in as <span className="text-purple-600 font-medium">🌍 Admin ({viewerName})</span> · viewing all 4 countries · backed by <code className="bg-gray-100 px-1 rounded">forecast_eu_summary</code> view</>
+              : <>Signed in as <span className="text-blue-600 font-medium">🧑‍💼 Sales ({viewerName})</span> · RLS filters to your countries</>}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {viewerIsAdmin && (
             <Link href={`/forecast?view=edit&run=${selectedRun.id}`} prefetch
                className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition shadow">
-              ✏️ 切到填表视图
+              ✏️ Switch to Input View
             </Link>
           )}
           {statusBadge}
@@ -248,10 +248,10 @@ export function ForecastSummaryView({
         </div>
       </div>
 
-      {/* Run 选择器 + 元数据 */}
+      {/* Run selector + metadata */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5">
         <div className="flex items-center gap-3 flex-wrap">
-          <label className="text-sm text-gray-600 font-medium">📅 预测周期：</label>
+          <label className="text-sm text-gray-600 font-medium">📅 Forecast cycle:</label>
           <select
             value={selectedRun.id}
             onChange={(e) => router.push(`/forecast?run=${e.target.value}`)}
@@ -264,40 +264,40 @@ export function ForecastSummaryView({
             ))}
           </select>
           <div className="text-xs text-gray-500">
-            创建人：<span className="text-gray-700">{selectedRun.created_by_name ?? '-'}</span>
-            {selectedRun.published_at && <> · 发布于 <span className="text-gray-700">{selectedRun.published_at.slice(0, 10)}</span></>}
+            Created by: <span className="text-gray-700">{selectedRun.created_by_name ?? '-'}</span>
+            {selectedRun.published_at && <> · Published <span className="text-gray-700">{selectedRun.published_at.slice(0, 10)}</span></>}
           </div>
           <div className="ml-auto flex items-center gap-2">
             <label className="flex items-center gap-1.5 text-sm text-gray-600">
               <input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} />
-              隐藏空白 SKU
+              Hide empty SKUs
             </label>
             <button onClick={exportCsv} className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700">
-              📤 导出 CSV
+              📤 Export CSV
             </button>
           </div>
         </div>
       </div>
 
-      {/* KPI 卡片 */}
+      {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
-        <KpiCard label="EU 4 个月总量" value={fmtNum(totalQty)} hint={`${tableRows.length} SKU · ${tableCountries.length} 国 × 4 月`} color="purple" big />
+        <KpiCard label="EU 4-month total" value={fmtNum(totalQty)} hint={`${tableRows.length} SKUs · ${tableCountries.length} countries × 4 months`} color="purple" big />
         {tableCountries.map(c => (
-          <KpiCard key={c.code} label={`${c.flag_emoji} ${c.code} 合计`} value={fmtNum(totalByCountry[c.code] ?? 0)} hint={`占 ${totalQty > 0 ? ((totalByCountry[c.code] ?? 0) / totalQty * 100).toFixed(1) : '0'}%`} />
+          <KpiCard key={c.code} label={`${c.flag_emoji} ${c.code} total`} value={fmtNum(totalByCountry[c.code] ?? 0)} hint={`${totalQty > 0 ? ((totalByCountry[c.code] ?? 0) / totalQty * 100).toFixed(1) : '0'}% of EU`} />
         ))}
         {months.map(m => (
-          <KpiCard key={m} label={m} value={fmtNum(footTotals.byEuMonth[m] ?? 0)} hint="EU 月度" color="amber" />
+          <KpiCard key={m} label={m} value={fmtNum(footTotals.byEuMonth[m] ?? 0)} hint="EU monthly" color="amber" />
         ))}
       </div>
 
-      {/* 图例 */}
+      {/* Legend */}
       <div className="text-xs text-gray-500 mb-2 flex gap-3 flex-wrap items-center">
-        <Legend color="#dbeafe" label="FR 法国" />
-        <Legend color="#fee2e2" label="PL 波兰" />
-        <Legend color="#fef3c7" label="ES 西班牙" />
-        <Legend color="#fce7f3" label="NL 荷兰" />
-        <Legend color="#ede9fe" label="EU TTL 汇总" />
-        <Legend color="#1f2937" label="Sub-total（4 个月合计）" textColor="text-gray-900" />
+        <Legend color="#dbeafe" label="FR France" />
+        <Legend color="#fee2e2" label="PL Poland" />
+        <Legend color="#fef3c7" label="ES Spain" />
+        <Legend color="#fce7f3" label="NL Netherlands" />
+        <Legend color="#ede9fe" label="EU TTL" />
+        <Legend color="#1f2937" label="Sub-total (4-month sum)" textColor="text-gray-900" />
       </div>
 
       {/* 主表 */}
@@ -308,7 +308,7 @@ export function ForecastSummaryView({
               {/* 第一行：分组表头 */}
               <tr className="bg-gray-50">
                 <th className="sticky left-0 bg-gray-50 z-20 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r border-gray-200" rowSpan={2} style={{ minWidth: 90, maxWidth: 90 }}>SKU</th>
-                <th className="sticky bg-gray-50 z-20 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300" rowSpan={2} style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>产品名称</th>
+                <th className="sticky bg-gray-50 z-20 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300" rowSpan={2} style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>Product</th>
                 {tableCountries.map(c => (
                   <th key={c.code} className={`px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 ${countryHeaderBg(c.code)}`} colSpan={months.length}>
                     {c.flag_emoji} {c.code}
@@ -318,7 +318,7 @@ export function ForecastSummaryView({
                   EU TTL
                 </th>
                 <th className="px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-gray-900 text-white" rowSpan={2}>
-                  Sub-total<br /><span className="text-[10px] font-normal opacity-80">(4 个月)</span>
+                  Sub-total<br /><span className="text-[10px] font-normal opacity-80">(4 months)</span>
                 </th>
               </tr>
               {/* 第二行：月份 */}
@@ -372,7 +372,7 @@ export function ForecastSummaryView({
               {!tableRows.length && (
                 <tr>
                   <td colSpan={3 + tableCountries.length * months.length + months.length} className="py-12 text-center text-gray-400">
-                    本期暂无数据 · 请等待销售填表或切换其他周期
+                    No data for this cycle yet · waiting for sales input or switch to another cycle
                   </td>
                 </tr>
               )}
@@ -384,7 +384,7 @@ export function ForecastSummaryView({
                     TTL
                   </td>
                   <td className="sticky bg-gray-900 text-white z-10 px-3 py-3 text-xs font-medium border-r-2 border-gray-700" style={{ left: 90, minWidth: 200, maxWidth: 200 }}>
-                    所有 SKU 合计
+                    All SKUs total
                   </td>
                   {tableCountries.map(c => (
                     months.map((m, i) => (
@@ -408,11 +408,11 @@ export function ForecastSummaryView({
         </div>
       </div>
 
-      {/* Footer 提示 */}
+      {/* Footer hint */}
       <div className="mt-4 text-xs text-gray-400 text-center">
-        💡 数据源：<code className="bg-gray-100 px-1 rounded text-purple-600">forecast_eu_summary</code> 视图（KA 已聚合到国家级）·
-        每月 EU TTL = FR + PL + ES + NL ·
-        Sub-total = 4 个月 EU TTL 合计
+        💡 Source: <code className="bg-gray-100 px-1 rounded text-purple-600">forecast_eu_summary</code> view (KA aggregated to country level) ·
+        Monthly EU TTL = FR + PL + ES + NL ·
+        Sub-total = 4-month EU TTL sum
       </div>
     </div>
   )

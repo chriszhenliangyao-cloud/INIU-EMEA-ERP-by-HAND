@@ -9,7 +9,7 @@ export default function LoginPage() {
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
-        queryParams: { hd: 'iniushop.com' },  // 限定企业域名
+        queryParams: { hd: 'iniushop.com' },  // restrict to corporate domain
       },
     })
   }
@@ -20,7 +20,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="text-5xl mb-3">📦</div>
           <h1 className="text-2xl font-bold text-gray-900">INIU EMEA ERP</h1>
-          <p className="text-sm text-gray-500 mt-2">欧洲市场销售管理系统</p>
+          <p className="text-sm text-gray-500 mt-2">Sales operations platform</p>
         </div>
 
         <button
@@ -33,11 +33,11 @@ export default function LoginPage() {
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
           </svg>
-          <span className="text-gray-700 font-medium">用 Google 账号登录</span>
+          <span className="text-gray-700 font-medium">Sign in with Google</span>
         </button>
 
         <p className="text-xs text-center text-gray-400 mt-6">
-          仅限 @iniushop.com 邮箱
+          @iniushop.com accounts only
         </p>
       </div>
     </div>

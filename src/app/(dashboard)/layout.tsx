@@ -5,14 +5,14 @@ import { LogoutButton } from '@/components/logout-button'
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const me = await getCurrentUser()
 
-  // Avatar 颜色：admin 紫色 / sales 蓝色
+  // Avatar color: admin purple / sales blue
   const avatarColor = me.isAdmin ? '#7c3aed' : '#3b82f6'
-  const roleLabel = me.isAdmin ? '🌍 Admin（HQ）' : '🧑‍💼 Sales'
+  const roleLabel = me.isAdmin ? '🌍 Admin (HQ)' : '🧑‍💼 Sales'
   const roleHint = me.isAdmin
-    ? '全部国家'
+    ? 'All countries'
     : me.countryIds.length > 0
-      ? `负责 ${me.countryIds.length} 个国家`
-      : '未分配国家'
+      ? `${me.countryIds.length} ${me.countryIds.length === 1 ? 'country' : 'countries'}`
+      : 'No country assigned'
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -29,19 +29,22 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
 
         <nav className="flex-1 p-3">
-          <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2">销售</div>
+          <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2">Sales</div>
           <Link href="/shipments" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-            📊 发货记录
+            📊 Shipments
           </Link>
           <Link href="/forecast" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-            📈 需求预测
+            📈 Demand Forecast
           </Link>
 
           {me.isAdmin && (
             <>
-              <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2 mt-4">管理（仅 Admin）</div>
-              <Link href="/admin" className="block px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-100">
-                ⚙️ 主数据 <span className="text-xs">（待开发）</span>
+              <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2 mt-4">Admin only</div>
+              <Link href="/admin/import" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
+                📥 Import Data
+              </Link>
+              <Link href="/admin/history" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
+                🕒 Import History
               </Link>
             </>
           )}

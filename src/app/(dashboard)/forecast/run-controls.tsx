@@ -38,7 +38,7 @@ export function RunControls({
   // —— 工作流动作（admin only）——
   const runRpc = useCallback(async (action: string, rpcName: string, confirmMsg?: string) => {
     if (hasUnsaved) {
-      showToast('error', '请先保存当前未保存的改动')
+      showToast('error', 'Please save your unsaved changes first')
       return
     }
     if (confirmMsg && !window.confirm(confirmMsg)) return
@@ -46,10 +46,10 @@ export function RunControls({
     const { error } = await supabase.rpc(rpcName, { p_run_id: selectedRun.id })
     setBusy(null)
     if (error) {
-      showToast('error', `${action} 失败：${error.message}`)
+      showToast('error', `${action} failed: ${error.message}`)
       return
     }
-    showToast('success', `${action} 成功`)
+    showToast('success', `${action} succeeded`)
     onAfterAction?.()
     router.refresh()
   }, [selectedRun.id, hasUnsaved, supabase, router, showToast, onAfterAction])
@@ -71,14 +71,14 @@ export function RunControls({
     }
     setBusy(null)
     if (result.error) {
-      showToast('error', `创建失败：${result.error.message}`)
+      showToast('error', `Create failed: ${result.error.message}`)
       return
     }
     const newRun = result.data
     const newRunId = Array.isArray(newRun) ? newRun[0]?.id : newRun?.id
     showToast('success', cloneFromRunId !== null
-      ? `已从 ${allRuns.find(r => r.id === cloneFromRunId)?.code} 克隆为新周期`
-      : '已创建新周期')
+      ? `Cloned from ${allRuns.find(r => r.id === cloneFromRunId)?.code} into new cycle`
+      : 'New cycle created')
     setShowCreateModal(false)
     onAfterAction?.()
     // 跳到新 run
@@ -110,32 +110,32 @@ export function RunControls({
     switch (selectedRun.status) {
       case 'draft':
         return [
-          btn('📤 提交审批', 'submit', 'submit_forecast_run',
+          btn('📤 Submit for review', 'submit', 'submit_forecast_run',
             'bg-blue-600 text-white border-blue-600 hover:bg-blue-700',
-            '确定提交本期 FCST 进入审批流程吗？提交后 sales 将无法继续修改（仅 admin 可改）。'),
+            'Submit this forecast cycle for review? Sales will no longer be able to edit (only admin can).'),
         ]
       case 'submitted':
         return [
-          btn('✓ 审批通过', 'approve', 'approve_forecast_run',
+          btn('✓ Approve', 'approve', 'approve_forecast_run',
             'bg-purple-600 text-white border-purple-600 hover:bg-purple-700',
-            '审批通过后将进入"待发布"状态。'),
-          btn('↩️ 退回草稿', 'reopen', 'reopen_forecast_run',
+            'Approving will move this cycle to "pending publish" state.'),
+          btn('↩️ Revert to draft', 'reopen', 'reopen_forecast_run',
             'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
-            '退回草稿后 sales 可重新编辑。本步骤会清空提交人记录。'),
+            'Reverting to draft will let sales edit again. The submitter record will be cleared.'),
         ]
       case 'approved':
         return [
-          btn('🚀 发布', 'publish', 'publish_forecast_run',
+          btn('🚀 Publish', 'publish', 'publish_forecast_run',
             'bg-green-600 text-white border-green-600 hover:bg-green-700',
-            '发布后本期 FCST 进入只读状态，任何人都不能再修改。确定继续？'),
-          btn('↩️ 退回草稿', 'reopen', 'reopen_forecast_run',
+            'Publishing locks this cycle as read-only — nobody can edit it after. Continue?'),
+          btn('↩️ Revert to draft', 'reopen', 'reopen_forecast_run',
             'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
-            '退回草稿后 sales 可重新编辑。'),
+            'Reverting to draft will let sales edit again.'),
         ]
       case 'published':
-        return [<span key="locked" className="text-xs text-gray-500 italic">本期已发布锁定，如需修改请创建新周期</span>]
+        return [<span key="locked" className="text-xs text-gray-500 italic">This cycle is published & locked — create a new cycle to make changes</span>]
       case 'archived':
-        return [<span key="archived" className="text-xs text-gray-500 italic">本期已归档</span>]
+        return [<span key="archived" className="text-xs text-gray-500 italic">This cycle is archived</span>]
       default:
         return null
     }
@@ -175,7 +175,7 @@ export function RunControls({
           disabled={!!busy}
           className="px-3 py-1.5 text-xs font-medium rounded-md border-2 border-dashed border-blue-400 text-blue-600 hover:bg-blue-50 transition"
         >
-          ➕ 新建周期
+          ➕ New cycle
         </button>
       )}
 
@@ -230,14 +230,14 @@ function CreateRunModal({
         className="bg-white rounded-xl shadow-2xl p-6 max-w-lg w-full mx-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-bold text-gray-900 mb-1">➕ 新建 FCST 周期</h2>
+        <h2 className="text-lg font-bold text-gray-900 mb-1">➕ New forecast cycle</h2>
         <p className="text-sm text-gray-500 mb-5">
-          为 EU 区域创建新的 4 个月预测窗口。窗口起始月份对齐到月初，自动生成 code。
+          Create a new 4-month forecast window for the EU region. Start month is aligned to the 1st; code is auto-generated.
         </p>
 
-        {/* 起始月份 */}
+        {/* Start month */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">起始月份</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Start month</label>
           <input
             type="month"
             value={periodMonth}
@@ -245,23 +245,23 @@ function CreateRunModal({
             className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
           />
           <div className="text-xs text-gray-500 mt-1">
-            预测窗口：<strong>{periodMonth}</strong> ~ {(() => {
+            Window: <strong>{periodMonth}</strong> ~ {(() => {
               const [y, m] = periodMonth.split('-').map(Number)
               const end = new Date(y, m - 1 + 3, 1)
               return `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}`
-            })()} （4 个月）
-            · 生成 code: <code className="bg-gray-100 px-1 rounded">EU-FCST-{periodMonth}</code>
+            })()} (4 months)
+            · Code: <code className="bg-gray-100 px-1 rounded">EU-FCST-{periodMonth}</code>
           </div>
           {wouldConflict && (
             <div className="mt-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">
-              ⚠️ 该月份已存在一个周期，创建会失败（code 唯一约束）
+              ⚠️ A cycle already exists for this month — creation will fail (code uniqueness)
             </div>
           )}
         </div>
 
-        {/* 起步方式 */}
+        {/* Starting mode */}
         <div className="mb-5">
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">起步方式</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Starting mode</label>
           <div className="space-y-2">
             <label className={`flex items-start gap-2 p-3 rounded-lg border-2 cursor-pointer transition ${
               mode === 'blank' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
@@ -273,8 +273,8 @@ function CreateRunModal({
                 className="mt-1"
               />
               <div>
-                <div className="font-medium text-sm">📋 空白起步</div>
-                <div className="text-xs text-gray-500 mt-0.5">从零开始填，所有单元格初始为空</div>
+                <div className="font-medium text-sm">📋 Start blank</div>
+                <div className="text-xs text-gray-500 mt-0.5">Empty grid — fill from scratch</div>
               </div>
             </label>
 
@@ -289,9 +289,9 @@ function CreateRunModal({
                 className="mt-1"
               />
               <div className="flex-1">
-                <div className="font-medium text-sm">📑 从已有周期克隆</div>
+                <div className="font-medium text-sm">📑 Clone from existing</div>
                 <div className="text-xs text-gray-500 mt-0.5 mb-2">
-                  复制源周期的所有 cell，月份按差额自动后挪
+                  Copy all cells from source cycle, months auto-shifted by the offset
                 </div>
                 {mode === 'clone' && (
                   <select
@@ -318,14 +318,14 @@ function CreateRunModal({
             disabled={busy}
             className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
           >
-            取消
+            Cancel
           </button>
           <button
             onClick={() => onSubmit(`${periodMonth}-01`, mode === 'clone' ? cloneFromId : null)}
             disabled={busy || wouldConflict || (mode === 'clone' && !cloneFromId)}
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {busy ? '创建中...' : (mode === 'clone' ? '📑 克隆创建' : '📋 空白创建')}
+            {busy ? 'Creating...' : (mode === 'clone' ? '📑 Clone & create' : '📋 Create blank')}
           </button>
         </div>
       </div>

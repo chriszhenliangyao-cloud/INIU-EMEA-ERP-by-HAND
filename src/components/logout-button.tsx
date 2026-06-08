@@ -16,7 +16,7 @@ export function LogoutButton() {
       onClick={handleLogout}
       className="w-full text-left px-3 py-2 mt-1 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
     >
-      🚪 退出登录
+      🚪 Sign out
     </button>
   )
 }

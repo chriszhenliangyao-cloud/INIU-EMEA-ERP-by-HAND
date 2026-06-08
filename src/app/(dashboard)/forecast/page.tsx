@@ -18,17 +18,17 @@ export default async function ForecastPage({ searchParams }: { searchParams?: Se
     .order('period_start', { ascending: false })
 
   if (runsErr) {
-    return <ErrorBlock msg={`加载 FCST 列表失败: ${runsErr.message}`} />
+    return <ErrorBlock msg={`Failed to load forecast cycles: ${runsErr.message}`} />
   }
 
   if (!runs?.length) {
     return (
       <div className="p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">📈 需求预测</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">📈 Demand Forecast</h1>
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-8 text-center">
           <div className="text-4xl mb-3">📋</div>
-          <div className="text-gray-700 font-medium mb-1">还没有任何 FCST 周期</div>
-          <div className="text-sm text-gray-500">{me.isAdmin ? '点上方按钮创建第一期预测' : '请等待 HQ 创建本期预测周期'}</div>
+          <div className="text-gray-700 font-medium mb-1">No forecast cycles yet</div>
+          <div className="text-sm text-gray-500">{me.isAdmin ? 'Use the button above to create the first cycle' : 'Waiting for HQ to create the current cycle'}</div>
         </div>
       </div>
     )
@@ -70,7 +70,7 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
 
   const { data: allEuCountries } = await supabase
     .from('country')
-    .select('id, code, name_zh, flag_emoji, region, sort_order')
+    .select('id, code, name_en, flag_emoji, region, sort_order')
     .eq('region', 'EU').eq('is_active', true)
     .order('sort_order')
 
@@ -133,7 +133,7 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
     { data: ytdData },
   ] = await Promise.all([
     supabase.from('country')
-      .select('id, code, name_zh, flag_emoji, region, sort_order')
+      .select('id, code, name_en, flag_emoji, region, sort_order')
       .eq('region', 'EU').eq('is_active', true)
       .order('sort_order'),
 
@@ -177,11 +177,11 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
   if (!myCountries.length) {
     return (
       <div className="p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">📈 需求预测</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">📈 Demand Forecast</h1>
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-8 text-center">
           <div className="text-4xl mb-3">⚠️</div>
-          <div className="text-gray-700 font-medium mb-1">你还没有被分配任何国家</div>
-          <div className="text-sm text-gray-500">请联系 HQ admin 给你分配负责国家</div>
+          <div className="text-gray-700 font-medium mb-1">No countries assigned to you</div>
+          <div className="text-sm text-gray-500">Please contact HQ admin to assign your responsible countries</div>
         </div>
       </div>
     )

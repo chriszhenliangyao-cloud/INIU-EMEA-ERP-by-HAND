@@ -21,7 +21,7 @@ type FlatRow = {
   sku_category: string | null
   country_id: number
   country_code: string
-  country_name_zh: string
+  country_name: string
   country_flag: string
   country_region: string
   ka_id: number | null
@@ -121,9 +121,9 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
 
   // ============== 国家 pills ==============
   const countryMeta = useMemo(() => {
-    const map: Record<string, { flag: string; name_zh: string; qty: number }> = {}
+    const map: Record<string, { flag: string; name: string; qty: number }> = {}
     rows.forEach(r => {
-      if (!map[r.country_code]) map[r.country_code] = { flag: r.country_flag, name_zh: r.country_name_zh, qty: 0 }
+      if (!map[r.country_code]) map[r.country_code] = { flag: r.country_flag, name: r.country_name, qty: 0 }
     })
     filteredExceptCountry.forEach(r => {
       if (map[r.country_code]) map[r.country_code].qty += r.qty
@@ -131,14 +131,22 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
     return map
   }, [rows, filteredExceptCountry])
 
-  // 当前作用域显示用 label：
-  //  · 选了具体国家 → 该国家 code
-  //  · 没选（'ALL'）+ 单国 sales → 该国 code（避免显示"全部欧洲"误导）
-  //  · 没选 + admin / 多国 sales → "全部欧洲"
+  // 当前作用域显示用 label（用中文国家名，更友好）：
+  //  · 选了具体国家 → 该国 name（如 "法国"）
+  //  · 没选（'ALL'）+ admin → "欧洲"
+  //  · 没选 + 单国 sales → 该国 name
+  //  · 没选 + 多国 sales → 拼接所有国家名（如 "法国 + 荷兰"）
   const countryCodes = Object.keys(countryMeta)
-  const currentCountryLabel = countryFilter !== 'ALL'
-    ? countryFilter
-    : (!viewerIsAdmin && countryCodes.length === 1 ? countryCodes[0] : '全部欧洲')
+  const currentCountryLabel = (() => {
+    if (countryFilter !== 'ALL') return countryMeta[countryFilter]?.name ?? countryFilter
+    if (viewerIsAdmin) return 'EU'
+    if (countryCodes.length === 1) return Object.values(countryMeta)[0]?.name ?? countryCodes[0]
+    // 多国 sales：按 qty 排序拼接
+    return Object.entries(countryMeta)
+      .sort((a, b) => b[1].qty - a[1].qty)
+      .map(([_, m]) => m.name)
+      .join(' + ')
+  })()
 
   // ============== 月度趋势 + Top KA 数据 ==============
   const monthlyTrend = useMemo(() => {
@@ -153,7 +161,7 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
   const topKas = useMemo(() => {
     const m: Record<string, number> = {}
     filtered.forEach(r => {
-      const name = r.ka_name ?? r.internal_customer_name ?? '未指定'
+      const name = r.ka_name ?? r.internal_customer_name ?? 'Unspecified'
       m[name] = (m[name] ?? 0) + r.qty
     })
     return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, qty]) => ({ name, qty }))
@@ -169,7 +177,7 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
   }, [filtered])
 
   // ============== 聚合表数据（月 × SKU × KA × 国家 × 类目） ==============
-  type AggRow = { month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_name_zh: string; country_flag: string; category: string | null; qty: number; count: number }
+  type AggRow = { month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_name: string; country_flag: string; category: string | null; qty: number; count: number }
   const aggRows = useMemo<AggRow[]>(() => {
     const map = new Map<string, AggRow>()
     filtered.forEach(r => {
@@ -187,7 +195,7 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
           sku_name: r.sku_name,
           ka_name: ka,
           country_code: r.country_code,
-          country_name_zh: r.country_name_zh,
+          country_name: r.country_name,
           country_flag: r.country_flag,
           category: r.sku_category,
           qty: r.qty,
@@ -233,24 +241,24 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto">
-      {/* 页头 + 身份提示 */}
+      {/* Header + identity */}
       <div className="mb-5">
-        <h1 className="text-2xl font-bold text-gray-900">📊 发货记录</h1>
+        <h1 className="text-2xl font-bold text-gray-900">📊 Shipments</h1>
         <p className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
           {viewerIsAdmin ? (
             <>
-              <span>当前以 <span className="text-purple-600 font-medium">🌍 Admin（{viewerName}）</span> 身份查看全部国家数据 · 已排除"海外仓备货 / DTC备货"（可在过滤栏切换）</span>
+              <span>Signed in as <span className="text-purple-600 font-medium">🌍 Admin ({viewerName})</span> · viewing all countries · "Overseas warehouse / DTC restock" excluded (toggle in filters)</span>
             </>
           ) : (
             <>
-              <span>当前以 <span className="text-blue-600 font-medium">🧑‍💼 Sales（{viewerName}）</span></span>
+              <span>Signed in as <span className="text-blue-600 font-medium">🧑‍💼 Sales ({viewerName})</span></span>
               {Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty).map(([code, m]) => (
                 <span key={code} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700">
                   <span>{m.flag}</span>
-                  <span className="font-medium">{m.name_zh}</span>
+                  <span className="font-medium">{m.name}</span>
                   <span className="text-xs text-gray-500">·</span>
                   <strong className="tabular-nums">{fmtNum(m.qty)}</strong>
-                  <span className="text-xs text-gray-500">件</span>
+                  <span className="text-xs text-gray-500">units</span>
                 </span>
               ))}
             </>
@@ -258,19 +266,19 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
         </p>
       </div>
 
-      {/* KPI 5 卡 */}
+      {/* 5 KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-        <KpiCard label="总发货量" value={fmtNum(stats.totalQty)} hint="件 / 套" />
-        <KpiCard label="发货记录" value={fmtNum(filtered.length)} hint={`已发 ${stats.shippedCount} · 计划 ${stats.plannedCount}`} color="blue" />
-        <KpiCard label="涉及 SKU" value={fmtNum(stats.skuCount)} hint="个产品代码" color="purple" />
-        <KpiCard label="客户数" value={fmtNum(stats.kaCount)} hint="个客户/备货类型" color="amber" />
-        <KpiCard label="国家/地区" value={fmtNum(stats.countryCount)} hint="个市场" color="green" />
+        <KpiCard label="Total Shipped" value={fmtNum(stats.totalQty)} hint="units" />
+        <KpiCard label="Shipment Records" value={fmtNum(filtered.length)} hint={`Shipped ${stats.shippedCount} · Planned ${stats.plannedCount}`} color="blue" />
+        <KpiCard label="SKUs" value={fmtNum(stats.skuCount)} hint="distinct product codes" color="purple" />
+        <KpiCard label="Accounts" value={fmtNum(stats.kaCount)} hint="accounts / restock types" color="amber" />
+        <KpiCard label="Markets" value={fmtNum(stats.countryCount)} hint="countries" color="green" />
       </div>
 
-      {/* 上方两个图表 */}
+      {/* Top two charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-sm font-semibold text-gray-700 mb-3">📈 月度发货量趋势</div>
+          <div className="text-sm font-semibold text-gray-700 mb-3">📈 Monthly shipment volume</div>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={monthlyTrend} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
@@ -283,7 +291,7 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
           </ResponsiveContainer>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-sm font-semibold text-gray-700 mb-3">🏢 客户发货量 Top 10</div>
+          <div className="text-sm font-semibold text-gray-700 mb-3">🏢 Top 10 accounts by volume</div>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={topKas} layout="vertical" margin={{ top: 5, right: 60, left: 60, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
@@ -297,21 +305,21 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
         </div>
       </div>
 
-      {/* 📈 欧洲业务指标 区块（占位卡片 + pills + SKU 趋势）*/}
+      {/* Business metrics block (placeholder cards + pills + SKU trend) */}
       <div className="mb-5">
         <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
           <span className="text-base font-semibold text-gray-700">
-            📈 {viewerIsAdmin ? '欧洲业务指标' : `${Object.keys(countryMeta).length === 1 ? Object.values(countryMeta)[0]?.name_zh : '负责国家'}业务指标`}
+            📈 {currentCountryLabel} business metrics
           </span>
-          {viewerIsAdmin && <span className="text-xs text-gray-400">欧洲各国独立运营 · 切换国家查看分国别指标</span>}
+          {viewerIsAdmin && <span className="text-xs text-gray-400">Each market operates independently · switch country to view per-market metrics</span>}
         </div>
 
-        {/* 国家 pills：admin 看全部 + 各国；多国 sales 只显示各国（无"全部"）；单国 sales 整组隐藏（标题副标题已展示）*/}
+        {/* Country pills: admin sees all + each; multi-country sales only sees each (no "All"); single-country sales hides whole row (already shown in subtitle) */}
         {(viewerIsAdmin || Object.keys(countryMeta).length > 1) && (
           <div className="flex gap-2 flex-wrap mb-3">
             {viewerIsAdmin && (
               <PillButton color="purple" active={countryFilter === 'ALL'} onClick={() => setCountryFilter('ALL')}>
-                🌍 全部欧洲 <Badge>{fmtNum(filteredExceptCountry.reduce((s, r) => s + r.qty, 0))}</Badge>
+                🌍 All EU <Badge>{fmtNum(filteredExceptCountry.reduce((s, r) => s + r.qty, 0))}</Badge>
               </PillButton>
             )}
             {Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty).map(([code, m]) => (
@@ -322,10 +330,10 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
           </div>
         )}
 
-        {/* 月份 pills（数字基于 filteredExceptMonth：选定某月不会让其他月份归零）*/}
+        {/* Month pills (qty based on filteredExceptMonth: selecting one month doesn't zero out others) */}
         <div className="flex gap-2 flex-wrap mb-4">
           <PillButton color="amber" active={monthFilter === 'ALL'} onClick={() => setMonthFilter('ALL')}>
-            📅 全部月份 <Badge>{fmtNum(filteredExceptMonth.reduce((s, r) => s + r.qty, 0))}</Badge>
+            📅 All months <Badge>{fmtNum(filteredExceptMonth.reduce((s, r) => s + r.qty, 0))}</Badge>
           </PillButton>
           {options.months
             .filter(m => {
@@ -342,21 +350,21 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
             })}
         </div>
 
-        {/* 3 占位卡片 */}
+        {/* 3 placeholder cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <PlaceholderCard icon="💶" title="营业额" desc="月度 / 客户 / SKU 维度营业额" hint={`等待数据录入（${currentCountryLabel}）`} />
-          <PlaceholderCard icon="🏷️" title="出货价" desc="各 SKU 出货单价 / 价格趋势" hint={`等待数据录入（${currentCountryLabel}）`} />
-          <PlaceholderCard icon="🎯" title="目标" desc="月度 / 季度业绩目标与完成率" hint={`等待数据录入（${currentCountryLabel}）`} />
+          <PlaceholderCard icon="💶" title="Revenue" desc="Monthly / account / SKU revenue" hint={`Pending data entry (${currentCountryLabel})`} />
+          <PlaceholderCard icon="🏷️" title="Unit Price" desc="SKU unit price / price trend" hint={`Pending data entry (${currentCountryLabel})`} />
+          <PlaceholderCard icon="🎯" title="Target" desc="Monthly / quarterly target & attainment" hint={`Pending data entry (${currentCountryLabel})`} />
         </div>
 
-        {/* SKU 趋势柱形图 */}
+        {/* SKU trend bar chart */}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="text-sm font-semibold text-gray-700">
-              📊 SKU 发货数量趋势
-              <span className="ml-2 text-xs text-gray-400">· {currentCountryLabel} · {monthFilter === 'ALL' ? '全部月份' : monthFilter}</span>
+              📊 SKU shipment volume trend
+              <span className="ml-2 text-xs text-gray-400">· {currentCountryLabel} · {monthFilter === 'ALL' ? 'All months' : monthFilter}</span>
             </div>
-            <div className="text-xs text-gray-400">共 {skuTrend.length} 个 SKU</div>
+            <div className="text-xs text-gray-400">{skuTrend.length} SKUs</div>
           </div>
           <ResponsiveContainer width="100%" height={380}>
             <BarChart data={skuTrend} margin={{ top: 25, right: 10, left: 0, bottom: 70 }}>
@@ -374,51 +382,51 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
         </div>
       </div>
 
-      {/* 📋 月 × SKU × 客户 聚合表 */}
+      {/* Month × SKU × Account aggregation table */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="text-base font-semibold text-gray-900 mb-3">📋 月 × SKU × 客户 聚合表</div>
+        <div className="text-base font-semibold text-gray-900 mb-3">📋 Month × SKU × Account aggregation</div>
 
-        {/* 筛选行 */}
+        {/* Filter row */}
         <div className="flex gap-2 flex-wrap items-center mb-3">
-          <FilterSelect label="年份" value={yearFilter} onChange={setYearFilter} options={options.years} />
-          <FilterSelect label="月份" value={monthFilter} onChange={setMonthFilter} options={options.months} />
+          <FilterSelect label="Year" value={yearFilter} onChange={setYearFilter} options={options.years} />
+          <FilterSelect label="Month" value={monthFilter} onChange={setMonthFilter} options={options.months} />
           <FilterSelect label="SKU" value={skuFilter} onChange={setSkuFilter} options={options.skus} />
-          <FilterSelect label="客户" value={kaFilter} onChange={setKaFilter} options={options.kas} />
-          <FilterSelect label="类目" value={categoryFilter} onChange={setCategoryFilter} options={options.cats} />
+          <FilterSelect label="Account" value={kaFilter} onChange={setKaFilter} options={options.kas} />
+          <FilterSelect label="Category" value={categoryFilter} onChange={setCategoryFilter} options={options.cats} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索 SKU/产品名/客户/PO..."
+            placeholder="Search SKU / product / account / PO..."
             className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-60"
           />
           <label className="flex items-center gap-1.5 text-sm text-gray-600">
             <input type="checkbox" checked={excludeInternal} onChange={(e) => setExcludeInternal(e.target.checked)} />
-            排除内部备货
+            Exclude internal restock
           </label>
           <button onClick={resetFilters} className="ml-auto px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">
-            重置
+            Reset
           </button>
         </div>
 
         <div className="text-xs text-gray-500 mb-2">
-          显示 <strong className="text-gray-900">{sortedAgg.length}</strong> 行 · 合计 <strong className="text-gray-900">{fmtNum(aggTotal)}</strong> 件 ·
-          <span className="text-purple-600 ml-1">出货价 / 营业额 / 目标 等待数据录入</span>
+          Showing <strong className="text-gray-900">{sortedAgg.length}</strong> rows · Total <strong className="text-gray-900">{fmtNum(aggTotal)}</strong> units ·
+          <span className="text-purple-600 ml-1">Unit Price / Revenue / Target — pending data entry</span>
         </div>
 
         <div className="overflow-x-auto max-h-[700px] overflow-y-auto border border-gray-200 rounded-lg">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b sticky top-0 z-10">
               <tr>
-                <SortableHeader col="month" label="月份" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
+                <SortableHeader col="month" label="Month" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
                 <SortableHeader col="sku_code" label="SKU" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="sku_name" label="产品名称" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="ka_name" label="客户" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="country_code" label="国家" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="category" label="类目" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="qty" label="发货数量" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} align="right" />
-                <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">出货价 (€)</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">营业额 (€)</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">目标</th>
+                <SortableHeader col="sku_name" label="Product" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
+                <SortableHeader col="ka_name" label="Account" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
+                <SortableHeader col="country_code" label="Country" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
+                <SortableHeader col="category" label="Category" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
+                <SortableHeader col="qty" label="Qty" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} align="right" />
+                <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">Unit Price</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">Revenue</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">Target</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -428,15 +436,15 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
                   <td className="px-4 py-2 font-mono text-xs text-gray-700">{r.sku_code}</td>
                   <td className="px-4 py-2 text-gray-600 truncate max-w-xs">{r.sku_name || '-'}</td>
                   <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">{r.ka_name}</span></td>
-                  <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_name_zh}</span></td>
+                  <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_name}</span></td>
                   <td className="px-4 py-2"><CategoryBadge cat={r.category} /></td>
                   <td className="px-4 py-2 text-right font-medium tabular-nums">{fmtNum(r.qty)}</td>
-                  <td className="px-4 py-2 text-right text-purple-300 italic text-xs">待录入</td>
-                  <td className="px-4 py-2 text-right text-purple-300 italic text-xs">待录入</td>
-                  <td className="px-4 py-2 text-right text-purple-300 italic text-xs">待录入</td>
+                  <td className="px-4 py-2 text-right text-purple-300 italic text-xs">pending</td>
+                  <td className="px-4 py-2 text-right text-purple-300 italic text-xs">pending</td>
+                  <td className="px-4 py-2 text-right text-purple-300 italic text-xs">pending</td>
                 </tr>
               ))}
-              {!sortedAgg.length && <tr><td colSpan={10} className="py-12 text-center text-gray-400">没有匹配的记录</td></tr>}
+              {!sortedAgg.length && <tr><td colSpan={10} className="py-12 text-center text-gray-400">No matching records</td></tr>}
             </tbody>
           </table>
         </div>
@@ -493,7 +501,7 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
     <label className="flex items-center gap-1.5 text-sm">
       <span className="text-gray-600 text-xs">{label}:</span>
       <select value={value} onChange={(e) => onChange(e.target.value)} className="px-2 py-1 border border-gray-300 rounded-md text-sm">
-        <option value="ALL">全部</option>
+        <option value="ALL">All</option>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     </label>
@@ -516,12 +524,5 @@ function SortableHeader({ col, label, currentCol, currentDir, onClick, align }:
 
 function CategoryBadge({ cat }: { cat: string | null }) {
   if (!cat) return <span className="text-gray-300">-</span>
-  const map: Record<string, string> = {
-    'Power bank': '充电宝',
-    'Cable': '数据线',
-    'Charger': '适配器',
-    'Wireless charger': '无线充',
-    'Accessory': '配件',
-  }
-  return <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">{map[cat] ?? cat}</span>
+  return <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">{cat}</span>
 }

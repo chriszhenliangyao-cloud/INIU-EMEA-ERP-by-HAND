@@ -8,7 +8,7 @@ import { fmtNum } from '@/lib/utils'
 import { RunControls } from './run-controls'
 
 type Run = { id: number; code: string; period_start: string; period_end: string; status: string }
-type Country = { id: number; code: string; name_zh: string; flag_emoji: string; sort_order: number }
+type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
 type Ka = { id: number; name: string; country_id: number; parent_distributor: string | null; tier: string; sort_order: number }
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number; lifecycle: string }
 type Cell = { run_id: number; sku_id: number; ka_id: number; month: string; qty: number; updated_by: string | null; updated_at: string }
@@ -168,10 +168,10 @@ export function ForecastEditView({
     })
     setSaving(false)
     if (error) {
-      showToast('error', `保存失败：${error.message}`)
+      showToast('error', `Save failed: ${error.message}`)
       return
     }
-    showToast('success', `已保存 ${data ?? payload.length} 个改动`)
+    showToast('success', `Saved ${data ?? payload.length} change${(data ?? payload.length) === 1 ? '' : 's'}`)
     setDirtyKeys(new Set())  // 立即清掉，避免双击保存
     router.refresh()  // 触发服务端重新拉 cells；useEffect 监听到后会重置 cellQty 为新值
   }, [supabase, router, showToast])
@@ -232,11 +232,11 @@ export function ForecastEditView({
   // —— Run status badge ——
   const statusBadge = (() => {
     const map: Record<string, { bg: string; label: string }> = {
-      draft: { bg: 'bg-gray-100 text-gray-700', label: '📝 草稿' },
-      submitted: { bg: 'bg-blue-100 text-blue-700', label: '📤 已提交' },
-      approved: { bg: 'bg-purple-100 text-purple-700', label: '✓ 已审批' },
-      published: { bg: 'bg-green-100 text-green-700', label: '🎉 已发布（只读）' },
-      archived: { bg: 'bg-gray-100 text-gray-500', label: '📦 已归档' },
+      draft: { bg: 'bg-gray-100 text-gray-700', label: '📝 Draft' },
+      submitted: { bg: 'bg-blue-100 text-blue-700', label: '📤 Submitted' },
+      approved: { bg: 'bg-purple-100 text-purple-700', label: '✓ Approved' },
+      published: { bg: 'bg-green-100 text-green-700', label: '🎉 Published (read-only)' },
+      archived: { bg: 'bg-gray-100 text-gray-500', label: '📦 Archived' },
     }
     const s = map[selectedRun.status] ?? { bg: 'bg-gray-100', label: selectedRun.status }
     return <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${s.bg}`}>{s.label}</span>
@@ -266,13 +266,13 @@ export function ForecastEditView({
       <div className="flex items-baseline justify-between mb-4 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            📈 需求预测
-            <span className="text-base text-gray-500 ml-2 font-normal">· 销售填表视图</span>
+            📈 Demand Forecast
+            <span className="text-base text-gray-500 ml-2 font-normal">· Sales input view</span>
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             {viewerIsAdmin
-              ? <>当前以 <span className="text-purple-600 font-medium">🌍 Admin（{viewerName}）</span> 身份进入填表视图 · <Link href="/forecast?view=summary" prefetch className="text-purple-600 underline hover:text-purple-700">切回汇总视图</Link></>
-              : <>当前以 <span className="text-blue-600 font-medium">🧑‍💼 Sales（{viewerName}）</span> 身份填写 · 仅可填写你负责国家的 KA</>}
+              ? <>Signed in as <span className="text-purple-600 font-medium">🌍 Admin ({viewerName})</span> · in input mode · <Link href="/forecast?view=summary" prefetch className="text-purple-600 underline hover:text-purple-700">Switch back to summary</Link></>
+              : <>Signed in as <span className="text-blue-600 font-medium">🧑‍💼 Sales ({viewerName})</span> · you can only fill KAs in your assigned countries</>}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -290,7 +290,7 @@ export function ForecastEditView({
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
         <div className="flex items-center gap-3 flex-wrap">
           {/* Run 选择（换 run 仍走 server route：4 个月数据完全变了）*/}
-          <label className="text-sm text-gray-600 font-medium">📅 预测周期：</label>
+          <label className="text-sm text-gray-600 font-medium">📅 Forecast cycle:</label>
           <select
             value={selectedRun.id}
             onChange={(e) => navigateRun(e.target.value)}
@@ -305,7 +305,7 @@ export function ForecastEditView({
           </select>
 
           {/* 国家选择（纯客户端切换：0 RTT，瞬时响应）*/}
-          <label className="text-sm text-gray-600 font-medium ml-2">🌍 国家：</label>
+          <label className="text-sm text-gray-600 font-medium ml-2">🌍 Country:</label>
           <div className="flex gap-1.5 flex-wrap">
             {allCountries.map(c => {
               const isActive = c.code === selectedCountry.code
@@ -326,7 +326,7 @@ export function ForecastEditView({
             {isPending && (
               <span className="ml-2 self-center text-xs text-gray-500 flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                切换周期…
+                Switching cycle…
               </span>
             )}
           </div>
@@ -334,7 +334,7 @@ export function ForecastEditView({
           {/* 隐藏空白 SKU */}
           <label className="ml-auto flex items-center gap-1.5 text-sm text-gray-600">
             <input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} />
-            隐藏空白 SKU
+            Hide empty SKUs
           </label>
 
           {/* Hover peek 按钮 */}
@@ -348,7 +348,7 @@ export function ForecastEditView({
                 peekMode === 'ly' ? 'bg-purple-600 text-white' : 'bg-white text-gray-700 hover:bg-purple-50'
               }`}
             >
-              👻 去年同期
+              👻 Last year
             </button>
             <button
               onMouseEnter={() => setPeekMode('ytd')}
@@ -359,7 +359,7 @@ export function ForecastEditView({
                 peekMode === 'ytd' ? 'bg-cyan-600 text-white' : 'bg-white text-gray-700 hover:bg-cyan-50'
               }`}
             >
-              📊 今年月均
+              📊 YTD avg
             </button>
           </div>
 
@@ -373,21 +373,21 @@ export function ForecastEditView({
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
             }`}
           >
-            {saving ? '保存中...' : dirtyKeys.size > 0 ? `💾 保存 (${dirtyKeys.size} 个改动)` : '已保存'}
+            {saving ? 'Saving...' : dirtyKeys.size > 0 ? `💾 Save (${dirtyKeys.size} change${dirtyKeys.size === 1 ? '' : 's'})` : 'Saved'}
           </button>
         </div>
 
         {/* 提示信息 */}
         <div className="mt-2 text-xs text-gray-500">
-          💡 在 <span className="text-blue-600 font-medium">{selectedCountry.flag_emoji} {selectedCountry.name_zh}</span> 填表
-          · 共 <strong>{kas.length}</strong> 个 KA × <strong>{allSkus.length}</strong> 个 SKU × <strong>{monthsIso.length}</strong> 个月
-          {editLockedForAll && <span className="text-red-500 ml-2">⚠️ 本期已发布/归档，禁止编辑</span>}
+          💡 Filling for <span className="text-blue-600 font-medium">{selectedCountry.flag_emoji} {selectedCountry.name_en}</span>
+          · <strong>{kas.length}</strong> KAs × <strong>{allSkus.length}</strong> SKUs × <strong>{monthsIso.length}</strong> months
+          {editLockedForAll && <span className="text-red-500 ml-2">⚠️ This cycle is published / archived — editing locked</span>}
         </div>
       </div>
 
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <KpiCard label={`${selectedCountry.flag_emoji} ${selectedCountry.code} 4个月合计`} value={fmtNum(grandTotal)} hint={`${kas.length} KA × ${visibleSkus.length} SKU`} big />
+        <KpiCard label={`${selectedCountry.flag_emoji} ${selectedCountry.code} 4-month total`} value={fmtNum(grandTotal)} hint={`${kas.length} KAs × ${visibleSkus.length} SKUs`} big />
         {monthsYm.map((ym, i) => {
           let monthTotal = 0
           kas.forEach(ka => { monthTotal += colSubtotal(ka.id, monthsIso[i]) })
@@ -405,14 +405,14 @@ export function ForecastEditView({
                     rowSpan={2} style={{ minWidth: 90, maxWidth: 90 }}>SKU</th>
                 <th className="sticky bg-gray-50 z-20 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300"
                     rowSpan={2}
-                    style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>产品名称</th>
+                    style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>Product</th>
                 {kas.map((ka, ki) => (
                   <th key={ka.id} className="px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-blue-100 text-blue-700" colSpan={monthsIso.length}>
                     {ka.name}
                   </th>
                 ))}
                 <th className="px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-gray-900 text-white" rowSpan={2}>
-                  Sub-total<br /><span className="text-[10px] font-normal opacity-80">(4 个月)</span>
+                  Sub-total<br /><span className="text-[10px] font-normal opacity-80">(4 months)</span>
                 </th>
               </tr>
               <tr className="bg-gray-50">
@@ -438,7 +438,7 @@ export function ForecastEditView({
                         <div className="text-[10px] text-purple-500 font-normal mt-0.5">LY {fmtNum(lyTotal)}</div>
                       )}
                       {peekMode === 'ytd' && ytd > 0 && (
-                        <div className="text-[10px] text-cyan-500 font-normal mt-0.5">YTD月均 {fmtNum(ytd)}</div>
+                        <div className="text-[10px] text-cyan-500 font-normal mt-0.5">YTD avg {fmtNum(ytd)}</div>
                       )}
                     </td>
                     <td className="sticky bg-white group-hover:bg-gray-50 z-10 px-3 py-1.5 text-xs text-gray-600 border-b border-r-2 border-gray-300" style={{ left: 90, minWidth: 200, maxWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.35', boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>
@@ -487,7 +487,7 @@ export function ForecastEditView({
               {!visibleSkus.length && (
                 <tr>
                   <td colSpan={3 + kas.length * monthsIso.length + 1} className="py-16 text-center text-gray-400">
-                    {hideZero ? '所有 SKU 都还没填写 · 取消"隐藏空白 SKU"查看全部' : '该国家暂无可填的 KA / SKU'}
+                    {hideZero ? 'No SKUs filled yet · uncheck "Hide empty SKUs" to see all' : 'No KAs / SKUs available for this country'}
                   </td>
                 </tr>
               )}
@@ -497,7 +497,7 @@ export function ForecastEditView({
                 <tr>
                   <td className="sticky left-0 bg-gray-900 text-white z-10 px-3 py-2.5 text-xs font-bold uppercase border-r" style={{ minWidth: 90, maxWidth: 90 }}>TTL</td>
                   <td className="sticky bg-gray-900 text-white z-10 px-3 py-2.5 text-xs font-medium border-r-2 border-gray-700" style={{ left: 90, minWidth: 200, maxWidth: 200 }}>
-                    所有 SKU 合计
+                    All SKUs total
                   </td>
                   {kas.map(ka => (
                     monthsIso.map((m, i) => (
@@ -518,9 +518,9 @@ export function ForecastEditView({
 
       {/* 调试提示 */}
       <div className="mt-4 text-xs text-gray-400 text-center">
-        💡 修改后单元格背景变黄表示未保存 · 点保存按钮 或 <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">⌘/Ctrl + S</kbd> 提交 ·
-        悬停"去年同期/今年月均"按钮查看历史参考 · 离开未保存改动会提醒 ·
-        所有数据写入受 RLS 保护，越权写自动拒绝
+        💡 Edited cells show yellow until saved · click Save or press <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">⌘/Ctrl + S</kbd> ·
+        Hover "Last year" / "YTD avg" to peek historical reference · You'll be warned before leaving with unsaved changes ·
+        Writes are RLS-protected — out-of-scope writes are auto-rejected
       </div>
     </div>
   )
