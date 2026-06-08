@@ -1,25 +1,18 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { getCurrentUser } from '@/lib/auth/current-user'
 import Link from 'next/link'
 import { LogoutButton } from '@/components/logout-button'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/auth/login')
+  const me = await getCurrentUser()
 
-  // 拿当前用户的 sales_rep 信息
-  const { data: rep } = await supabase
-    .from('sales_rep')
-    .select('id, display_name, role, color_hex')
-    .eq('user_id', user.id)
-    .single()
-
-  // 拿用户能访问的国家
-  const { data: countries } = await supabase
-    .from('country')
-    .select('id, code, name_zh, flag_emoji, region')
-    .order('sort_order')
+  // Avatar 颜色：admin 紫色 / sales 蓝色
+  const avatarColor = me.isAdmin ? '#7c3aed' : '#3b82f6'
+  const roleLabel = me.isAdmin ? '🌍 Admin（HQ）' : '🧑‍💼 Sales'
+  const roleHint = me.isAdmin
+    ? '全部国家'
+    : me.countryIds.length > 0
+      ? `负责 ${me.countryIds.length} 个国家`
+      : '未分配国家'
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -40,16 +33,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <Link href="/shipments" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
             📊 发货记录
           </Link>
-          <Link href="/forecast" className="block px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-100">
-            📈 需求预测 <span className="text-xs">（待开发）</span>
-          </Link>
-          <Link href="/summary" className="block px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-100">
-            📋 EU 汇总 <span className="text-xs">（待开发）</span>
+          <Link href="/forecast" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
+            📈 需求预测
           </Link>
 
-          {rep?.role === 'admin' && (
+          {me.isAdmin && (
             <>
-              <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2 mt-4">管理</div>
+              <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2 mt-4">管理（仅 Admin）</div>
               <Link href="/admin" className="block px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-100">
                 ⚙️ 主数据 <span className="text-xs">（待开发）</span>
               </Link>
@@ -61,23 +51,21 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <div className="border-t p-3">
           <div className="flex items-center gap-3 px-2 py-2">
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
-              style={{ background: rep?.color_hex || '#9ca3af' }}
+              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-sm"
+              style={{ background: avatarColor }}
             >
-              {rep?.display_name?.[0] || '?'}
+              {me.displayName?.[0]?.toUpperCase() ?? '?'}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-900 truncate">{rep?.display_name}</div>
-              <div className="text-xs text-gray-500 truncate">
-                {rep?.role === 'admin' ? '🌍 Admin' : '🧑‍💼 Sales'}
-              </div>
+              <div className="text-sm font-medium text-gray-900 truncate">{me.displayName}</div>
+              <div className="text-xs text-gray-500 truncate">{roleLabel}</div>
+              <div className="text-[10px] text-gray-400 truncate">{roleHint}</div>
             </div>
           </div>
           <LogoutButton />
         </div>
       </aside>
 
-      {/* 主内容 */}
       <main className="flex-1 overflow-auto">{children}</main>
     </div>
   )
