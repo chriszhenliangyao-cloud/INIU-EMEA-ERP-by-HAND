@@ -22,7 +22,7 @@ export default async function ImportPage() {
       .eq('is_active', true)
       .order('name'),
     supabase.from('country')
-      .select('id, code, name_en')
+      .select('id, code, name_en, name_zh')
       .eq('is_active', true)
       .order('code'),
   ])

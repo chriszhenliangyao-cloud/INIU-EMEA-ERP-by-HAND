@@ -8,7 +8,7 @@ import { fmtNum } from '@/lib/utils'
 
 type Sku = { id: number; code: string; name: string }
 type Ka = { id: number; name: string; country_id: number; parent_distributor: string | null }
-type Country = { id: number; code: string; name_en: string }
+type Country = { id: number; code: string; name_en: string; name_zh: string }
 
 // 目标字段定义（数据库列）
 const TARGET_FIELDS = [
@@ -35,20 +35,22 @@ type TargetKey = typeof TARGET_FIELDS[number]['key']
 type Mapping = Partial<Record<TargetKey, string>>  // target → excel column header
 
 type ParsedRow = Record<string, any>
+type RowStatus = 'ok' | 'warn' | 'error' | 'skipped'   // skipped = 预期跳过（美国/美规等）
 type NormalizedRow = {
-  source_row: number       // 1-based row index in Excel
+  source_row: number
   raw: ParsedRow
-  // 解析后的值（normalized）：
   effective_date?: string
   ship_date?: string | null
   plan_date?: string | null
   delivery_date?: string | null
   sku_id?: number
   sku_code_raw?: string
+  sku_resolved_from?: string       // 实际解析到的 SKU.code（剥后缀后）
   ka_id?: number | null
   ka_name_raw?: string | null
   country_id?: number
   country_code_raw?: string
+  country_resolved_from?: string   // 怎么推断出来的（如 "by KA Bigben"）
   qty?: number
   po_number?: string | null
   out_order_number?: string | null
@@ -59,10 +61,15 @@ type NormalizedRow = {
   internal_customer_name?: string | null
   status?: string
   notes?: string | null
-  // 校验：
-  errors: string[]          // 阻塞错误
-  warnings: string[]        // 非阻塞
+  errors: string[]
+  warnings: string[]
+  skipReason?: string             // 非 null → 这行被预期跳过
 }
+
+// 已知"非业务"后缀（合并到不带后缀的 SKU code）
+const STRIPPABLE_SUFFIXES = ['-欧规', '-2P-欧规', '-2P', '-非外挂线', '-EU', '-eu']
+// 标记为"非业务地区"的后缀（行直接 skip）
+const US_SUFFIXES = ['-美规', '-US', '-us']
 
 const STORAGE_KEY = 'iniu-erp-import-mapping-shipment'
 
@@ -209,9 +216,14 @@ export function ImportView({
     return m
   }, [skus])
 
-  const countryByCode = useMemo(() => {
+  // Country lookup：支持 code（FR） / name_en（France） / name_zh（法国）
+  const countryByAny = useMemo(() => {
     const m: Record<string, Country> = {}
-    countries.forEach(c => { m[c.code.toUpperCase()] = c })
+    countries.forEach(c => {
+      m[c.code.toUpperCase()] = c
+      m[c.name_en.toLowerCase()] = c
+      m[c.name_zh] = c   // 中文不要 lower-case
+    })
     return m
   }, [countries])
 
@@ -220,6 +232,46 @@ export function ImportView({
     kas.forEach(k => { m[k.name.toLowerCase()] = k })
     return m
   }, [kas])
+
+  // 智能 SKU 匹配：精确 → 去欧规后缀 → 美规则 skip → 失败
+  // 返回 { sku: Sku | null, resolvedFrom: string | null, shouldSkip: boolean }
+  const resolveSku = (raw: string): { sku: Sku | null; resolvedFrom: string | null; shouldSkip: boolean } => {
+    const upper = raw.toUpperCase()
+    // 1. 精确匹配
+    if (skuByCode[upper]) return { sku: skuByCode[upper], resolvedFrom: null, shouldSkip: false }
+    // 2. 美规 → skip
+    if (US_SUFFIXES.some(suf => raw.endsWith(suf) || raw.toUpperCase().endsWith(suf.toUpperCase()))) {
+      return { sku: null, resolvedFrom: null, shouldSkip: true }
+    }
+    // 3. 剥欧规等后缀
+    for (const suf of STRIPPABLE_SUFFIXES) {
+      if (raw.endsWith(suf) || raw.toUpperCase().endsWith(suf.toUpperCase())) {
+        const stripped = raw.slice(0, raw.length - suf.length).toUpperCase()
+        if (skuByCode[stripped]) {
+          return { sku: skuByCode[stripped], resolvedFrom: `${raw} → ${stripped}`, shouldSkip: false }
+        }
+      }
+    }
+    return { sku: null, resolvedFrom: null, shouldSkip: false }
+  }
+
+  // 智能 Country 匹配：直接 / 通过 KA 反推 / 美国 skip / 欧洲 fallback to KA
+  const resolveCountry = (raw: string, ka: Ka | null): { country: Country | null; resolvedFrom: string | null; shouldSkip: boolean } => {
+    const trimmed = raw.trim()
+    // 1. 美国 / US → skip
+    if (/^美国$|^US$|^USA$|^united\s*states$/i.test(trimmed)) {
+      return { country: null, resolvedFrom: null, shouldSkip: true }
+    }
+    // 2. 直接匹配（FR / France / 法国）
+    const direct = countryByAny[trimmed.toUpperCase()] ?? countryByAny[trimmed.toLowerCase()] ?? countryByAny[trimmed]
+    if (direct) return { country: direct, resolvedFrom: null, shouldSkip: false }
+    // 3. "欧洲" 笼统 → 通过 KA 反推
+    if (/^欧洲$|^EU$|^europe$/i.test(trimmed) && ka) {
+      const inferred = countries.find(c => c.id === ka.country_id) ?? null
+      if (inferred) return { country: inferred, resolvedFrom: `via KA "${ka.name}"`, shouldSkip: false }
+    }
+    return { country: null, resolvedFrom: null, shouldSkip: false }
+  }
 
   const parseDate = (v: any): string | null => {
     if (v === null || v === undefined || v === '') return null
@@ -248,42 +300,68 @@ export function ImportView({
     rawData.forEach((row, idx) => {
       const errors: string[] = []
       const warnings: string[] = []
+      let skipReason: string | undefined
 
       const effDate = parseDate(get(row, 'effective_date'))
-      if (!effDate) errors.push('Effective date missing/invalid')
-
       const skuCodeRaw = String(get(row, 'sku_code') ?? '').trim()
-      const sku = skuCodeRaw ? skuByCode[skuCodeRaw.toUpperCase()] : undefined
-      if (!skuCodeRaw) errors.push('SKU code missing')
-      else if (!sku) errors.push(`SKU "${skuCodeRaw}" not found in master data`)
-
       const countryCodeRaw = String(get(row, 'country_code') ?? '').trim()
-      const country = countryCodeRaw ? countryByCode[countryCodeRaw.toUpperCase()] : undefined
-      if (!countryCodeRaw) errors.push('Country code missing')
-      else if (!country) errors.push(`Country "${countryCodeRaw}" not found`)
-
       const kaNameRaw = String(get(row, 'ka_name') ?? '').trim()
-      let kaId: number | null = null
-      if (kaNameRaw) {
-        const ka = kaByName[kaNameRaw.toLowerCase()]
-        if (ka) {
-          kaId = ka.id
-          if (country && ka.country_id !== country.id) {
-            warnings.push(`KA "${kaNameRaw}" belongs to a different country`)
-          }
-        } else {
-          warnings.push(`KA "${kaNameRaw}" not found — will be saved with NULL ka_id`)
+
+      // —— KA 匹配（先做，因为 country 推断要用到）——
+      const ka = kaNameRaw ? kaByName[kaNameRaw.toLowerCase()] : null
+
+      // —— SKU 智能匹配 ——
+      let sku: Sku | null = null
+      let skuResolvedFrom: string | null = null
+      if (skuCodeRaw) {
+        const r = resolveSku(skuCodeRaw)
+        if (r.shouldSkip) {
+          skipReason = `US-spec SKU (${skuCodeRaw})`
+        } else if (r.sku) {
+          sku = r.sku
+          skuResolvedFrom = r.resolvedFrom
+        }
+      }
+
+      // —— Country 智能匹配 ——
+      let country: Country | null = null
+      let countryResolvedFrom: string | null = null
+      if (countryCodeRaw && !skipReason) {
+        const r = resolveCountry(countryCodeRaw, ka ?? null)
+        if (r.shouldSkip) {
+          skipReason = `Non-EMEA country (${countryCodeRaw})`
+        } else if (r.country) {
+          country = r.country
+          countryResolvedFrom = r.resolvedFrom
+        }
+      }
+
+      // 真错误（仅在没有 skip 时才报错）
+      if (!skipReason) {
+        if (!effDate) errors.push('Effective date missing/invalid')
+        if (!skuCodeRaw) errors.push('SKU code missing')
+        else if (!sku) errors.push(`SKU "${skuCodeRaw}" not found in master data`)
+        if (!countryCodeRaw) errors.push('Country code missing')
+        else if (!country) errors.push(`Country "${countryCodeRaw}" cannot be resolved`)
+
+        if (ka && country && ka.country_id !== country.id) {
+          warnings.push(`KA "${kaNameRaw}" belongs to a different country than "${countryCodeRaw}"`)
+        }
+        if (kaNameRaw && !ka) {
+          warnings.push(`KA "${kaNameRaw}" not in master — will save with NULL ka_id`)
         }
       }
 
       const qtyRaw = get(row, 'qty')
       const qty = qtyRaw === '' || qtyRaw === null || qtyRaw === undefined ? NaN : Number(qtyRaw)
-      if (isNaN(qty)) errors.push('Qty invalid')
-      else if (qty < 0) errors.push('Qty cannot be negative')
-      else if (qty === 0) warnings.push('Qty is zero')
+      if (!skipReason) {
+        if (isNaN(qty)) errors.push('Qty invalid')
+        else if (qty < 0) errors.push('Qty cannot be negative')
+        else if (qty === 0) warnings.push('Qty is zero')
+      }
 
       const nr: NormalizedRow = {
-        source_row: idx + 2,        // +2 because Excel row 1 is header, data starts at row 2
+        source_row: idx + 2,
         raw: row,
         effective_date: effDate ?? undefined,
         ship_date: parseDate(get(row, 'ship_date')),
@@ -291,10 +369,12 @@ export function ImportView({
         delivery_date: parseDate(get(row, 'delivery_date')),
         sku_id: sku?.id,
         sku_code_raw: skuCodeRaw,
-        ka_id: kaId,
+        sku_resolved_from: skuResolvedFrom ?? undefined,
+        ka_id: ka?.id ?? null,
         ka_name_raw: kaNameRaw || null,
         country_id: country?.id,
         country_code_raw: countryCodeRaw,
+        country_resolved_from: countryResolvedFrom ?? undefined,
         qty: isNaN(qty) ? undefined : Math.round(qty),
         po_number: String(get(row, 'po_number') ?? '').trim() || null,
         out_order_number: String(get(row, 'out_order_number') ?? '').trim() || null,
@@ -307,16 +387,15 @@ export function ImportView({
         notes: String(get(row, 'notes') ?? '').trim() || null,
         errors,
         warnings,
+        skipReason,
       }
 
-      // 如果有 errors，仍然展示出来但不参与聚合
-      if (errors.length === 0 && effDate && sku && country) {
-        // group-by natural key + sum qty
-        const key = `${effDate}|${sku.id}|${kaId ?? 0}|${nr.po_number ?? ''}|${nr.source_type}`
+      // 只有 ok / warn 行参与聚合上传；error / skipped 不参与
+      if (!skipReason && errors.length === 0 && effDate && sku && country) {
+        const key = `${effDate}|${sku.id}|${nr.ka_id ?? 0}|${nr.po_number ?? ''}|${nr.source_type}`
         const existing = aggMap.get(key)
         if (existing) {
           existing.qty = (existing.qty ?? 0) + (nr.qty ?? 0)
-          // 合并 notes
           if (nr.notes) existing.notes = [existing.notes, nr.notes].filter(Boolean).join(' | ')
           existing.warnings.push(`merged with row ${nr.source_row}`)
         } else {
@@ -327,13 +406,13 @@ export function ImportView({
     })
 
     return out
-  }, [rawData, mapping, skuByCode, countryByCode, kaByName])
+  }, [rawData, mapping, skuByCode, countryByAny, kaByName, skus, countries, kas])
 
-  // 准备写库的行（聚合后 + 无错误）
+  // 准备写库的行（聚合后 + 无错误 + 非 skipped）
   const rowsToUpsert = useMemo(() => {
     const aggMap = new Map<string, NormalizedRow>()
     normalizedRows.forEach(r => {
-      if (r.errors.length > 0) return
+      if (r.skipReason || r.errors.length > 0) return
       const key = `${r.effective_date}|${r.sku_id}|${r.ka_id ?? 0}|${r.po_number ?? ''}|${r.source_type}`
       const existing = aggMap.get(key)
       if (existing) {
@@ -346,8 +425,9 @@ export function ImportView({
     return Array.from(aggMap.values())
   }, [normalizedRows])
 
-  const errorCount = normalizedRows.filter(r => r.errors.length > 0).length
-  const warningCount = normalizedRows.filter(r => r.warnings.length > 0).length
+  const skippedCount = normalizedRows.filter(r => r.skipReason).length
+  const errorCount = normalizedRows.filter(r => !r.skipReason && r.errors.length > 0).length
+  const warningCount = normalizedRows.filter(r => !r.skipReason && r.errors.length === 0 && r.warnings.length > 0).length
 
   // —— Step 4: 写库 ——
   const [importing, setImporting] = useState(false)
@@ -520,11 +600,12 @@ export function ImportView({
         <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <div className="text-sm font-semibold text-gray-700">Step 3 · Preview & validate</div>
-            <div className="flex gap-3 text-xs">
+            <div className="flex gap-3 text-xs flex-wrap">
               <span>📊 Total: <strong>{fmtNum(normalizedRows.length)}</strong></span>
-              <span className="text-green-600">✓ Ready to upsert (after merge): <strong>{fmtNum(rowsToUpsert.length)}</strong></span>
+              <span className="text-green-600">✓ Ready: <strong>{fmtNum(rowsToUpsert.length)}</strong></span>
               {warningCount > 0 && <span className="text-amber-600">⚠ Warnings: <strong>{fmtNum(warningCount)}</strong></span>}
-              {errorCount > 0 && <span className="text-red-600">⛔ Errors (skipped): <strong>{fmtNum(errorCount)}</strong></span>}
+              {skippedCount > 0 && <span className="text-gray-500">⏭ Skipped (non-EMEA): <strong>{fmtNum(skippedCount)}</strong></span>}
+              {errorCount > 0 && <span className="text-red-600">⛔ Errors: <strong>{fmtNum(errorCount)}</strong></span>}
             </div>
           </div>
           <div className="overflow-auto max-h-[400px] border border-gray-200 rounded">
@@ -543,18 +624,42 @@ export function ImportView({
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {normalizedRows.slice(0, 200).map((r, i) => {
-                  const status = r.errors.length > 0 ? 'error' : r.warnings.length > 0 ? 'warn' : 'ok'
-                  const bgClass = status === 'error' ? 'bg-red-50' : status === 'warn' ? 'bg-amber-50' : ''
+                  const status: RowStatus =
+                    r.skipReason ? 'skipped'
+                    : r.errors.length > 0 ? 'error'
+                    : r.warnings.length > 0 ? 'warn'
+                    : 'ok'
+                  const bgClass =
+                    status === 'error' ? 'bg-red-50'
+                    : status === 'warn' ? 'bg-amber-50'
+                    : status === 'skipped' ? 'bg-gray-50 opacity-60'
+                    : ''
+                  const tooltip = [...(r.skipReason ? [r.skipReason] : []), ...r.errors, ...r.warnings].join('\n')
                   return (
-                    <tr key={i} className={bgClass} title={[...r.errors, ...r.warnings].join('\n')}>
+                    <tr key={i} className={bgClass} title={tooltip}>
                       <td className="px-2 py-1 font-mono text-gray-400">#{r.source_row}</td>
                       <td className="px-2 py-1">{r.effective_date ?? <span className="text-red-500">—</span>}</td>
-                      <td className="px-2 py-1 font-mono">{r.sku_code_raw} {r.sku_id ? <span className="text-green-600">✓</span> : <span className="text-red-500">✗</span>}</td>
-                      <td className="px-2 py-1">{r.country_code_raw} {r.country_id ? <span className="text-green-600">✓</span> : <span className="text-red-500">✗</span>}</td>
+                      <td className="px-2 py-1 font-mono">
+                        {r.sku_code_raw}
+                        {r.sku_id && (r.sku_resolved_from
+                          ? <span className="text-blue-600 ml-0.5" title={r.sku_resolved_from}>↪</span>
+                          : <span className="text-green-600 ml-0.5">✓</span>
+                        )}
+                        {!r.sku_id && !r.skipReason && <span className="text-red-500 ml-0.5">✗</span>}
+                      </td>
+                      <td className="px-2 py-1">
+                        {r.country_code_raw}
+                        {r.country_id && (r.country_resolved_from
+                          ? <span className="text-blue-600 ml-0.5" title={r.country_resolved_from}>↪</span>
+                          : <span className="text-green-600 ml-0.5">✓</span>
+                        )}
+                        {!r.country_id && !r.skipReason && <span className="text-red-500 ml-0.5">✗</span>}
+                      </td>
                       <td className="px-2 py-1">{r.ka_name_raw || <span className="text-gray-400">—</span>}</td>
                       <td className="px-2 py-1 text-right tabular-nums">{r.qty ?? <span className="text-red-500">?</span>}</td>
                       <td className="px-2 py-1 text-gray-500">{r.po_number || '—'}</td>
                       <td className="px-2 py-1">
+                        {status === 'skipped' && <span className="text-gray-500">⏭ {r.skipReason}</span>}
                         {status === 'error' && <span className="text-red-700">⛔ {r.errors[0]}</span>}
                         {status === 'warn' && <span className="text-amber-700">⚠ {r.warnings[0]}</span>}
                         {status === 'ok' && <span className="text-green-700">✓</span>}
