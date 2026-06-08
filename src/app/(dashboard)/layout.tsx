@@ -40,11 +40,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
           {me.isAdmin && (
             <>
               <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2 mt-4">Admin only</div>
-              <Link href="/admin/import" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-                📥 Import Data
-              </Link>
-              <Link href="/admin/history" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-                🕒 Import History
+              <Link href="/admin" className="block px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-100">
+                ⚙️ Master Data <span className="text-xs">(coming soon)</span>
               </Link>
             </>
           )}
