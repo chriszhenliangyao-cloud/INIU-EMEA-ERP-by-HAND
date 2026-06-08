@@ -223,7 +223,7 @@ export function ForecastEditView({
   }, [cellQty, kas, monthsIso])
 
   // —— 隐藏空白 SKU ——
-  const [hideZero, setHideZero] = useState(true)
+  const [hideZero, setHideZero] = useState(false)
   const visibleSkus = useMemo(() => {
     if (!hideZero) return allSkus
     return allSkus.filter(s => rowSubtotal(s.id) > 0)
@@ -331,14 +331,37 @@ export function ForecastEditView({
             )}
           </div>
 
-          {/* 隐藏空白 SKU */}
-          <label className="ml-auto flex items-center gap-1.5 text-sm text-gray-600">
+        </div>
+
+        {/* 提示信息 */}
+        <div className="mt-2 text-xs text-gray-500">
+          💡 Filling for <span className="text-blue-600 font-medium">{selectedCountry.flag_emoji} {selectedCountry.name_en}</span>
+          · <strong>{kas.length}</strong> KAs × <strong>{allSkus.length}</strong> SKUs × <strong>{monthsIso.length}</strong> months
+          {editLockedForAll && <span className="text-red-500 ml-2">⚠️ This cycle is published / archived — editing locked</span>}
+        </div>
+      </div>
+
+      {/* KPI */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <KpiCard label={`${selectedCountry.flag_emoji} ${selectedCountry.code} 4-month total`} value={fmtNum(grandTotal)} hint={`${kas.length} KAs × ${visibleSkus.length} SKUs`} big />
+        {monthsYm.map((ym, i) => {
+          let monthTotal = 0
+          kas.forEach(ka => { monthTotal += colSubtotal(ka.id, monthsIso[i]) })
+          return <KpiCard key={ym} label={ym} value={fmtNum(monthTotal)} hint={monthLabels[i]} color="blue" />
+        })}
+      </div>
+
+      {/* 主表 wrapper：工具栏 + 表格滚动区 */}
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        {/* 工具栏（sticky 表格顶部，滚动表格时不变；滚动主页面时跟随）*/}
+        <div className="flex items-center gap-2 flex-wrap px-4 py-3 bg-gray-50 border-b border-gray-200">
+          <label className="flex items-center gap-1.5 text-sm text-gray-600">
             <input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} />
             Hide empty SKUs
           </label>
 
           {/* Hover peek 按钮 */}
-          <div className="flex gap-0 rounded-lg overflow-hidden border border-gray-300">
+          <div className="flex gap-0 rounded-lg overflow-hidden border border-gray-300 ml-2">
             <button
               onMouseEnter={() => setPeekMode('ly')}
               onMouseLeave={() => setPeekMode(null)}
@@ -363,13 +386,13 @@ export function ForecastEditView({
             </button>
           </div>
 
-          {/* 保存按钮 */}
+          {/* Save 按钮 */}
           <button
             onClick={handleSave}
             disabled={saving || dirtyKeys.size === 0 || editLockedForAll}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
+            className={`ml-auto px-4 py-1.5 text-sm font-medium rounded-md transition ${
               dirtyKeys.size > 0
-                ? 'bg-green-600 text-white hover:bg-green-700'
+                ? 'bg-green-600 text-white hover:bg-green-700 shadow'
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
             }`}
           >
@@ -377,48 +400,30 @@ export function ForecastEditView({
           </button>
         </div>
 
-        {/* 提示信息 */}
-        <div className="mt-2 text-xs text-gray-500">
-          💡 Filling for <span className="text-blue-600 font-medium">{selectedCountry.flag_emoji} {selectedCountry.name_en}</span>
-          · <strong>{kas.length}</strong> KAs × <strong>{allSkus.length}</strong> SKUs × <strong>{monthsIso.length}</strong> months
-          {editLockedForAll && <span className="text-red-500 ml-2">⚠️ This cycle is published / archived — editing locked</span>}
-        </div>
-      </div>
-
-      {/* KPI */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <KpiCard label={`${selectedCountry.flag_emoji} ${selectedCountry.code} 4-month total`} value={fmtNum(grandTotal)} hint={`${kas.length} KAs × ${visibleSkus.length} SKUs`} big />
-        {monthsYm.map((ym, i) => {
-          let monthTotal = 0
-          kas.forEach(ka => { monthTotal += colSubtotal(ka.id, monthsIso[i]) })
-          return <KpiCard key={ym} label={ym} value={fmtNum(monthTotal)} hint={monthLabels[i]} color="blue" />
-        })}
-      </div>
-
-      {/* 主表 */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        {/* 表格滚动区 */}
         <div className="overflow-auto max-h-[700px]">
           <table className="text-sm border-collapse" style={{ minWidth: 1200 }}>
             <thead>
               <tr className="bg-gray-50">
-                <th className="sticky left-0 bg-gray-50 z-20 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r border-gray-200"
+                <th className="sticky left-0 top-0 bg-gray-50 z-30 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r border-gray-200"
                     rowSpan={2} style={{ minWidth: 90, maxWidth: 90 }}>SKU</th>
-                <th className="sticky bg-gray-50 z-20 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300"
+                <th className="sticky top-0 bg-gray-50 z-30 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300"
                     rowSpan={2}
                     style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>Product</th>
                 {kas.map((ka, ki) => (
-                  <th key={ka.id} className="px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-blue-100 text-blue-700" colSpan={monthsIso.length}>
+                  <th key={ka.id} className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-blue-100 text-blue-700" colSpan={monthsIso.length}>
                     {ka.name}
                   </th>
                 ))}
-                <th className="px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-gray-900 text-white" rowSpan={2}>
+                <th className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-gray-900 text-white" rowSpan={2}>
                   Sub-total<br /><span className="text-[10px] font-normal opacity-80">(4 months)</span>
                 </th>
               </tr>
               <tr className="bg-gray-50">
                 {kas.map(ka => (
                   monthsIso.map((m, i) => (
-                    <th key={`${ka.id}-${m}`} className={`px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-blue-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}>
+                    <th key={`${ka.id}-${m}`} className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-blue-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
+                        style={{ top: 36 }}>
                       {monthLabels[i]}
                     </th>
                   ))

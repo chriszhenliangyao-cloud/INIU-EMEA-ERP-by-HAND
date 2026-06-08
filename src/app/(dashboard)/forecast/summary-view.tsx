@@ -60,7 +60,7 @@ export function ForecastSummaryView({
   viewerName: string
 }) {
   const router = useRouter()
-  const [hideZero, setHideZero] = useState(true)
+  const [hideZero, setHideZero] = useState(false)
   const [peekLastYear, setPeekLastYear] = useState(false)
 
   // ============== 计算 4 个月份（YYYY-MM 格式）==============
