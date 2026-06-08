@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import { fmtNum } from '@/lib/utils'
 
 type FlatRow = {
@@ -72,6 +72,32 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
     return filteredExceptCountry.filter(r => r.country_code === countryFilter)
   }, [filteredExceptCountry, countryFilter])
 
+  // 衍生：除 month filter 外其他都应用 —— 让月份 pills 显示"该月独立 qty"，不被当前选中月份归零
+  const filteredExceptMonth = useMemo(() => {
+    return rows.filter(r => {
+      if (excludeInternal && r.source_type === 'internal_replenish') return false
+      if (yearFilter !== 'ALL') {
+        const year = r.effective_date?.slice(0, 4) ?? ''
+        if (year !== yearFilter) return false
+      }
+      // 跳过 monthFilter
+      if (countryFilter !== 'ALL' && r.country_code !== countryFilter) return false
+      if (skuFilter !== 'ALL' && r.sku_code !== skuFilter) return false
+      if (kaFilter !== 'ALL' && r.ka_name !== kaFilter) return false
+      if (categoryFilter !== 'ALL' && r.sku_category !== categoryFilter) return false
+      if (search) {
+        const s = search.toLowerCase()
+        if (
+          !r.sku_code?.toLowerCase().includes(s) &&
+          !r.sku_name?.toLowerCase().includes(s) &&
+          !r.ka_name?.toLowerCase().includes(s) &&
+          !r.po_number?.toLowerCase().includes(s)
+        ) return false
+      }
+      return true
+    })
+  }, [rows, yearFilter, excludeInternal, countryFilter, skuFilter, kaFilter, categoryFilter, search])
+
   // ============== KPI ==============
   const stats = useMemo(() => {
     const totalQty = filtered.reduce((s, r) => s + r.qty, 0)
@@ -104,6 +130,15 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
     })
     return map
   }, [rows, filteredExceptCountry])
+
+  // 当前作用域显示用 label：
+  //  · 选了具体国家 → 该国家 code
+  //  · 没选（'ALL'）+ 单国 sales → 该国 code（避免显示"全部欧洲"误导）
+  //  · 没选 + admin / 多国 sales → "全部欧洲"
+  const countryCodes = Object.keys(countryMeta)
+  const currentCountryLabel = countryFilter !== 'ALL'
+    ? countryFilter
+    : (!viewerIsAdmin && countryCodes.length === 1 ? countryCodes[0] : '全部欧洲')
 
   // ============== 月度趋势 + Top KA 数据 ==============
   const monthlyTrend = useMemo(() => {
@@ -201,10 +236,25 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
       {/* 页头 + 身份提示 */}
       <div className="mb-5">
         <h1 className="text-2xl font-bold text-gray-900">📊 发货记录</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          {viewerIsAdmin
-            ? <>当前以 <span className="text-purple-600 font-medium">🌍 Admin（{viewerName}）</span> 身份查看全部国家数据 · RLS 自动过滤 · 已排除"海外仓备货 / DTC备货"（可在过滤栏切换）</>
-            : <>当前以 <span className="text-blue-600 font-medium">🧑‍💼 Sales（{viewerName}）</span> 身份查看负责国家的数据 · RLS 自动过滤</>}
+        <p className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {viewerIsAdmin ? (
+            <>
+              <span>当前以 <span className="text-purple-600 font-medium">🌍 Admin（{viewerName}）</span> 身份查看全部国家数据 · 已排除"海外仓备货 / DTC备货"（可在过滤栏切换）</span>
+            </>
+          ) : (
+            <>
+              <span>当前以 <span className="text-blue-600 font-medium">🧑‍💼 Sales（{viewerName}）</span></span>
+              {Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty).map(([code, m]) => (
+                <span key={code} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700">
+                  <span>{m.flag}</span>
+                  <span className="font-medium">{m.name_zh}</span>
+                  <span className="text-xs text-gray-500">·</span>
+                  <strong className="tabular-nums">{fmtNum(m.qty)}</strong>
+                  <span className="text-xs text-gray-500">件</span>
+                </span>
+              ))}
+            </>
+          )}
         </p>
       </div>
 
@@ -221,25 +271,27 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="text-sm font-semibold text-gray-700 mb-3">📈 月度发货量趋势</div>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={monthlyTrend}>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={monthlyTrend} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
               <XAxis dataKey="month" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => fmtNum(v)} />
-              <Tooltip formatter={(v: any) => fmtNum(v)} />
-              <Bar dataKey="qty" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="qty" fill="#3b82f6" radius={[6, 6, 0, 0]} isAnimationActive={false}>
+                <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 11, fill: '#374151' }} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="text-sm font-semibold text-gray-700 mb-3">🏢 客户发货量 Top 10</div>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={topKas} layout="vertical" margin={{ left: 60 }}>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={topKas} layout="vertical" margin={{ top: 5, right: 60, left: 60, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
               <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => fmtNum(v)} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
-              <Tooltip formatter={(v: any) => fmtNum(v)} />
-              <Bar dataKey="qty" fill="#10b981" radius={[0, 6, 6, 0]} />
+              <Bar dataKey="qty" fill="#10b981" radius={[0, 6, 6, 0]} isAnimationActive={false}>
+                <LabelList dataKey="qty" position="right" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 11, fill: '#374151' }} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -248,26 +300,32 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
       {/* 📈 欧洲业务指标 区块（占位卡片 + pills + SKU 趋势）*/}
       <div className="mb-5">
         <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
-          <span className="text-base font-semibold text-gray-700">📈 欧洲业务指标</span>
-          <span className="text-xs text-gray-400">欧洲各国独立运营 · 切换国家查看分国别指标</span>
+          <span className="text-base font-semibold text-gray-700">
+            📈 {viewerIsAdmin ? '欧洲业务指标' : `${Object.keys(countryMeta).length === 1 ? Object.values(countryMeta)[0]?.name_zh : '负责国家'}业务指标`}
+          </span>
+          {viewerIsAdmin && <span className="text-xs text-gray-400">欧洲各国独立运营 · 切换国家查看分国别指标</span>}
         </div>
 
-        {/* 国家 pills */}
-        <div className="flex gap-2 flex-wrap mb-3">
-          <PillButton color="purple" active={countryFilter === 'ALL'} onClick={() => setCountryFilter('ALL')}>
-            🌍 全部欧洲 <Badge>{fmtNum(filteredExceptCountry.reduce((s, r) => s + r.qty, 0))}</Badge>
-          </PillButton>
-          {Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty).map(([code, m]) => (
-            <PillButton key={code} color="purple" active={countryFilter === code} onClick={() => setCountryFilter(code)}>
-              <span>{m.flag}</span><span>{code}</span><Badge>{fmtNum(m.qty)}</Badge>
-            </PillButton>
-          ))}
-        </div>
+        {/* 国家 pills：admin 看全部 + 各国；多国 sales 只显示各国（无"全部"）；单国 sales 整组隐藏（标题副标题已展示）*/}
+        {(viewerIsAdmin || Object.keys(countryMeta).length > 1) && (
+          <div className="flex gap-2 flex-wrap mb-3">
+            {viewerIsAdmin && (
+              <PillButton color="purple" active={countryFilter === 'ALL'} onClick={() => setCountryFilter('ALL')}>
+                🌍 全部欧洲 <Badge>{fmtNum(filteredExceptCountry.reduce((s, r) => s + r.qty, 0))}</Badge>
+              </PillButton>
+            )}
+            {Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty).map(([code, m]) => (
+              <PillButton key={code} color="purple" active={countryFilter === code} onClick={() => setCountryFilter(code)}>
+                <span>{m.flag}</span><span>{code}</span><Badge>{fmtNum(m.qty)}</Badge>
+              </PillButton>
+            ))}
+          </div>
+        )}
 
-        {/* 月份 pills */}
+        {/* 月份 pills（数字基于 filteredExceptMonth：选定某月不会让其他月份归零）*/}
         <div className="flex gap-2 flex-wrap mb-4">
           <PillButton color="amber" active={monthFilter === 'ALL'} onClick={() => setMonthFilter('ALL')}>
-            📅 全部月份 <Badge>{fmtNum(filtered.reduce((s, r) => s + r.qty, 0))}</Badge>
+            📅 全部月份 <Badge>{fmtNum(filteredExceptMonth.reduce((s, r) => s + r.qty, 0))}</Badge>
           </PillButton>
           {options.months
             .filter(m => {
@@ -275,7 +333,7 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
               return m.startsWith(yearFilter)
             })
             .map(m => {
-              const qty = filtered.filter(r => r.effective_date?.startsWith(m)).reduce((s, r) => s + r.qty, 0)
+              const qty = filteredExceptMonth.filter(r => r.effective_date?.startsWith(m)).reduce((s, r) => s + r.qty, 0)
               return (
                 <PillButton key={m} color="amber" active={monthFilter === m} onClick={() => setMonthFilter(m)}>
                   {m} <Badge>{fmtNum(qty)}</Badge>
@@ -286,9 +344,9 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
 
         {/* 3 占位卡片 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <PlaceholderCard icon="💶" title="营业额" desc="月度 / 客户 / SKU 维度营业额" hint={`等待数据录入（${countryFilter === 'ALL' ? '全部欧洲' : countryFilter}）`} />
-          <PlaceholderCard icon="🏷️" title="出货价" desc="各 SKU 出货单价 / 价格趋势" hint={`等待数据录入（${countryFilter === 'ALL' ? '全部欧洲' : countryFilter}）`} />
-          <PlaceholderCard icon="🎯" title="目标" desc="月度 / 季度业绩目标与完成率" hint={`等待数据录入（${countryFilter === 'ALL' ? '全部欧洲' : countryFilter}）`} />
+          <PlaceholderCard icon="💶" title="营业额" desc="月度 / 客户 / SKU 维度营业额" hint={`等待数据录入（${currentCountryLabel}）`} />
+          <PlaceholderCard icon="🏷️" title="出货价" desc="各 SKU 出货单价 / 价格趋势" hint={`等待数据录入（${currentCountryLabel}）`} />
+          <PlaceholderCard icon="🎯" title="目标" desc="月度 / 季度业绩目标与完成率" hint={`等待数据录入（${currentCountryLabel}）`} />
         </div>
 
         {/* SKU 趋势柱形图 */}
@@ -296,20 +354,20 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
           <div className="flex items-center justify-between mb-3">
             <div className="text-sm font-semibold text-gray-700">
               📊 SKU 发货数量趋势
-              <span className="ml-2 text-xs text-gray-400">· {countryFilter === 'ALL' ? '全部欧洲' : countryFilter} · {monthFilter === 'ALL' ? '全部月份' : monthFilter}</span>
+              <span className="ml-2 text-xs text-gray-400">· {currentCountryLabel} · {monthFilter === 'ALL' ? '全部月份' : monthFilter}</span>
             </div>
             <div className="text-xs text-gray-400">共 {skuTrend.length} 个 SKU</div>
           </div>
-          <ResponsiveContainer width="100%" height={360}>
-            <BarChart data={skuTrend} margin={{ bottom: 70 }}>
+          <ResponsiveContainer width="100%" height={380}>
+            <BarChart data={skuTrend} margin={{ top: 25, right: 10, left: 0, bottom: 70 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
               <XAxis dataKey="sku" tick={{ fontSize: 10 }} angle={-50} textAnchor="end" interval={0} height={90} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => fmtNum(v)} />
-              <Tooltip formatter={(v: any) => fmtNum(v)} />
-              <Bar dataKey="qty" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="qty" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                 {skuTrend.map((entry, i) => (
                   <Cell key={i} fill={`hsl(${Math.round((i * 360) / Math.max(skuTrend.length, 1))}, 65%, 55%)`} />
                 ))}
+                <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 10, fill: '#374151' }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -358,7 +416,6 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
                 <SortableHeader col="country_code" label="国家" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
                 <SortableHeader col="category" label="类目" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
                 <SortableHeader col="qty" label="发货数量" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} align="right" />
-                <SortableHeader col="count" label="发货次数" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} align="right" />
                 <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">出货价 (€)</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">营业额 (€)</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">目标</th>
@@ -374,13 +431,12 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
                   <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_name_zh}</span></td>
                   <td className="px-4 py-2"><CategoryBadge cat={r.category} /></td>
                   <td className="px-4 py-2 text-right font-medium tabular-nums">{fmtNum(r.qty)}</td>
-                  <td className="px-4 py-2 text-right text-gray-500 tabular-nums">{r.count}</td>
                   <td className="px-4 py-2 text-right text-purple-300 italic text-xs">待录入</td>
                   <td className="px-4 py-2 text-right text-purple-300 italic text-xs">待录入</td>
                   <td className="px-4 py-2 text-right text-purple-300 italic text-xs">待录入</td>
                 </tr>
               ))}
-              {!sortedAgg.length && <tr><td colSpan={11} className="py-12 text-center text-gray-400">没有匹配的记录</td></tr>}
+              {!sortedAgg.length && <tr><td colSpan={10} className="py-12 text-center text-gray-400">没有匹配的记录</td></tr>}
             </tbody>
           </table>
         </div>

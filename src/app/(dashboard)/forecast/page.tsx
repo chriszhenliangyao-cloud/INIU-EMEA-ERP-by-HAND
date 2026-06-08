@@ -68,11 +68,14 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
     .order('sort_order')
     .order('code')
 
-  const { data: countries } = await supabase
+  const { data: allEuCountries } = await supabase
     .from('country')
     .select('id, code, name_zh, flag_emoji, region, sort_order')
     .eq('region', 'EU').eq('is_active', true)
     .order('sort_order')
+
+  // 🔐 admin 看全部 EU，sales 只看自己负责的国家
+  const countries = (allEuCountries ?? []).filter((c: any) => me.canAccessCountry(c.id))
 
   // 去年同期数据（hover-peek 备用）
   const startDate = new Date(selectedRun.period_start)
@@ -122,7 +125,7 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
   const ytdMonthsCount = currentMonth
 
   const [
-    { data: myCountries },
+    { data: allEuCountries },
     { data: allSkus },
     { data: allKas },
     { data: allCells },
@@ -167,7 +170,11 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       : Promise.resolve({ data: [] as any[] }),
   ])
 
-  if (!myCountries?.length) {
+  // 🔐 应用用户权限：admin 看全部 EU 国家，sales 只看自己负责的国家
+  // country 表 RLS 是"登录用户都能读"（基础主数据），所以这里需要在应用层按 me.countryIds 过滤
+  const myCountries = (allEuCountries ?? []).filter((c: any) => me.canAccessCountry(c.id))
+
+  if (!myCountries.length) {
     return (
       <div className="p-6">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">📈 需求预测</h1>
@@ -180,8 +187,8 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
     )
   }
 
-  // 决定初始选中国家（URL 参数有效性校验）
-  const initialCountryCode = countryParam && (myCountries ?? []).some((c: any) => c.code === countryParam)
+  // 决定初始选中国家（URL 参数有效性校验：必须在用户可访问的国家列表里）
+  const initialCountryCode = countryParam && myCountries.some((c: any) => c.code === countryParam)
     ? countryParam : (myCountries[0] as any).code
 
   // ───────── 服务端聚合 hover-peek 数据（按 country_id 分桶）─────────
