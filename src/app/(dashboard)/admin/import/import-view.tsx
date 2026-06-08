@@ -80,7 +80,7 @@ export function ImportView({
 
   // —— Step 1: 文件上传 + 解析 ——
   const [fileName, setFileName] = useState<string>('')
-  const [sheetNames, setSheetNames] = useState<string[]>([])
+  const [sheetInfo, setSheetInfo] = useState<{ name: string; rowCount: number; isHidden: boolean }[]>([])
   const [activeSheet, setActiveSheet] = useState<string>('')
   const [rawHeaders, setRawHeaders] = useState<string[]>([])
   const [rawData, setRawData] = useState<ParsedRow[]>([])
@@ -148,12 +148,26 @@ export function ImportView({
     reader.onload = (evt) => {
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer)
-        const wb = XLSX.read(data, { type: 'array', cellDates: true })
+        const wb = XLSX.read(data, { type: 'array', cellDates: true, bookVBA: true })
         setWorkbook(wb)
-        setSheetNames(wb.SheetNames)
-        if (wb.SheetNames.length > 0) {
-          loadSheet(wb, wb.SheetNames[0])
-        }
+        // 计算每个 sheet 的行数 + 是否隐藏（Hidden=1 隐藏；Hidden=2 极度隐藏）
+        const hiddenByName: Record<string, boolean> = {}
+        ;(wb.Workbook?.Sheets ?? []).forEach((s: any) => {
+          if (s.name) hiddenByName[s.name] = (s.Hidden ?? 0) > 0
+        })
+        const info = wb.SheetNames.map(name => {
+          const ws = wb.Sheets[name]
+          // 用 sheet_to_json header:1 拿原始行数（包含表头那一行）
+          const rows = ws ? XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) : []
+          // 数据行 = 总行数 - 1（表头）
+          const dataRowCount = Math.max(0, rows.length - 1)
+          return { name, rowCount: dataRowCount, isHidden: hiddenByName[name] ?? false }
+        })
+        setSheetInfo(info)
+        // 选第一个非隐藏且有数据的 sheet；都没有就选第一个
+        const firstVisibleWithData = info.find(s => !s.isHidden && s.rowCount > 0)
+        const pick = firstVisibleWithData?.name ?? wb.SheetNames[0]
+        if (pick) loadSheet(wb, pick)
       } catch (err: any) {
         setParseError(`Failed to parse Excel: ${err.message}`)
       }
@@ -419,17 +433,45 @@ export function ImportView({
             onChange={handleFile}
             className="text-sm"
           />
-          {fileName && <span className="text-xs text-gray-500">{fileName} · {(rawData.length || 0)} rows</span>}
-          {sheetNames.length > 1 && (
-            <select
-              value={activeSheet}
-              onChange={(e) => workbook && loadSheet(workbook, e.target.value)}
-              className="px-2 py-1 border border-gray-300 rounded text-sm"
-            >
-              {sheetNames.map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          )}
+          {fileName && <span className="text-xs text-gray-500">{fileName}</span>}
         </div>
+
+        {/* Sheet selector: 多 sheet 文件常见，始终显示让用户确认选的是对的 */}
+        {sheetInfo.length > 0 && (
+          <div className="mt-4">
+            <div className="text-xs font-medium text-gray-600 mb-2">
+              Pick the sheet with shipment data
+              {sheetInfo.length > 1 && <span className="text-gray-400"> · {sheetInfo.length} sheets found</span>}
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              {sheetInfo.map(s => {
+                const isActive = s.name === activeSheet
+                return (
+                  <button
+                    key={s.name}
+                    onClick={() => workbook && loadSheet(workbook, s.name)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition ${
+                      isActive
+                        ? 'bg-blue-600 text-white border-blue-600 shadow'
+                        : s.rowCount === 0
+                          ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                    }`}
+                    disabled={s.rowCount === 0 && !isActive}
+                    title={s.isHidden ? 'This sheet is hidden in Excel' : ''}
+                  >
+                    {s.isHidden && <span title="hidden" className="opacity-50">👁️‍🗨️</span>}
+                    <span>{s.name}</span>
+                    <span className={`tabular-nums ${isActive ? 'text-blue-200' : 'text-gray-400'}`}>
+                      ({fmtNum(s.rowCount)} {s.rowCount === 1 ? 'row' : 'rows'})
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {parseError && <div className="mt-2 text-sm text-red-600">{parseError}</div>}
       </div>
 
