@@ -297,7 +297,7 @@ export function ForecastSummaryView({
         <Legend color="#fef3c7" label="ES Spain" />
         <Legend color="#fce7f3" label="NL Netherlands" />
         <Legend color="#ede9fe" label="EU TTL" />
-        <Legend color="#1f2937" label="Sub-total (4-month sum)" textColor="text-gray-900" />
+        <Legend color="#e5e7eb" label="Sub-total (4-month sum)" textColor="text-gray-700" />
       </div>
 
       {/* 主表 */}
@@ -305,33 +305,33 @@ export function ForecastSummaryView({
         <div className="overflow-auto max-h-[750px]">
           <table className="w-full text-sm border-collapse" style={{ minWidth: 1200 }}>
             <thead>
-              {/* 第一行：分组表头 */}
+              {/* 第一行：分组表头 — sticky top-0 冻结 */}
               <tr className="bg-gray-50">
-                <th className="sticky left-0 bg-gray-50 z-20 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r border-gray-200" rowSpan={2} style={{ minWidth: 90, maxWidth: 90 }}>SKU</th>
-                <th className="sticky bg-gray-50 z-20 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300" rowSpan={2} style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>Product</th>
+                <th className="sticky left-0 top-0 bg-gray-50 z-40 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r border-gray-200" rowSpan={2} style={{ minWidth: 90, maxWidth: 90 }}>SKU</th>
+                <th className="sticky top-0 bg-gray-50 z-40 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300" rowSpan={2} style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>Product</th>
                 {tableCountries.map(c => (
-                  <th key={c.code} className={`px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 ${countryHeaderBg(c.code)}`} colSpan={months.length}>
+                  <th key={c.code} className={`sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 ${countryHeaderBg(c.code)}`} colSpan={months.length}>
                     {c.flag_emoji} {c.code}
                   </th>
                 ))}
-                <th className="px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-purple-100 text-purple-700" colSpan={months.length}>
+                <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-purple-100 text-purple-700" colSpan={months.length}>
                   EU TTL
                 </th>
-                <th className="px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-gray-900 text-white" rowSpan={2}>
+                <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-gray-100 text-gray-700" rowSpan={2}>
                   Sub-total<br /><span className="text-[10px] font-normal opacity-80">(4 months)</span>
                 </th>
               </tr>
-              {/* 第二行：月份 */}
+              {/* 第二行：月份 — sticky top-[32px] 紧贴第一行 */}
               <tr className="bg-gray-50">
                 {tableCountries.map(c => (
                   months.map((m, i) => (
-                    <th key={`${c.code}-${m}`} className={`px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'} ${countryHeaderBg(c.code, true)}`}>
+                    <th key={`${c.code}-${m}`} className={`sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'} ${countryHeaderBg(c.code, true)}`}>
                       {monthLabels[i].short}
                     </th>
                   ))
                 ))}
                 {months.map((m, i) => (
-                  <th key={`eu-${m}`} className={`px-2 py-1.5 text-center text-[11px] font-medium text-purple-700 border-b border-gray-200 bg-purple-50 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}>
+                  <th key={`eu-${m}`} className={`sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-purple-700 border-b border-gray-200 bg-purple-50 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}>
                     {monthLabels[i].short}
                   </th>
                 ))}
@@ -364,7 +364,7 @@ export function ForecastSummaryView({
                       </td>
                     )
                   })}
-                  <td className="px-3 py-2 text-right text-sm tabular-nums font-bold bg-gray-900 text-white border-b border-gray-700">
+                  <td className="px-3 py-2 text-right text-sm tabular-nums font-bold bg-gray-100 text-gray-900 border-b border-gray-200">
                     {r.subTotal > 0 ? fmtNum(r.subTotal) : '-'}
                   </td>
                 </tr>
@@ -380,25 +380,25 @@ export function ForecastSummaryView({
             {tableRows.length > 0 && (
               <tfoot>
                 <tr>
-                  <td className="sticky left-0 bg-gray-900 text-white z-10 px-3 py-3 text-xs font-bold uppercase border-r" style={{ minWidth: 90, maxWidth: 90 }}>
+                  <td className="sticky left-0 bg-gray-100 text-gray-700 z-10 px-3 py-3 text-xs font-bold uppercase border-r border-t-2 border-gray-300" style={{ minWidth: 90, maxWidth: 90 }}>
                     TTL
                   </td>
-                  <td className="sticky bg-gray-900 text-white z-10 px-3 py-3 text-xs font-medium border-r-2 border-gray-700" style={{ left: 90, minWidth: 200, maxWidth: 200 }}>
+                  <td className="sticky bg-gray-100 text-gray-700 z-10 px-3 py-3 text-xs font-medium border-r-2 border-t-2 border-gray-300" style={{ left: 90, minWidth: 200, maxWidth: 200 }}>
                     All SKUs total
                   </td>
                   {tableCountries.map(c => (
                     months.map((m, i) => (
-                      <td key={`ft-${c.code}-${m}`} className={`px-2 py-3 text-right text-xs font-bold tabular-nums text-white bg-gray-700 ${i === months.length - 1 ? 'border-r-2 border-gray-500' : 'border-r border-gray-600'}`}>
+                      <td key={`ft-${c.code}-${m}`} className={`px-2 py-3 text-right text-xs font-bold tabular-nums text-gray-800 bg-gray-100 border-t-2 border-gray-300 ${i === months.length - 1 ? 'border-r-2 border-r-gray-300' : 'border-r border-r-gray-200'}`}>
                         {fmtNum(footTotals.byCountryMonth[c.code]?.[m] ?? 0)}
                       </td>
                     ))
                   ))}
                   {months.map((m, i) => (
-                    <td key={`ft-eu-${m}`} className={`px-2 py-3 text-right text-xs font-bold tabular-nums text-white bg-purple-700 ${i === months.length - 1 ? 'border-r-2 border-gray-500' : 'border-r border-purple-600'}`}>
+                    <td key={`ft-eu-${m}`} className={`px-2 py-3 text-right text-xs font-bold tabular-nums text-purple-700 bg-purple-100 border-t-2 border-gray-300 ${i === months.length - 1 ? 'border-r-2 border-r-gray-300' : 'border-r border-r-purple-200'}`}>
                       {fmtNum(footTotals.byEuMonth[m] ?? 0)}
                     </td>
                   ))}
-                  <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-white bg-black">
+                  <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-gray-900 bg-gray-200 border-t-2 border-gray-300">
                     {fmtNum(footTotals.grandTotal)}
                   </td>
                 </tr>
