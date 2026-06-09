@@ -28,9 +28,11 @@ export async function GET() {
       supabase.from('country')
         .select('id, code'),
       // weekly_psi RLS：sales 只看自己国家，admin 看全部
+      // ⚠️ 必须用 range() — supabase JS client 默认 .select() 上限 1000 行，4255 行会被截断
       supabase.from('weekly_psi')
         .select('country_id, ka_id, sku_id, iso_year, iso_week, week_label, metric, qty')
-        .order('week_label'),
+        .order('week_label')
+        .range(0, 49999),
     ])
 
     if (!dbSkus || !dbKas || !dbCountries || !psiRaw) {
