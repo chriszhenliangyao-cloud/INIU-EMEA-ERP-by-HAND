@@ -1,29 +1,14 @@
 import { getCurrentUser } from '@/lib/auth/current-user'
 
 /**
- * /psi 路由 — PSI Dashboard
- *
- * 实现策略：iframe 嵌入 public/psi-dashboard.html（原 Google Apps Script 看板 1:1 复刻），
- * 数据源从 google.script.run 改成 fetch('/api/psi/load-all')，RLS 自动按国家过滤。
- *
- * 为什么用 iframe：
- *  - 原 2400 行 vanilla JS + Chart.js + 插件无需改写
- *  - 视觉 100% 还原（CSS 完整保留）
- *  - 隔离 React，避免和 ERP 全局样式冲突
+ * /psi 路由 — 实际 iframe 在 DashboardShell 持久挂载（避免切路由时重新加载）。
+ * 这个 page 只做两件事：
+ *   1. 触发 getCurrentUser → 未登录跳到 /auth/login
+ *   2. 占一个空 placeholder 让 Next.js 知道路由存在（实际 UI 由 shell 提供）
  */
 export default async function PsiPage() {
-  const me = await getCurrentUser()  // 触发未登录 → redirect
-
-  return (
-    <div className="h-screen w-full bg-white">
-      <iframe
-        src="/psi-dashboard.html"
-        title="INIU PSI Dashboard"
-        className="w-full h-full border-0 block"
-        // 同源 iframe 自动带 cookie → 内部 fetch('/api/psi/load-all') 走 user session
-      />
-    </div>
-  )
+  await getCurrentUser()
+  return null
 }
 
 export const metadata = {

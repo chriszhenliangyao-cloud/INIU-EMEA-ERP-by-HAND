@@ -137,13 +137,6 @@ export async function GET() {
       productsFamily,
       retailers,
       weeklyPSI,
-      _debug: {
-        weekCount: weeks.length,
-        firstWeek: weeks[0],
-        lastWeek: weeks[weeks.length - 1],
-        psiRowsRaw: psiRaw.length,
-        weeklyPsiRowsWide: weeklyPSI.length,
-      },
       weeks,
       config: {},
       userCountries: me.isAdmin
@@ -152,16 +145,15 @@ export async function GET() {
       accessDenied: !me.isActive,
     }, {
       headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Pragma': 'no-cache',
+        // 60s 短缓存 + 5min SWR：兼顾速度和新鲜度
+        // PSI 数据每周更新一次，60s 足够实时
+        'Cache-Control': 'private, max-age=60, stale-while-revalidate=300',
       },
     })
   } catch (err: any) {
     return NextResponse.json({
       backendError: err?.message ?? String(err),
       products: [], productsFamily: [], retailers: [], weeklyPSI: [], weeks: [], config: {}, userCountries: [],
-    }, {
-      headers: { 'Cache-Control': 'no-store' },
     })
   }
 }
