@@ -2134,6 +2134,34 @@ function formatPct(v) {
   return (v * 100).toFixed(1) + '%';
 }
 
+// Latest DOS by group (跟 latestStockByGroup 同思路：每行取最后一个非空值，
+// 多 retailer 时跨 retailer 取平均，跟 sumMetricByGroup/Stock 不同 —— DOS 是天数不能累加)
+function latestDosByGroup() {
+  var rows = getFilteredRows('DOS');
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  var sums = {}, counts = {};
+  rows.forEach(function(r) {
+    var key = getGroupKey(r['Product Name']);
+    var lastVal = null;
+    for (var i = weeks.length - 1; i >= 0; i--) {
+      var val = r[weeks[i]];
+      if (val !== '' && val !== null && val !== undefined) {
+        lastVal = Number(val);
+        break;
+      }
+    }
+    if (lastVal !== null) {
+      sums[key] = (sums[key] || 0) + lastVal;
+      counts[key] = (counts[key] || 0) + 1;
+    }
+  });
+  var result = {};
+  Object.keys(sums).forEach(function(k) {
+    result[k] = sums[k] / counts[k];
+  });
+  return result;
+}
+
 function renderPSISummaryTable() {
   var container = document.getElementById('psi-summary-table');
   if (!container) return;
@@ -2143,31 +2171,25 @@ function renderPSISummaryTable() {
   var volumeLabel = state.viewMode === 'fd' ? 'ST' : 'SO';
   var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
 
-  var siMap = sumMetricByGroup('SI');
   var volumeMap = sumMetricByGroup(volumeMetric);
-  var stockMap = latestStockByGroup();
-  var lastVolumeMap = lastWeekMetricByGroup(volumeMetric);
+  var stockMap  = latestStockByGroup();
+  var dosMap    = latestDosByGroup();
+
+  // 合并所有 group key（series / family / product 由 grain 决定）
   var groupSet = {};
-  [siMap, volumeMap, stockMap, lastVolumeMap].forEach(function(map) {
+  [volumeMap, stockMap, dosMap].forEach(function(map) {
     Object.keys(map).forEach(function(k) { groupSet[k] = true; });
   });
 
   var rows = Object.keys(groupSet).map(function(name) {
-    var si = siMap[name] || 0;
-    var volume = volumeMap[name] || 0;
-    var stock = stockMap[name] || 0;
-    var lastVolume = lastVolumeMap[name] || 0;
     return {
       name: name,
-      si: si,
-      volume: volume,
-      stock: stock,
-      avgVolume: weeks.length ? volume / weeks.length : 0,
-      lastVolume: lastVolume,
-      sellThrough: si > 0 ? volume / si : null,
+      volume: volumeMap[name] || 0,
+      stock: stockMap[name] || 0,
+      dos: dosMap[name],
     };
   }).filter(function(row) {
-    return row.si || row.volume || row.stock || row.lastVolume;
+    return row.volume || row.stock || (row.dos !== undefined && row.dos !== null);
   }).sort(function(a, b) {
     return b.volume - a.volume || b.stock - a.stock || a.name.localeCompare(b.name);
   });
@@ -2181,17 +2203,9 @@ function renderPSISummaryTable() {
   }
 
   var html = '<div style="overflow:auto;">';
-  html += '<table style="width:100%; border-collapse:separate; border-spacing:0; min-width:760px; font-size:12px;">';
+  html += '<table style="width:100%; border-collapse:separate; border-spacing:0; min-width:560px; font-size:12px;">';
   html += '<thead><tr>';
-  [
-    grainLabel,
-    'SI',
-    volumeLabel,
-    'Latest Stock',
-    'Avg Weekly ' + volumeLabel,
-    'Last Week ' + volumeLabel,
-    volumeLabel + ' / SI'
-  ].forEach(function(h, idx) {
+  [grainLabel, volumeLabel, 'Latest Stock', 'Latest DOS'].forEach(function(h, idx) {
     var align = idx === 0 ? 'left' : 'right';
     html += '<th style="position:sticky; top:0; background:#f8fafc; z-index:1; text-align:' + align + '; color:#64748b; font-size:11px; text-transform:uppercase; letter-spacing:0; padding:10px 12px; border-bottom:1px solid #e2e8f0;">' + h + '</th>';
   });
@@ -2199,14 +2213,14 @@ function renderPSISummaryTable() {
 
   rows.forEach(function(row) {
     var color = getGroupColor(row.name);
+    var dosStr = (row.dos !== undefined && row.dos !== null && isFinite(row.dos))
+      ? Math.round(row.dos) + 'd'
+      : '-';
     html += '<tr>';
     html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; color:#111827; font-weight:700; white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:8px;"></span>' + row.name + '</td>';
-    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + formatMetricValue(row.si) + '</td>';
     html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#111827; font-weight:700;">' + formatMetricValue(row.volume) + '</td>';
     html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + formatMetricValue(row.stock) + '</td>';
-    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + formatMetricValue(row.avgVolume) + '</td>';
-    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + formatMetricValue(row.lastVolume) + '</td>';
-    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + formatPct(row.sellThrough) + '</td>';
+    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + dosStr + '</td>';
     html += '</tr>';
   });
   html += '</tbody></table></div>';

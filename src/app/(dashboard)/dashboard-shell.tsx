@@ -10,6 +10,7 @@ type Props = {
     isAdmin: boolean
     countryIds: number[]
   }
+  buildId: string
   children: React.ReactNode
 }
 
@@ -19,7 +20,7 @@ type Props = {
  *  2. 持久挂载 PSI iframe：用户从 /psi 切到其他路由时只是 display:none
  *     iframe DOM + Chart.js 实例 + 已拉的数据都保留，再切回 /psi 瞬间显示
  */
-export function DashboardShell({ me, children }: Props) {
+export function DashboardShell({ me, buildId, children }: Props) {
   const pathname = usePathname()
   const isPsiRoute = pathname === '/psi'
 
@@ -90,7 +91,7 @@ export function DashboardShell({ me, children }: Props) {
 
       <main className="flex-1 overflow-auto relative">
         {/* 持久 PSI iframe：始终挂载，仅切显示。第一次进 /psi 才 src= 触发加载 */}
-        <PsiIframeHolder visible={isPsiRoute} />
+        <PsiIframeHolder visible={isPsiRoute} buildId={buildId} />
 
         {/* 其他路由的 children：仅在非 /psi 时显示 */}
         <div style={{ display: isPsiRoute ? 'none' : 'block' }} className="h-full">
@@ -109,7 +110,7 @@ export function DashboardShell({ me, children }: Props) {
  */
 import { useEffect, useRef, useState } from 'react'
 
-function PsiIframeHolder({ visible }: { visible: boolean }) {
+function PsiIframeHolder({ visible, buildId }: { visible: boolean; buildId: string }) {
   // 用 state 记录"曾经显示过"，避免初始进入 /shipments 时就预加载 iframe
   const [hasMounted, setHasMounted] = useState(visible)
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -122,10 +123,15 @@ function PsiIframeHolder({ visible }: { visible: boolean }) {
     return null
   }
 
+  // 把 buildId 拼进 src + 设到 React key 上：
+  //  - 同一部署内 buildId 不变 → src 不变 → iframe 持久（切路由不重载）
+  //  - 新部署 buildId 变 → src 变 + key 变 → React remount → 自动用新版 HTML（不用关 tab）
+  const src = `/psi-dashboard.html?v=${buildId}`
   return (
     <iframe
+      key={buildId}
       ref={iframeRef}
-      src="/psi-dashboard.html"
+      src={src}
       title="INIU PSI Dashboard"
       className="absolute inset-0 w-full h-full border-0 block bg-white"
       style={{ display: visible ? 'block' : 'none' }}

@@ -31,9 +31,12 @@ export async function GET() {
         .select('id, name, country_id, ka_type, downstream'),
       supabase.from('country')
         .select('id, code'),
-      // weekly_psi RLS：sales 只看自己国家，admin 看全部
-      // ⚠️ 必须用 range() — supabase JS client 默认 .select() 上限 1000 行，4255 行会被截断
-      supabase.from('weekly_psi')
+      // weekly_psi_long_compat view：底层是 weekly_psi_v2 (wide)，view 反 pivot 回 long + 派生 DOS
+      //   - SI/SO/ST/Stock 4 个 metric：字节级一致于旧 weekly_psi（5 层交叉验证 MD5 通过）
+      //   - DOS：SQL window function 实时派生 = stock_qty / avg4(COALESCE(so_qty, st_qty)) * 7
+      // RLS 跟着底层 weekly_psi_v2.can_access_country(country_id)
+      // 仍保留 range() — PostgREST max-rows 限制是表/view 级的
+      supabase.from('weekly_psi_long_compat')
         .select('country_id, ka_id, sku_id, iso_year, iso_week, week_label, metric, qty')
         .order('week_label')
         .range(0, 49999),
