@@ -49,7 +49,9 @@ type Country = {
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number; lifecycle: string; region_scope: string[] | null }
 
 export function ForecastSummaryView({
-  runs, selectedRun, cells, allSkus, countries, lastYearData, viewerIsAdmin, viewerName,
+  runs, selectedRun, cells, allSkus, countries, lastYearData,
+  fdStockBySkuCode, hqStockBySkuCode,
+  viewerIsAdmin, viewerName,
 }: {
   runs: Run[]
   selectedRun: Run
@@ -57,6 +59,8 @@ export function ForecastSummaryView({
   allSkus: Sku[]
   countries: Country[]
   lastYearData: Record<string, Record<string, Record<string, number>>>
+  fdStockBySkuCode?: Record<string, number>
+  hqStockBySkuCode?: Record<string, number>
   viewerIsAdmin: boolean
   viewerName: string
 }) {
@@ -318,9 +322,13 @@ export function ForecastSummaryView({
                 <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-purple-100 text-purple-700" colSpan={months.length}>
                   EU TTL
                 </th>
-                <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-gray-100 text-gray-700"
+                <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-gray-100 text-gray-700"
                     colSpan={months.length}>
                   Sub-total
+                </th>
+                <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-amber-100 text-amber-800"
+                    colSpan={3}>
+                  Total · Stock
                 </th>
               </tr>
               {/* 第二行：月份 — sticky top-[32px] 紧贴第一行 */}
@@ -340,10 +348,20 @@ export function ForecastSummaryView({
                 {/* Sub-total 各月 */}
                 {months.map((m, i) => (
                   <th key={`subtot-${m}`}
-                      className={`sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-gray-700 border-b border-gray-200 bg-gray-100 ${i === months.length - 1 ? 'border-r border-gray-300' : 'border-r border-gray-200'}`}>
+                      className={`sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-gray-700 border-b border-gray-200 bg-gray-100 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-200'}`}>
                     {monthLabels[i].short}
                   </th>
                 ))}
+                {/* TOTAL block 3 子标签 */}
+                <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50">
+                  Total
+                </th>
+                <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" title="Stock from FD (channel distributor latest)">
+                  Stock-FD
+                </th>
+                <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" title="Stock from HQ (INIU warehouse)">
+                  Stock-HQ
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -373,18 +391,28 @@ export function ForecastSummaryView({
                       </td>
                     )
                   })}
-                  {/* Sub-total per month (替换原单列汇总) */}
+                  {/* Sub-total per month */}
                   {months.map((m, i) => (
                     <td key={`subtot-${r.sku_code}-${m}`}
-                        className={`px-2 py-2 text-right text-xs tabular-nums font-semibold bg-gray-100 text-gray-800 border-b border-gray-200 ${i === months.length - 1 ? 'border-r border-gray-300' : 'border-r border-gray-200'}`}>
+                        className={`px-2 py-2 text-right text-xs tabular-nums font-semibold bg-gray-100 text-gray-800 border-b border-gray-200 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-200'}`}>
                       {(r.monthlyTtl[m] ?? 0) > 0 ? fmtNum(r.monthlyTtl[m]) : <span className="text-gray-300">-</span>}
                     </td>
                   ))}
+                  {/* TOTAL block */}
+                  <td className="px-2 py-2 text-right text-sm tabular-nums font-bold bg-amber-50 text-amber-900 border-b border-r border-amber-200">
+                    {r.subTotal > 0 ? fmtNum(r.subTotal) : <span className="text-gray-300">-</span>}
+                  </td>
+                  <td className="px-2 py-2 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
+                    {(fdStockBySkuCode?.[r.sku_code] ?? 0) > 0 ? fmtNum(fdStockBySkuCode![r.sku_code]) : <span className="text-gray-300">-</span>}
+                  </td>
+                  <td className="px-2 py-2 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
+                    {(hqStockBySkuCode?.[r.sku_code] ?? 0) > 0 ? fmtNum(hqStockBySkuCode![r.sku_code]) : <span className="text-gray-300" title="HQ stock data not yet imported">-</span>}
+                  </td>
                 </tr>
               ))}
               {!tableRows.length && (
                 <tr>
-                  <td colSpan={2 + tableCountries.length * months.length + months.length + months.length} className="py-12 text-center text-gray-400">
+                  <td colSpan={2 + tableCountries.length * months.length + months.length + months.length + 3} className="py-12 text-center text-gray-400">
                     No data for this cycle yet · waiting for sales input or switch to another cycle
                   </td>
                 </tr>
@@ -414,10 +442,26 @@ export function ForecastSummaryView({
                   {/* Sub-total 各月 footer */}
                   {months.map((m, i) => (
                     <td key={`ft-subtot-${m}`}
-                        className={`px-2 py-3 text-right text-xs font-bold tabular-nums bg-gray-200 text-gray-900 border-t-2 border-gray-300 ${i === months.length - 1 ? 'border-r border-r-gray-300' : 'border-r border-r-gray-300'}`}>
+                        className={`px-2 py-3 text-right text-xs font-bold tabular-nums bg-gray-200 text-gray-900 border-t-2 border-gray-300 ${i === months.length - 1 ? 'border-r-2 border-r-gray-300' : 'border-r border-r-gray-300'}`}>
                       {fmtNum(footTotals.byEuMonth[m] ?? 0)}
                     </td>
                   ))}
+                  {/* TOTAL block footer */}
+                  <td className="px-2 py-3 text-right text-sm font-bold tabular-nums bg-amber-100 text-amber-900 border-r border-t-2 border-amber-300">
+                    {fmtNum(footTotals.grandTotal)}
+                  </td>
+                  <td className="px-2 py-3 text-right text-xs font-bold tabular-nums bg-amber-50 text-gray-700 border-r border-t-2 border-amber-300">
+                    {(() => {
+                      const t = Object.values(fdStockBySkuCode ?? {}).reduce((s, v) => s + v, 0)
+                      return t > 0 ? fmtNum(t) : '-'
+                    })()}
+                  </td>
+                  <td className="px-2 py-3 text-right text-xs font-bold tabular-nums bg-amber-50 text-gray-700 border-r border-t-2 border-amber-300">
+                    {(() => {
+                      const t = Object.values(hqStockBySkuCode ?? {}).reduce((s, v) => s + v, 0)
+                      return t > 0 ? fmtNum(t) : '-'
+                    })()}
+                  </td>
                 </tr>
               </tfoot>
             )}

@@ -99,6 +99,54 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
     ly[skuCode][ctryCode][ym] = (ly[skuCode][ctryCode][ym] ?? 0) + (r.qty ?? 0)
   })
 
+  // ───── Stock from FD/HQ：按 SKU 聚合（admin summary 跨 KA 跨国家汇总到 SKU 级）─────
+  // RLS 自动过滤 admin 看全部 / sales 看自己国家
+  const [{ data: fdStockRaw }, { data: hqStockRaw }] = await Promise.all([
+    supabase.from('weekly_psi_v2')
+      .select('country_id, ka_id, sku_id, week_start, stock_qty')
+      .gte('week_start', new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString().slice(0, 10))
+      .order('week_start', { ascending: false })
+      .range(0, 49999),
+    supabase.from('hq_stock')
+      .select('country_id, sku_id, stock_qty, as_of_date')
+      .order('as_of_date', { ascending: false })
+      .range(0, 9999),
+  ])
+
+  // fdBySku[sku_code] = sum of latest stock_qty across all KAs and countries
+  // 用三层 map 防重复：先按 (country, ka, sku) 取最新一周，再 sum 到 sku
+  const fdLatestByCKSku: Record<string, number> = {}  // key = `${country_id}|${ka_id}|${sku_id}`
+  ;(fdStockRaw ?? []).forEach((r: any) => {
+    if (r.stock_qty === null || r.stock_qty === undefined) return
+    const k = `${r.country_id}|${r.ka_id}|${r.sku_id}`
+    if (fdLatestByCKSku[k] === undefined) fdLatestByCKSku[k] = Number(r.stock_qty)
+  })
+  const fdBySkuId: Record<number, number> = {}
+  Object.entries(fdLatestByCKSku).forEach(([k, v]) => {
+    const sku_id = Number(k.split('|')[2])
+    fdBySkuId[sku_id] = (fdBySkuId[sku_id] ?? 0) + v
+  })
+
+  // hqBySku 同样按 (country, sku) 最新一条，再求和到 sku
+  const hqLatestByCSku: Record<string, number> = {}
+  ;(hqStockRaw ?? []).forEach((r: any) => {
+    const k = `${r.country_id}|${r.sku_id}`
+    if (hqLatestByCSku[k] === undefined) hqLatestByCSku[k] = Number(r.stock_qty)
+  })
+  const hqBySkuId: Record<number, number> = {}
+  Object.entries(hqLatestByCSku).forEach(([k, v]) => {
+    const sku_id = Number(k.split('|')[1])
+    hqBySkuId[sku_id] = (hqBySkuId[sku_id] ?? 0) + v
+  })
+
+  // 把 sku_id → code 索引（summary view 是按 sku_code 显示的）
+  const fdBySkuCode: Record<string, number> = {}
+  const hqBySkuCode: Record<string, number> = {}
+  ;(allSkus ?? []).forEach((s: any) => {
+    if (fdBySkuId[s.id]) fdBySkuCode[s.code] = fdBySkuId[s.id]
+    if (hqBySkuId[s.id]) hqBySkuCode[s.code] = hqBySkuId[s.id]
+  })
+
   return (
     <ForecastSummaryView
       runs={runs}
@@ -107,6 +155,8 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
       allSkus={allSkus ?? []}
       countries={countries ?? []}
       lastYearData={ly}
+      fdStockBySkuCode={fdBySkuCode}
+      hqStockBySkuCode={hqBySkuCode}
       viewerIsAdmin={me.isAdmin}
       viewerName={me.displayName}
     />
@@ -123,7 +173,8 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
     { data: allSkus },
     { data: allKas },
     { data: allCells },
-    { data: rollingPsi },
+    { data: shipmentSiData },
+    { data: rollingSoData },
     { data: fdStockRaw },
     { data: hqStockRaw },
   ] = await Promise.all([
@@ -137,30 +188,30 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       .eq('is_active', true)
       .order('sort_order').order('code'),
 
-    // 全量 KA (active+inactive)，主表格客户端 filter active
     supabase.from('ka')
       .select('id, name, country_id, parent_distributor, ka_type, tier, sort_order, is_active, notes')
       .order('country_id').order('sort_order').order('name'),
 
-    // 本 cycle 的 cells
     supabase.from('forecast_cell')
       .select('run_id, sku_id, ka_id, month, qty, updated_by, updated_at')
       .eq('run_id', selectedRun.id),
 
-    // 第 1 列 SI/SO: 过去 3 完整月平均，view 派生 (country × ka × sku)
-    supabase.from('rolling_si_so_avg')
-      .select('country_id, ka_id, sku_id, si_avg_3mo, so_avg_3mo, months_with_data, from_month, to_month')
+    // Σ SI 数据源: shipment 出货量 (country × sku, 过去 3 月均) — 跨 KA 累加
+    supabase.from('shipment_si_3mo_avg')
+      .select('country_id, sku_id, si_avg_3mo')
       .range(0, 49999),
 
-    // Stock from FD: PSI 渠道库存 (distributor 类型 KA) 最新一周
-    // 拉最近 8 周以确保能找到最新非空 stock
+    // Σ SO 数据源: PSI 按 ka 类型 (retailer=SO / distributor=ST) (ka × sku, 过去 3 月均)
+    supabase.from('rolling_so_by_ka_sku')
+      .select('country_id, ka_id, sku_id, so_avg_3mo')
+      .range(0, 49999),
+
     supabase.from('weekly_psi_v2')
       .select('country_id, ka_id, sku_id, week_start, stock_qty')
       .gte('week_start', new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString().slice(0, 10))
       .order('week_start', { ascending: false })
       .range(0, 49999),
 
-    // Stock from HQ: 当前数据为空（admin 还没导入），保留 schema 占位
     supabase.from('hq_stock')
       .select('country_id, ka_id, sku_id, stock_qty, as_of_date')
       .order('as_of_date', { ascending: false })
@@ -188,16 +239,18 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
   const initialCountryCode = countryParam && myCountries.some((c: any) => c.code === countryParam)
     ? countryParam : (myCountries[0] as any).code
 
-  // ───────── Rolling 3-month SI/SO 平均（按 country × ka × sku）─────────
-  // 结构：rollingByKaSku[ka_id][sku_id] = { si, so, months }
-  const rollingByKaSku: Record<number, Record<number, { si: number; so: number; months: number }>> = {}
-  ;(rollingPsi ?? []).forEach((r: any) => {
-    if (!rollingByKaSku[r.ka_id]) rollingByKaSku[r.ka_id] = {}
-    rollingByKaSku[r.ka_id][r.sku_id] = {
-      si: Number(r.si_avg_3mo) || 0,
-      so: Number(r.so_avg_3mo) || 0,
-      months: r.months_with_data,
-    }
+  // ───────── Σ SI: shipment 出货 (country × sku, 过去 3 月均) ─────────
+  const siByCountrySku: Record<number, Record<number, number>> = {}
+  ;(shipmentSiData ?? []).forEach((r: any) => {
+    if (!siByCountrySku[r.country_id]) siByCountrySku[r.country_id] = {}
+    siByCountrySku[r.country_id][r.sku_id] = Number(r.si_avg_3mo) || 0
+  })
+
+  // ───────── Σ SO: PSI 按 ka 类型 (ka × sku, 过去 3 月均) ─────────
+  const soByKaSku: Record<number, Record<number, number>> = {}
+  ;(rollingSoData ?? []).forEach((r: any) => {
+    if (!soByKaSku[r.ka_id]) soByKaSku[r.ka_id] = {}
+    soByKaSku[r.ka_id][r.sku_id] = Number(r.so_avg_3mo) || 0
   })
 
   // ───────── Stock from FD: PSI 最新一周非空 stock_qty by KA × SKU ─────
@@ -230,7 +283,8 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       allKas={allKas ?? []}
       allSkus={allSkus ?? []}
       allCells={(allCells ?? []) as any[]}
-      rollingByKaSku={rollingByKaSku}
+      siByCountrySku={siByCountrySku}
+      soByKaSku={soByKaSku}
       fdStockByKaSku={fdStockByKaSku}
       hqStockByKaSku={hqStockByKaSku}
       editorNameMap={{}}
