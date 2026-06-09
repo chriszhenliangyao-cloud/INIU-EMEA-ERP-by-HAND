@@ -36,6 +36,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <Link href="/forecast" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
             📈 Demand Forecast
           </Link>
+          <Link href="/psi" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
+            📦 PSI Dashboard
+          </Link>
 
           {me.isAdmin && (
             <>

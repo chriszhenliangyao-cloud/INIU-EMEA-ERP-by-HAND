@@ -1,0 +1,2400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INIU PSI Dashboard</title>
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-soft: #f8fafc;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text: #111827;
+    --muted: #6b7280;
+    --muted-soft: #94a3b8;
+    --accent: #2563eb;
+    --accent-strong: #1d4ed8;
+    --accent-soft: #eff6ff;
+    --success: #16a34a;
+    --warning: #b45309;
+    --danger: #dc2626;
+    --panel-shadow: 0 1px 2px rgba(15,23,42,0.04);
+  }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg) !important; color: var(--text); }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+  .filter-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 28px;
+  }
+  .date-input input {
+    font-size: 0.875rem; border: 1px solid var(--border); border-radius: 0.5rem;
+    padding: 6px 12px; background: var(--surface-soft); outline: none; color: #374151; cursor: pointer;
+  }
+  .date-input input:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+  }
+  .week-badge {
+    display: inline-block; background: var(--accent-soft); color: var(--accent-strong);
+    font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 9999px; margin-top: 3px;
+  }
+  .loading-overlay {
+    position: fixed; inset: 0; background: rgba(255,255,255,0.9);
+    display: flex; align-items: center; justify-content: center; z-index: 9999;
+  }
+  .spinner { width: 40px; height: 40px; border: 4px solid #e2e8f0;
+    border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .chart-mode-btn {
+    border: 1px solid var(--border);
+    background: var(--surface-soft);
+    color: #475569;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.16s ease;
+  }
+  .chart-mode-btn.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: #fff;
+  }
+  .heatmap-wrap { height: 420px; overflow: auto; }
+  .chart-overlay-wrap {
+    position: relative;
+    height: 420px;
+  }
+  .chart-overlay-wrap canvas {
+    position: relative;
+    z-index: 2;
+  }
+  .heatmap-grid {
+    display: grid;
+    gap: 4px;
+    min-width: 640px;
+    align-items: stretch;
+  }
+  .heatmap-cell {
+    min-height: 42px;
+    border-radius: 6px;
+    border: 1px solid rgba(148,163,184,0.18);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .week-calendar-popover {
+    position: absolute;
+    z-index: 9997;
+    width: 360px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 18px 48px rgba(15,23,42,0.18);
+    padding: 14px;
+  }
+  .week-calendar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .week-calendar-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: #111827;
+  }
+  .week-calendar-nav {
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #334155;
+    border-radius: 8px;
+    width: 30px;
+    height: 30px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+  }
+  .week-calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr) 44px;
+    gap: 4px;
+    align-items: center;
+  }
+  .week-calendar-dow,
+  .week-calendar-week-head {
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .week-calendar-week {
+    height: 34px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    padding: 0;
+  }
+  .week-calendar-week:hover {
+    background: #dbeafe;
+    border-color: #93c5fd;
+  }
+  .week-calendar-day {
+    height: 34px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: #111827;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .week-calendar-day:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+  }
+  .week-calendar-day.muted { color: #94a3b8; }
+  .week-calendar-day.selected {
+    background: #2563eb;
+    color: #fff;
+    border-color: #1d4ed8;
+  }
+  .week-calendar-day.disabled {
+    color: #cbd5e1;
+    cursor: not-allowed;
+    background: transparent;
+  }
+  .heatmap-head, .heatmap-row-head {
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .heatmap-row-head {
+    justify-content: flex-start;
+    text-transform: none;
+    color: #334155;
+    position: sticky;
+    left: 0;
+    background: #fff;
+    z-index: 1;
+    padding-right: 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+<!-- Loading -->
+<div id="loading" class="loading-overlay">
+  <div class="text-center">
+    <div class="spinner mx-auto mb-3"></div>
+    <p class="text-sm text-gray-500">Loading PSI data...</p>
+  </div>
+</div>
+<div id="week-calendar-popover" class="week-calendar-popover" style="display:none;"></div>
+
+<script>
+// ============================================================
+// DATA
+// ============================================================
+let DB = { products:[], productsFamily:[], retailers:[], weeklyPSI:[], config:{} };
+let WEEKS_ALL = [];
+let PRODUCTS_META = {};
+const COLORS = ['#2563eb','#0f766e','#475569','#b45309','#4f46e5','#64748b','#0891b2','#7c3aed','#334155','#15803d'];
+const PRESET_GROUP_COLORS = {
+  'MagPro': '#2563eb',
+  'Pocket': '#0f766e',
+  'Leopard': '#475569',
+  'Charger': '#b45309',
+  'Cable': '#4f46e5',
+};
+
+function formatLocalDate(d) {
+  var yyyy = d.getFullYear();
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var dd = String(d.getDate()).padStart(2, '0');
+  return yyyy + '-' + mm + '-' + dd;
+}
+
+// Week header (2025W46) -> ISO week Monday
+function weekToStartDate(yw) {
+  if (!yw) return '';
+  var m = yw.match(/^(\d{4})W(\d{2})$/);
+  if (!m) return null;
+  var year = parseInt(m[1]), wk = parseInt(m[2]);
+  // Jan 4 is always in week 1 (ISO)
+  var jan4 = new Date(year, 0, 4);
+  var dayOfWeek = jan4.getDay() || 7;
+  var monday1 = new Date(jan4);
+  monday1.setDate(jan4.getDate() - dayOfWeek + 1);
+  var target = new Date(monday1);
+  target.setDate(monday1.getDate() + (wk - 1) * 7);
+  return target;
+}
+
+function weekToDate(yw, boundary) {
+  var start = weekToStartDate(yw);
+  if (!start) return '';
+  if (boundary === 'end') {
+    start.setDate(start.getDate() + 6);
+  }
+  return formatLocalDate(start);
+}
+
+function parseLocalDate(dateStr) {
+  var parts = String(dateStr || '').split('-').map(Number);
+  return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+function dateToWeekIndex(dateStr, boundary) {
+  var d = parseLocalDate(dateStr);
+  var best = 0, bestDiff = Infinity;
+  WEEKS_ALL.forEach(function(w, i) {
+    var wd = weekToStartDate(w);
+    if (boundary === 'end') wd.setDate(wd.getDate() + 6);
+    var diff = Math.abs(d - wd);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  });
+  return best;
+}
+
+var weekCalendarState = { inputId: null, boundary: 'start', monthDate: null };
+var weekCalendarWheelLock = false;
+
+function isoWeekNumber(dateObj) {
+  var d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  var week1 = new Date(d.getFullYear(), 0, 4);
+  return 1 + Math.round(((d - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+}
+
+function openWeekCalendar(inputId, boundary) {
+  var input = document.getElementById(inputId);
+  if (!input) return;
+  var selected = parseLocalDate(input.value);
+  weekCalendarState = {
+    inputId: inputId,
+    boundary: boundary,
+    monthDate: new Date(selected.getFullYear(), selected.getMonth(), 1),
+  };
+  renderWeekCalendar();
+  var pop = document.getElementById('week-calendar-popover');
+  var rect = input.getBoundingClientRect();
+  pop.style.display = 'block';
+  pop.style.left = Math.round(rect.left + window.scrollX) + 'px';
+  pop.style.top = Math.round(rect.bottom + window.scrollY + 8) + 'px';
+  if (!pop.dataset.bound) {
+    pop.dataset.bound = '1';
+    pop.addEventListener('click', onWeekCalendarClick);
+    pop.addEventListener('wheel', onWeekCalendarWheel, { passive: false });
+  }
+}
+
+function closeWeekCalendar() {
+  var pop = document.getElementById('week-calendar-popover');
+  if (pop) pop.style.display = 'none';
+}
+
+function shiftWeekCalendarMonth(delta) {
+  var d = weekCalendarState.monthDate || new Date();
+  weekCalendarState.monthDate = new Date(d.getFullYear(), d.getMonth() + delta, 1);
+  renderWeekCalendar();
+}
+
+function selectWeekCalendarDate(dateStr) {
+  var input = document.getElementById(weekCalendarState.inputId);
+  if (!input) return;
+  input.value = dateStr;
+  closeWeekCalendar();
+  onDateChange();
+}
+
+function selectWeekCalendarWeek(weekStartStr) {
+  var weekStart = parseLocalDate(weekStartStr);
+  var input = document.getElementById(weekCalendarState.inputId);
+  if (!input) return;
+  if (weekCalendarState.boundary === 'end') {
+    weekStart.setDate(weekStart.getDate() + 6);
+  }
+  input.value = formatLocalDate(weekStart);
+  closeWeekCalendar();
+  onDateChange();
+}
+
+function onWeekCalendarClick(e) {
+  e.stopPropagation();
+  var action = e.target && e.target.dataset ? e.target.dataset.action : null;
+  if (action === 'prev') {
+    shiftWeekCalendarMonth(-1);
+    return;
+  }
+  if (action === 'next') {
+    shiftWeekCalendarMonth(1);
+    return;
+  }
+  if (e.target && e.target.dataset && e.target.dataset.date) {
+    selectWeekCalendarDate(e.target.dataset.date);
+    return;
+  }
+  if (e.target && e.target.dataset && e.target.dataset.weekStart) {
+    selectWeekCalendarWeek(e.target.dataset.weekStart);
+  }
+}
+
+function onWeekCalendarWheel(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (weekCalendarWheelLock || Math.abs(e.deltaY) < 45) return;
+  weekCalendarWheelLock = true;
+  shiftWeekCalendarMonth(e.deltaY > 0 ? 1 : -1);
+  setTimeout(function() { weekCalendarWheelLock = false; }, 260);
+}
+
+function renderWeekCalendar() {
+  var pop = document.getElementById('week-calendar-popover');
+  if (!pop) return;
+  var monthDate = weekCalendarState.monthDate || new Date();
+  var selectedInput = document.getElementById(weekCalendarState.inputId);
+  var selectedValue = selectedInput ? selectedInput.value : '';
+  var minDate = parseLocalDate(weekToDate(WEEKS_ALL[0], 'start'));
+  var maxDate = parseLocalDate(weekToDate(WEEKS_ALL[WEEKS_ALL.length - 1], 'end'));
+  var firstOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  var gridStart = new Date(firstOfMonth);
+  gridStart.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+  var monthLabel = monthDate.getFullYear() + '年' + String(monthDate.getMonth() + 1).padStart(2, '0') + '月';
+  var html = '';
+  html += '<div class="week-calendar-header">';
+  html += '<button type="button" class="week-calendar-nav" data-action="prev">‹</button>';
+  html += '<div class="week-calendar-title">' + monthLabel + '</div>';
+  html += '<button type="button" class="week-calendar-nav" data-action="next">›</button>';
+  html += '</div>';
+  html += '<div class="week-calendar-grid">';
+  ['日','一','二','三','四','五','六'].forEach(function(d) {
+    html += '<div class="week-calendar-dow">' + d + '</div>';
+  });
+  html += '<div class="week-calendar-week-head">W</div>';
+  for (var row = 0; row < 6; row++) {
+    var rowStart = new Date(gridStart);
+    rowStart.setDate(gridStart.getDate() + row * 7);
+    for (var col = 0; col < 7; col++) {
+      var day = new Date(rowStart);
+      day.setDate(rowStart.getDate() + col);
+      var dateStr = formatLocalDate(day);
+      var muted = day.getMonth() !== monthDate.getMonth();
+      var disabled = day < minDate || day > maxDate;
+      var selected = dateStr === selectedValue;
+      var classes = 'week-calendar-day' + (muted ? ' muted' : '') + (selected ? ' selected' : '') + (disabled ? ' disabled' : '');
+      html += '<button type="button" class="' + classes + '"' + (disabled ? ' disabled' : ' data-date="' + dateStr + '"') + '>' + day.getDate() + '</button>';
+    }
+    var monday = new Date(rowStart);
+    monday.setDate(rowStart.getDate() + 1);
+    html += '<button type="button" class="week-calendar-week" data-week-start="' + formatLocalDate(monday) + '">W' + isoWeekNumber(monday) + '</button>';
+  }
+  html += '</div>';
+  pop.innerHTML = html;
+}
+
+document.addEventListener('click', function(e) {
+  var pop = document.getElementById('week-calendar-popover');
+  if (!pop || pop.style.display === 'none') return;
+  if (pop.contains(e.target)) return;
+  if (e.target && (e.target.id === 'f-dateFrom' || e.target.id === 'f-dateTo')) return;
+  closeWeekCalendar();
+});
+
+function weekDisplay(yw) {
+  if (!yw) return '';
+  // 2025W46 → W46
+  var m = yw.match(/W(\d{2})$/);
+  return m ? 'W' + parseInt(m[1]) : yw;
+}
+
+// ============================================================
+// STATE
+// ============================================================
+var state = { viewMode: 'retailer', weekFrom: 0, weekTo: 0, country: 'All', retailer: 'All', category: 'All', series: 'All', family: 'All', product: 'All', soViewMode: 'line', stockViewMode: 'line', soSelectedIndex: null, stockSelectedIndex: null };
+var hiddenProducts = {}; // track legend-toggled products: { productName: true }
+var legendInteracted = false; // true once user has clicked any legend item
+var totalSolo = false; // true when Total line is solo'd
+var USER_COUNTRIES = ['ALL'];
+var DISTRIBUTOR_SET = {};
+var GROUP_COLORS = {}; // stable color map for Series/Family grouping
+
+function inferProductHierarchy(productName, category, series, family) {
+  var name = String(productName || '');
+  var low = name.toLowerCase();
+  var cat = category || 'Other';
+  var out = { category: cat, series: series || '', family: family || '' };
+
+  if (!out.series) {
+    if (cat === 'Cable') out.series = 'Cable';
+    else if (cat === 'Charger') out.series = 'Charger';
+    else if (low.indexOf('magpro') !== -1) out.series = 'MagPro';
+    else if (low.indexOf('leopard') !== -1) out.series = 'Leopard';
+    else if (low.indexOf('pocket') !== -1 || low.indexOf('powerpaw') !== -1 || low.indexOf('rock power') !== -1) out.series = 'Pocket';
+    else out.series = 'Other';
+  }
+
+  if (!out.family) {
+    if (out.series === 'Cable') out.family = low.indexOf('display') !== -1 ? 'Display Cable' : (low.indexOf('magnetic') !== -1 ? 'Magnetic Cable' : 'Standard Cable');
+    else if (out.series === 'Charger') out.family = low.indexOf('desktop') !== -1 ? 'Desktop Charger' : ((low.indexOf('stand') !== -1 || low.indexOf('2-in-1') !== -1 || low.indexOf('3-in-1') !== -1 || low.indexOf('station') !== -1) ? 'Wireless Charger' : 'Wall Charger');
+    else if (out.series === 'MagPro') out.family = low.indexOf('slim') !== -1 ? 'MagPro Slim' : (low.indexOf('neo') !== -1 ? 'MagPro Neo' : 'MagPro Core');
+    else if (out.series === 'Leopard') out.family = 'Leopard Power';
+    else if (out.series === 'Pocket') out.family = low.indexOf('pro') !== -1 ? 'Pocket Pro' : (low.indexOf('neo') !== -1 ? 'Pocket Neo' : (low.indexOf('plus') !== -1 ? 'Pocket Plus' : (low.indexOf('pocket') !== -1 ? 'Pocket Classic' : 'Pocket Other')));
+    else out.family = 'Other';
+  }
+
+  return out;
+}
+
+function getVolumeMetric() {
+  return state.viewMode === 'fd' ? 'ST' : 'SO';
+}
+function isRetailerInView(retailerName) {
+  return state.viewMode === 'fd' ? !!DISTRIBUTOR_SET[retailerName] : !DISTRIBUTOR_SET[retailerName];
+}
+function getActiveGrain() {
+  if (state.product !== 'All' || state.family !== 'All') return 'product';
+  if (state.series !== 'All') return 'family';
+  return 'series';
+}
+function getActiveGrainLabel() {
+  var grain = getActiveGrain();
+  return grain === 'series' ? 'Series' : grain === 'family' ? 'Family' : 'Product';
+}
+function getGroupKey(productName) {
+  var meta = PRODUCTS_META[productName] || {};
+  var grain = getActiveGrain();
+  if (grain === 'series') return meta.series || 'Other';
+  if (grain === 'family') return meta.family || 'Other';
+  return productName;
+}
+function getGroupColor(groupName) {
+  if (getActiveGrain() === 'product') return (PRODUCTS_META[groupName] || { color: '#94a3b8' }).color;
+  if (PRESET_GROUP_COLORS[groupName]) return PRESET_GROUP_COLORS[groupName];
+  if (GROUP_COLORS[groupName]) return GROUP_COLORS[groupName];
+  var usedColors = Object.values(GROUP_COLORS);
+  for (var i = 0; i < COLORS.length; i++) {
+    if (usedColors.indexOf(COLORS[i]) === -1) { GROUP_COLORS[groupName] = COLORS[i]; return COLORS[i]; }
+  }
+  GROUP_COLORS[groupName] = COLORS[Object.keys(GROUP_COLORS).length % COLORS.length];
+  return GROUP_COLORS[groupName];
+}
+
+// ============================================================
+// LOAD DATA FROM GOOGLE SHEETS
+// ============================================================
+function initApp() {
+  setTimeout(function() {
+    var loading = document.getElementById('loading');
+    if (loading && loading.style.display !== 'none') {
+      loading.innerHTML =
+        '<div class="text-center" style="max-width:420px;">' +
+        '<div class="spinner mx-auto mb-3"></div>' +
+        '<p style="color:#b45309;font-weight:700;margin-bottom:8px;">Still loading data</p>' +
+        '<p class="text-sm text-gray-500">The Google Sheets backend has not returned yet. If this stays here, check Apps Script executions for loadAllData().</p>' +
+        '</div>';
+    }
+  }, 20000);
+  fetch('/api/psi/load-all', { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(onDataLoaded)
+    .catch(onDataError);
+}
+
+function onDataLoaded(data) {
+  if (data.backendError) {
+    document.getElementById('loading').innerHTML =
+      '<div class="text-center"><p style="color:#dc2626;font-weight:700;margin-bottom:8px;">Backend Error</p>' +
+      '<p class="text-sm text-gray-500">' + data.backendError + '</p></div>';
+    return;
+  }
+  if (data.accessDenied) {
+    document.getElementById('loading').innerHTML =
+      '<div class="text-center"><p style="color:#dc2626;font-weight:700;margin-bottom:8px;">Access Denied</p>' +
+      '<p class="text-sm text-gray-500">You do not have permission to view this dashboard.<br>Please contact the administrator.</p></div>';
+    return;
+  }
+  DB = data;
+  USER_COUNTRIES = data.userCountries || ['ALL'];
+
+  // Build distributor lookup
+  DB.retailers.forEach(function(r) {
+    if (r.Type === 'Distributor') DISTRIBUTOR_SET[r.Retailer] = true;
+  });
+
+  // No data after permission filtering
+  if (!DB.weeklyPSI || DB.weeklyPSI.length === 0) {
+    document.getElementById('loading').innerHTML =
+      '<div class="text-center"><p style="color:#b45309;font-weight:700;margin-bottom:8px;">No Data</p>' +
+      '<p class="text-sm text-gray-500">No data available for your assigned countries.<br>Please contact the administrator if this is unexpected.</p></div>';
+    return;
+  }
+
+  // Build WEEKS_ALL from backend week headers first, then fall back to Weekly_PSI object keys
+  WEEKS_ALL = (DB.weeks || []).filter(function(w) {
+    return String(w).match(/^\d{4}W\d{2}$/);
+  });
+  if (WEEKS_ALL.length === 0 && DB.weeklyPSI.length > 0) {
+    var sampleRow = DB.weeklyPSI[0];
+    var weekKeys = Object.keys(sampleRow).filter(function(k) {
+      return k.match(/^\d{4}W\d{2}$/);
+    });
+    // Sort chronologically
+    weekKeys.sort(function(a, b) {
+      return a.localeCompare(b);
+    });
+    WEEKS_ALL = weekKeys;
+  }
+
+  if (WEEKS_ALL.length === 0) {
+    document.getElementById('loading').innerHTML =
+      '<div class="text-center"><p style="color:#b45309;font-weight:700;margin-bottom:8px;">No Week Columns</p>' +
+      '<p class="text-sm text-gray-500">Weekly_PSI has no week columns like 2025W32.<br>Please check the sheet header row.</p></div>';
+    return;
+  }
+
+  // Build hierarchy lookup from Products_Family sheet
+  var HIERARCHY_MAP = {};
+  (DB.productsFamily || []).forEach(function(r) {
+    if (r['Product Name']) {
+      HIERARCHY_MAP[r['Product Name']] = {
+        category: r.Category,
+        series: r.Series,
+        family: r.Family,
+      };
+    }
+  });
+
+  // Build product meta
+  var productNames = [];
+  DB.weeklyPSI.forEach(function(r) {
+    if ((r.Metric === 'SO' || r.Metric === 'ST') && productNames.indexOf(r['Product Name']) === -1) {
+      productNames.push(r['Product Name']);
+    }
+  });
+  productNames.sort();
+  PRODUCTS_META = {};
+  productNames.forEach(function(name, i) {
+    var prod = DB.products.find(function(p) { return p['Product Name'] === name; });
+    var hierarchy = HIERARCHY_MAP[name] || {};
+    hierarchy = inferProductHierarchy(name, hierarchy.category || (prod ? prod.Category : 'Other'), hierarchy.series, hierarchy.family);
+    PRODUCTS_META[name] = {
+      category: hierarchy.category || (prod ? prod.Category : 'Other'),
+      series: hierarchy.series || 'Other',
+      family: hierarchy.family || 'Other',
+      color: COLORS[i % COLORS.length],
+    };
+  });
+
+  // Set state defaults
+  state.weekFrom = Math.max(0, WEEKS_ALL.length - 4);
+  state.weekTo = WEEKS_ALL.length - 1;
+
+  populateFilters();
+  updateWeekBadges();
+
+  document.getElementById('loading').style.display = 'none';
+  setTimeout(function() { safeRenderAll('initial render'); }, 0);
+}
+
+function onDataError(err) {
+  document.getElementById('loading').innerHTML =
+    '<div class="text-center"><p style="color:#dc2626;font-weight:700;margin-bottom:8px;">Failed to load data</p>' +
+    '<p class="text-sm text-gray-500">' + err.message + '</p></div>';
+}
+
+// ============================================================
+// FILTERS
+// ============================================================
+function populateFilters() {
+  // Date pickers
+  var firstDate = weekToDate(WEEKS_ALL[0], 'start');
+  var lastDate = weekToDate(WEEKS_ALL[WEEKS_ALL.length - 1], 'end');
+  var selectedFromDate = weekToDate(WEEKS_ALL[state.weekFrom], 'start');
+  var selectedToDate = weekToDate(WEEKS_ALL[state.weekTo], 'end');
+  var df = document.getElementById('f-dateFrom');
+  var dt = document.getElementById('f-dateTo');
+  df.value = selectedFromDate; dt.value = selectedToDate;
+
+  // Countries
+  var countries = [];
+  DB.retailers.forEach(function(r) {
+    if (!isRetailerInView(r.Retailer)) return;
+    if (countries.indexOf(r.Country) === -1) countries.push(r.Country);
+  });
+  var cs = document.getElementById('f-country');
+  var isAdmin = USER_COUNTRIES.length === 1 && USER_COUNTRIES[0] === 'ALL';
+
+  if (!isAdmin && countries.length === 1) {
+    // Single country user → lock to that country
+    cs.innerHTML = '<option value="' + countries[0] + '">' + countries[0] + '</option>';
+    cs.disabled = true;
+    state.country = countries[0];
+  } else if (!isAdmin) {
+    // Multi-country user → only allowed countries
+    cs.innerHTML = '<option value="All">All Countries</option>';
+    countries.forEach(function(c) {
+      cs.innerHTML += '<option value="' + c + '">' + c + '</option>';
+    });
+  } else {
+    // Admin → all countries
+    countries.forEach(function(c) {
+      cs.innerHTML += '<option value="' + c + '">' + c + '</option>';
+    });
+  }
+
+  // Retailers
+  var rs = document.getElementById('f-retailer');
+  DB.retailers.forEach(function(r) {
+    if (!isRetailerInView(r.Retailer)) return;
+    rs.innerHTML += '<option value="' + r.Retailer + '">' + r.Retailer + '</option>';
+  });
+
+  // Categories
+  var categories = [];
+  Object.keys(PRODUCTS_META).forEach(function(p) {
+    var c = PRODUCTS_META[p].category;
+    if (categories.indexOf(c) === -1) categories.push(c);
+  });
+  categories.sort();
+  var cats = document.getElementById('f-category');
+  categories.forEach(function(c) {
+    cats.innerHTML += '<option value="' + c + '">' + c + '</option>';
+  });
+
+  // Series
+  var seriesList = [];
+  Object.keys(PRODUCTS_META).forEach(function(p) {
+    var s = PRODUCTS_META[p].series;
+    if (seriesList.indexOf(s) === -1) seriesList.push(s);
+  });
+  seriesList.sort();
+  var ss = document.getElementById('f-series');
+  seriesList.forEach(function(s) {
+    ss.innerHTML += '<option value="' + s + '">' + s + '</option>';
+  });
+
+  // Families
+  var families = [];
+  Object.keys(PRODUCTS_META).forEach(function(p) {
+    var f = PRODUCTS_META[p].family;
+    if (families.indexOf(f) === -1) families.push(f);
+  });
+  families.sort();
+  var fs = document.getElementById('f-family');
+  families.forEach(function(f) {
+    fs.innerHTML += '<option value="' + f + '">' + f + '</option>';
+  });
+
+  // Products
+  var ps = document.getElementById('f-product');
+  Object.keys(PRODUCTS_META).sort().forEach(function(p) {
+    ps.innerHTML += '<option value="' + p + '">' + p + '</option>';
+  });
+}
+
+function updateWeekBadges() {
+  document.getElementById('badge-from').textContent = weekDisplay(WEEKS_ALL[state.weekFrom] || '');
+  document.getElementById('badge-to').textContent = weekDisplay(WEEKS_ALL[state.weekTo] || '');
+}
+
+function onDateChange() {
+  state.weekFrom = dateToWeekIndex(document.getElementById('f-dateFrom').value, 'start');
+  state.weekTo = dateToWeekIndex(document.getElementById('f-dateTo').value, 'end');
+  if (state.weekTo < state.weekFrom) state.weekTo = state.weekFrom;
+  updateWeekBadges();
+  safeRenderAll('date change');
+}
+
+function onFilterChange(source) {
+  state.country = document.getElementById('f-country').value;
+
+  // Country changed → update retailer options
+  if (source === 'country') {
+    var rs = document.getElementById('f-retailer');
+    var prev = rs.value;
+    rs.innerHTML = '<option value="All">' + (state.viewMode === 'fd' ? 'All Distributors' : 'All Retailers') + '</option>';
+    DB.retailers.forEach(function(r) {
+      if (!isRetailerInView(r.Retailer)) return;
+      if (state.country === 'All' || r.Country === state.country) {
+        rs.innerHTML += '<option value="' + r.Retailer + '">' + r.Retailer + '</option>';
+      }
+    });
+    rs.value = rs.querySelector('option[value="' + prev + '"]') ? prev : 'All';
+  }
+
+  state.retailer = document.getElementById('f-retailer').value;
+
+  // Country or retailer changed → update category options
+  if (source === 'country' || source === 'retailer') {
+    var availableForCat = {};
+    DB.weeklyPSI.forEach(function(r) {
+      if (r.Metric !== getVolumeMetric()) return;
+      if (!isRetailerInView(r.Retailer)) return;
+      if (state.country !== 'All' && r.Country !== state.country) return;
+      if (state.retailer !== 'All' && r.Retailer !== state.retailer) return;
+      availableForCat[r['Product Name']] = true;
+    });
+    var availableCategories = {};
+    Object.keys(availableForCat).forEach(function(p) {
+      var cat = (PRODUCTS_META[p] || {}).category || 'Other';
+      availableCategories[cat] = true;
+    });
+    var cats = document.getElementById('f-category');
+    var prevCat = cats.value;
+    cats.innerHTML = '<option value="All">All Categories</option>';
+    Object.keys(availableCategories).sort().forEach(function(c) {
+      cats.innerHTML += '<option value="' + c + '">' + c + '</option>';
+    });
+    cats.value = cats.querySelector('option[value="' + prevCat + '"]') ? prevCat : 'All';
+  }
+
+  state.category = document.getElementById('f-category').value;
+
+  // Country, retailer, or category changed → update series options
+  if (source === 'country' || source === 'retailer' || source === 'category') {
+    var availableSeries = {};
+    DB.weeklyPSI.forEach(function(r) {
+      if (r.Metric !== getVolumeMetric()) return;
+      if (!isRetailerInView(r.Retailer)) return;
+      if (state.country !== 'All' && r.Country !== state.country) return;
+      if (state.retailer !== 'All' && r.Retailer !== state.retailer) return;
+      var pName = r['Product Name'];
+      if (state.category !== 'All' && ((PRODUCTS_META[pName] || {}).category || 'Other') !== state.category) return;
+      var ser = (PRODUCTS_META[pName] || {}).series || 'Other';
+      availableSeries[ser] = true;
+    });
+    var ss = document.getElementById('f-series');
+    var prevSeries = ss.value;
+    ss.innerHTML = '<option value="All">All Series</option>';
+    Object.keys(availableSeries).sort().forEach(function(s) {
+      ss.innerHTML += '<option value="' + s + '">' + s + '</option>';
+    });
+    ss.value = ss.querySelector('option[value="' + prevSeries + '"]') ? prevSeries : 'All';
+  }
+
+  state.series = document.getElementById('f-series').value;
+
+  // Country, retailer, category, or series changed → update family options
+  if (source === 'country' || source === 'retailer' || source === 'category' || source === 'series') {
+    var availableFamilies = {};
+    DB.weeklyPSI.forEach(function(r) {
+      if (r.Metric !== getVolumeMetric()) return;
+      if (!isRetailerInView(r.Retailer)) return;
+      if (state.country !== 'All' && r.Country !== state.country) return;
+      if (state.retailer !== 'All' && r.Retailer !== state.retailer) return;
+      var pName = r['Product Name'];
+      var meta = PRODUCTS_META[pName] || {};
+      if (state.category !== 'All' && (meta.category || 'Other') !== state.category) return;
+      if (state.series !== 'All' && (meta.series || 'Other') !== state.series) return;
+      var fam = (PRODUCTS_META[pName] || {}).family || 'Other';
+      availableFamilies[fam] = true;
+    });
+    var fs = document.getElementById('f-family');
+    var prevFam = fs.value;
+    fs.innerHTML = '<option value="All">All Families</option>';
+    Object.keys(availableFamilies).sort().forEach(function(f) {
+      fs.innerHTML += '<option value="' + f + '">' + f + '</option>';
+    });
+    fs.value = fs.querySelector('option[value="' + prevFam + '"]') ? prevFam : 'All';
+  }
+
+  state.family = document.getElementById('f-family').value;
+
+  // Family, series, category, country, or retailer changed → update product options
+  if (source === 'country' || source === 'retailer' || source === 'category' || source === 'series' || source === 'family') {
+    var availableProducts2 = {};
+    DB.weeklyPSI.forEach(function(r) {
+      if (r.Metric !== getVolumeMetric()) return;
+      if (!isRetailerInView(r.Retailer)) return;
+      if (state.country !== 'All' && r.Country !== state.country) return;
+      if (state.retailer !== 'All' && r.Retailer !== state.retailer) return;
+      var pName = r['Product Name'];
+      var meta = PRODUCTS_META[pName] || {};
+      if (state.category !== 'All' && (meta.category || 'Other') !== state.category) return;
+      if (state.series !== 'All' && (meta.series || 'Other') !== state.series) return;
+      if (state.family !== 'All' && (meta.family || 'Other') !== state.family) return;
+      availableProducts2[pName] = true;
+    });
+    var ps = document.getElementById('f-product');
+    var prevProd = ps.value;
+    ps.innerHTML = '<option value="All">All Products</option>';
+    Object.keys(availableProducts2).sort().forEach(function(p) {
+      ps.innerHTML += '<option value="' + p + '">' + p + '</option>';
+    });
+    ps.value = ps.querySelector('option[value="' + prevProd + '"]') ? prevProd : 'All';
+    // Reset legend visibility when filters change
+    hiddenProducts = {};
+    legendInteracted = false;
+    totalSolo = false;
+    pieHiddenProducts = {};
+    state.soSelectedIndex = null;
+    state.stockSelectedIndex = null;
+  }
+
+  state.product = document.getElementById('f-product').value;
+  if (source === 'product') {
+    hiddenProducts = {};
+    legendInteracted = false;
+    totalSolo = false;
+    pieHiddenProducts = {};
+    state.soSelectedIndex = null;
+    state.stockSelectedIndex = null;
+  }
+  safeRenderAll('filter change');
+}
+
+// ============================================================
+// DATA QUERIES
+// ============================================================
+function getFilteredRows(metric) {
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  return DB.weeklyPSI.filter(function(r) {
+    if (r.Metric !== metric) return false;
+    if (!isRetailerInView(r.Retailer)) return false;
+    if (state.country !== 'All' && r.Country !== state.country) return false;
+    if (state.retailer !== 'All' && r.Retailer !== state.retailer) return false;
+    if (state.category !== 'All' && ((PRODUCTS_META[r['Product Name']] || {}).category || 'Other') !== state.category) return false;
+    if (state.series !== 'All' && ((PRODUCTS_META[r['Product Name']] || {}).series || 'Other') !== state.series) return false;
+    if (state.family !== 'All' && ((PRODUCTS_META[r['Product Name']] || {}).family || 'Other') !== state.family) return false;
+    if (state.product !== 'All' && r['Product Name'] !== state.product) return false;
+    return true;
+  });
+}
+
+function getProductSO() {
+  var soRows = getFilteredRows(getVolumeMetric());
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  // Aggregate by group key (product or family) across retailers
+  var result = {};
+  soRows.forEach(function(r) {
+    var key = getGroupKey(r['Product Name']);
+    if (!result[key]) result[key] = {};
+    weeks.forEach(function(w) {
+      var val = r[w];
+      if (val !== '' && val !== null && val !== undefined) {
+        result[key][w] = (result[key][w] || 0) + Number(val);
+      }
+    });
+  });
+  // Convert to arrays
+  var out = {};
+  Object.keys(result).forEach(function(k) {
+    out[k] = weeks.map(function(w) { return result[k][w] !== undefined ? result[k][w] : null; });
+  });
+  return out;
+}
+
+function getProductStock() {
+  var stockRows = getFilteredRows('Stock');
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  var result = {};
+  stockRows.forEach(function(r) {
+    var key = getGroupKey(r['Product Name']);
+    if (!result[key]) result[key] = {};
+    weeks.forEach(function(w) {
+      var val = r[w];
+      if (val !== '' && val !== null && val !== undefined) {
+        result[key][w] = (result[key][w] || 0) + Number(val);
+      }
+    });
+  });
+  var out = {};
+  Object.keys(result).forEach(function(k) {
+    out[k] = weeks.map(function(w) { return result[k][w] !== undefined ? result[k][w] : null; });
+  });
+  return out;
+}
+
+var RETAILER_COLORS_PRESET = {
+  'Boulanger': '#2563eb', 'Fnac': '#475569', 'Darty': '#b45309',
+  'SFR': '#991b1b', 'Orange': '#92400e'
+};
+var RETAILER_COLOR_PALETTE = [
+  '#2563eb', '#0f766e', '#475569', '#b45309', '#4f46e5',
+  '#64748b', '#0891b2', '#7c3aed', '#334155', '#15803d'
+];
+var RETAILER_COLORS = {};
+
+function getRetailerColor(name) {
+  if (RETAILER_COLORS[name]) return RETAILER_COLORS[name];
+  if (RETAILER_COLORS_PRESET[name]) {
+    RETAILER_COLORS[name] = RETAILER_COLORS_PRESET[name];
+    return RETAILER_COLORS[name];
+  }
+  // Assign next unused color from palette
+  var usedColors = Object.values(RETAILER_COLORS);
+  for (var i = 0; i < RETAILER_COLOR_PALETTE.length; i++) {
+    if (usedColors.indexOf(RETAILER_COLOR_PALETTE[i]) === -1) {
+      RETAILER_COLORS[name] = RETAILER_COLOR_PALETTE[i];
+      return RETAILER_COLORS[name];
+    }
+  }
+  // Fallback: hash-based color
+  var hash = 0;
+  for (var j = 0; j < name.length; j++) hash = name.charCodeAt(j) + ((hash << 5) - hash);
+  RETAILER_COLORS[name] = 'hsl(' + (hash % 360) + ',34%,42%)';
+  return RETAILER_COLORS[name];
+}
+
+function calcDOS(stock, soMap, latestWeek) {
+  // DOS = Stock / AVG(current + past 3 weeks SO) * 7
+  var latestIdx = WEEKS_ALL.indexOf(latestWeek);
+  var soWindow = [];
+  for (var j = Math.max(0, latestIdx - 3); j <= latestIdx; j++) {
+    var sv = soMap[WEEKS_ALL[j]];
+    if (sv !== undefined && sv !== null) soWindow.push(sv);
+  }
+  if (soWindow.length === 0) return 9999;
+  var avgSO = soWindow.reduce(function(a, b) { return a + b; }, 0) / soWindow.length;
+  return avgSO > 0 ? Math.round(stock / avgSO * 7 * 10) / 10 : 9999;
+}
+
+function getStockDOS() {
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  var stockRows = getFilteredRows('Stock');
+  var soRows = getFilteredRows(getVolumeMetric());
+
+  if (getActiveGrain() !== 'product') {
+    // Series/Family mode: aggregate stock and volume by group|retailer, then calc DOS
+    var familyStock = {}; // key: group|retailer -> { stock, latestWeek }
+    stockRows.forEach(function(sr) {
+      var fam = getGroupKey(sr['Product Name']);
+      var fKey = fam + '|' + sr.Retailer;
+      for (var i = weeks.length - 1; i >= 0; i--) {
+        var v = sr[weeks[i]];
+        if (v !== '' && v !== null && v !== undefined) {
+          if (!familyStock[fKey]) familyStock[fKey] = { product: fam, retailer: sr.Retailer, stock: 0, latestWeek: weeks[i] };
+          familyStock[fKey].stock += Number(v);
+          // Use latest week among all products in family
+          if (weeks[i] > familyStock[fKey].latestWeek) familyStock[fKey].latestWeek = weeks[i];
+          break;
+        }
+      }
+    });
+
+    var familySO = {}; // key: group|retailer -> { week: value }
+    soRows.forEach(function(sr) {
+      var fam = getGroupKey(sr['Product Name']);
+      var fKey = fam + '|' + sr.Retailer;
+      if (!familySO[fKey]) familySO[fKey] = {};
+      for (var i = 0; i < WEEKS_ALL.length; i++) {
+        var sv = sr[WEEKS_ALL[i]];
+        if (sv !== '' && sv !== null && sv !== undefined) {
+          familySO[fKey][WEEKS_ALL[i]] = (familySO[fKey][WEEKS_ALL[i]] || 0) + Number(sv);
+        }
+      }
+    });
+
+    var entries = [];
+    Object.keys(familyStock).forEach(function(fKey) {
+      var e = familyStock[fKey];
+      var so = familySO[fKey] || {};
+      e.dosDays = calcDOS(e.stock, so, e.latestWeek);
+      entries.push(e);
+    });
+    return entries.filter(function(e) { return e.dosDays < 5000; });
+  }
+
+  // Product mode (original logic)
+  var entries = [];
+  stockRows.forEach(function(sr) {
+    var latestWeek = null;
+    var stockVal = null;
+    for (var i = weeks.length - 1; i >= 0; i--) {
+      var v = sr[weeks[i]];
+      if (v !== '' && v !== null && v !== undefined) {
+        latestWeek = weeks[i];
+        stockVal = Number(v);
+        break;
+      }
+    }
+    if (latestWeek === null) return;
+    entries.push({
+      product: sr['Product Name'],
+      retailer: sr.Retailer,
+      stock: stockVal,
+      latestWeek: latestWeek,
+    });
+  });
+
+  var soByPR = {};
+  soRows.forEach(function(sr) {
+    var key = sr['Product Name'] + '|' + sr.Retailer;
+    if (!soByPR[key]) soByPR[key] = {};
+    for (var i = 0; i < WEEKS_ALL.length; i++) {
+      var sv = sr[WEEKS_ALL[i]];
+      if (sv !== '' && sv !== null && sv !== undefined) {
+        soByPR[key][WEEKS_ALL[i]] = (soByPR[key][WEEKS_ALL[i]] || 0) + Number(sv);
+      }
+    }
+  });
+
+  entries.forEach(function(e) {
+    var so = soByPR[e.product + '|' + e.retailer] || {};
+    e.dosDays = calcDOS(e.stock, so, e.latestWeek);
+  });
+
+  return entries.filter(function(e) { return e.dosDays < 5000; });
+}
+
+// ============================================================
+// VIEW MODE TOGGLE (Retailer / FD)
+// ============================================================
+function onViewModeChange(mode) {
+  if (state.viewMode === mode) return;
+  state.viewMode = mode;
+  state.country = 'All';
+  state.retailer = 'All';
+  state.category = 'All';
+  state.series = 'All';
+  state.family = 'All';
+  state.product = 'All';
+  hiddenProducts = {};
+  legendInteracted = false;
+  totalSolo = false;
+  pieHiddenProducts = {};
+  state.soSelectedIndex = null;
+  state.stockSelectedIndex = null;
+
+  GROUP_COLORS = {};
+
+  // Update view toggle button styling
+  var btnR = document.getElementById('btn-retailer');
+  var btnFd = document.getElementById('btn-fd');
+  btnR.style.background = mode === 'retailer' ? '#2563eb' : '#f8fafc';
+  btnR.style.color = mode === 'retailer' ? '#fff' : '#64748b';
+  btnFd.style.background = mode === 'fd' ? '#2563eb' : '#f8fafc';
+  btnFd.style.color = mode === 'fd' ? '#fff' : '#64748b';
+
+  // Rebuild country dropdown
+  var countries = [];
+  DB.retailers.forEach(function(r) {
+    if (!isRetailerInView(r.Retailer)) return;
+    if (countries.indexOf(r.Country) === -1) countries.push(r.Country);
+  });
+  var cs = document.getElementById('f-country');
+  var isAdmin = USER_COUNTRIES.length === 1 && USER_COUNTRIES[0] === 'ALL';
+  cs.disabled = false;
+  if (!isAdmin && countries.length === 1) {
+    cs.innerHTML = '<option value="' + countries[0] + '">' + countries[0] + '</option>';
+    cs.disabled = true;
+    state.country = countries[0];
+  } else {
+    cs.innerHTML = '<option value="All">All Countries</option>';
+    countries.forEach(function(c) {
+      cs.innerHTML += '<option value="' + c + '">' + c + '</option>';
+    });
+  }
+
+  // Rebuild retailer/distributor dropdown
+  var rs = document.getElementById('f-retailer');
+  rs.innerHTML = '<option value="All">' + (mode === 'fd' ? 'All Distributors' : 'All Retailers') + '</option>';
+  DB.retailers.forEach(function(r) {
+    if (!isRetailerInView(r.Retailer)) return;
+    if (state.country !== 'All' && r.Country !== state.country) return;
+    rs.innerHTML += '<option value="' + r.Retailer + '">' + r.Retailer + '</option>';
+  });
+
+  // Rebuild category, series, family & product from available volume data
+  var viewProducts = {};
+  DB.weeklyPSI.forEach(function(r) {
+    if (r.Metric !== getVolumeMetric()) return;
+    if (!isRetailerInView(r.Retailer)) return;
+    if (state.country !== 'All' && r.Country !== state.country) return;
+    viewProducts[r['Product Name']] = true;
+  });
+
+  var viewCategories = [];
+  Object.keys(viewProducts).forEach(function(p) {
+    var c = (PRODUCTS_META[p] || {}).category || 'Other';
+    if (viewCategories.indexOf(c) === -1) viewCategories.push(c);
+  });
+  viewCategories.sort();
+  var cats = document.getElementById('f-category');
+  cats.innerHTML = '<option value="All">All Categories</option>';
+  viewCategories.forEach(function(c) {
+    cats.innerHTML += '<option value="' + c + '">' + c + '</option>';
+  });
+
+  var seriesList = [];
+  Object.keys(viewProducts).forEach(function(p) {
+    var s = (PRODUCTS_META[p] || {}).series || 'Other';
+    if (seriesList.indexOf(s) === -1) seriesList.push(s);
+  });
+  seriesList.sort();
+  var ss = document.getElementById('f-series');
+  ss.innerHTML = '<option value="All">All Series</option>';
+  seriesList.forEach(function(s) {
+    ss.innerHTML += '<option value="' + s + '">' + s + '</option>';
+  });
+
+  var families = [];
+  Object.keys(viewProducts).forEach(function(p) {
+    var f = (PRODUCTS_META[p] || {}).family || 'Other';
+    if (families.indexOf(f) === -1) families.push(f);
+  });
+  families.sort();
+  var fs = document.getElementById('f-family');
+  fs.innerHTML = '<option value="All">All Families</option>';
+  families.forEach(function(f) {
+    fs.innerHTML += '<option value="' + f + '">' + f + '</option>';
+  });
+
+  var ps = document.getElementById('f-product');
+  ps.innerHTML = '<option value="All">All Products</option>';
+  Object.keys(viewProducts).sort().forEach(function(p) {
+    ps.innerHTML += '<option value="' + p + '">' + p + '</option>';
+  });
+
+  updateViewLabels();
+  safeRenderAll('view mode change');
+}
+
+function updateViewLabels() {
+  var isFD = state.viewMode === 'fd';
+  var grainLabel = getActiveGrainLabel();
+  var volumeLabel = isFD ? 'Sell-Through' : 'Sell-Out';
+  var stockLabel = isFD ? 'Inventory' : 'Stock';
+  document.getElementById('lbl-so-title').textContent = volumeLabel + ' Trend by ' + grainLabel;
+  document.getElementById('lbl-so-sub').textContent = isFD
+    ? 'Weekly sell-through · Drill down Series → Family → Product'
+    : 'Weekly sell-out · Drill down Series → Family → Product';
+  document.getElementById('lbl-stock-title').textContent = stockLabel + ' Trend by ' + grainLabel;
+  document.getElementById('lbl-stock-sub').textContent = isFD
+    ? 'Weekly inventory · Synced with ' + volumeLabel + ' legend toggle'
+    : 'Weekly stock · Synced with ' + volumeLabel + ' legend toggle';
+  document.getElementById('lbl-pie-so-title').textContent = grainLabel + ' Share — ' + volumeLabel;
+  document.getElementById('lbl-pie-so-sub').textContent = volumeLabel.toLowerCase() + ' share in selected period';
+  document.getElementById('lbl-pie-stock-title').textContent = grainLabel + ' Share — ' + stockLabel;
+  document.getElementById('lbl-pie-stock-sub').textContent = stockLabel.toLowerCase() + ' share in selected period';
+  document.getElementById('lbl-pie-legend-title').textContent = grainLabel;
+  document.getElementById('lbl-summary-title').textContent = 'PSI Summary by ' + grainLabel;
+  document.getElementById('lbl-retailer-filter').textContent = isFD ? 'Distributor' : 'Retailer';
+}
+
+// ============================================================
+// CHARTS
+// ============================================================
+var soTrendChart, stockTrendChart, pieChart, stockPieChart;
+var pieHiddenProducts = {}; // shared only between the two pie charts
+
+function renderAll() {
+  updateViewLabels();
+  renderSOTrend();
+  renderStockTrend();
+  renderPieChart();
+  renderStockPie();
+  renderPieLegend();
+  renderPSISummaryTable();
+}
+
+function setSOViewMode(mode) {
+  state.soViewMode = mode;
+  var lineBtn = document.getElementById('btn-so-line');
+  var heatmapBtn = document.getElementById('btn-so-heatmap');
+  if (lineBtn && heatmapBtn) {
+    lineBtn.className = 'chart-mode-btn' + (mode === 'line' ? ' active' : '');
+    heatmapBtn.className = 'chart-mode-btn' + (mode === 'heatmap' ? ' active' : '');
+  }
+  safeRenderAll('so view mode change');
+}
+
+function setStockViewMode(mode) {
+  state.stockViewMode = mode;
+  var lineBtn = document.getElementById('btn-stock-line');
+  var heatmapBtn = document.getElementById('btn-stock-heatmap');
+  if (lineBtn && heatmapBtn) {
+    lineBtn.className = 'chart-mode-btn' + (mode === 'line' ? ' active' : '');
+    heatmapBtn.className = 'chart-mode-btn' + (mode === 'heatmap' ? ' active' : '');
+  }
+  safeRenderAll('stock view mode change');
+}
+
+function safeRenderAll(context) {
+  try {
+    renderAll();
+  } catch (err) {
+    console.error('Dashboard render failed:', context, err);
+    var loading = document.getElementById('loading');
+    if (loading) loading.style.display = 'none';
+    var msg = document.getElementById('render-error');
+    if (!msg) {
+      msg = document.createElement('div');
+      msg.id = 'render-error';
+      msg.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:9998;max-width:420px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:10px;padding:12px 14px;font-size:12px;box-shadow:0 8px 24px rgba(15,23,42,0.12);';
+      document.body.appendChild(msg);
+    }
+    msg.textContent = 'Chart render failed: ' + (err && err.message ? err.message : err);
+  }
+}
+
+function getCategoryColor(cat) {
+  return cat === 'Power bank' ? '#2563eb' : cat === 'Cable' ? '#4f46e5' : cat === 'Charger' ? '#b45309' : '#0f766e';
+}
+
+function niceStep(raw) {
+  if (!raw || raw <= 0) return 1;
+  var mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  var f = raw / mag;
+  var nice = f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10;
+  return nice * mag;
+}
+
+// ---- Piecewise Y-axis via data transform ----
+// Dense zone gets stretched, outlier zone gets compressed.
+// We transform data values, use a linear Y axis, and
+// display original values via custom tick labels + tooltip.
+var yTransform = null; // set by calcYScale when outliers detected
+
+function yEncode(v) {
+  if (v === null || v === undefined) return v;
+  if (!yTransform) return v;
+  var bp = yTransform.bp;
+  if (v <= bp) return v;
+  // sqrt compression above breakpoint — gentler than linear ratio
+  return bp + Math.sqrt(v - bp) * yTransform.scale;
+}
+
+function yDecode(t) {
+  if (t === null || t === undefined) return t;
+  if (!yTransform) return t;
+  var bp = yTransform.bp;
+  if (t <= bp) return t;
+  var d = (t - bp) / yTransform.scale;
+  return bp + d * d;
+}
+
+function calcYScale(datasets) {
+  var allVals = [];
+  datasets.forEach(function(ds) {
+    if (ds.hidden) return;
+    ds.data.forEach(function(v) { if (v !== null && v !== undefined) allVals.push(Number(v)); });
+  });
+  if (allVals.length === 0) { yTransform = null; return { beginAtZero: true, grid: { color: '#f1f5f9' } }; }
+
+  allVals.sort(function(a, b) { return a - b; });
+  var dataMax = allVals[allVals.length - 1];
+  var p80 = allVals[Math.floor(allVals.length * 0.80)];
+
+  var dataMin = allVals[0];
+
+  // No significant outliers — normal linear scale
+  if (dataMax <= p80 * 1.5 || p80 <= 0) {
+    yTransform = null;
+    var step = niceStep(dataMax / 6);
+    var scaleMin = dataMin >= 0 ? 0 : Math.floor(dataMin / step) * step;
+    return {
+      min: scaleMin,
+      max: Math.ceil(dataMax / step) * step + step,
+      grid: { color: '#f1f5f9' },
+      ticks: { stepSize: step, precision: 0 }
+    };
+  }
+
+  // Outliers detected — sqrt compression above p80
+  // scale factor: give outlier zone ~40% of visual height relative to dense zone
+  var sqrtRange = Math.sqrt(dataMax - p80);
+  var scale = (p80 * 0.6) / sqrtRange; // outlier zone gets ~60% of dense zone height
+  yTransform = { bp: p80, scale: scale };
+
+  // Build custom ticks: even steps in dense zone, sparser in outlier zone
+  var denseStep = niceStep(p80 / 5);
+  var origTicks = [];
+  // Include negative ticks if needed
+  if (dataMin < 0) {
+    for (var nv = Math.floor(dataMin / denseStep) * denseStep; nv < 0; nv += denseStep) {
+      origTicks.push(nv);
+    }
+  }
+  for (var v = 0; v <= p80 + denseStep * 0.5; v += denseStep) {
+    origTicks.push(Math.round(v / denseStep) * denseStep);
+  }
+  // Add 2-3 ticks in outlier zone at nice values
+  var sparseStep = niceStep((dataMax - p80) / 3);
+  for (var s = Math.ceil((p80 + 1) / sparseStep) * sparseStep; s <= dataMax * 1.05; s += sparseStep) {
+    origTicks.push(s);
+  }
+  origTicks = origTicks.filter(function(v, i, a) { return a.indexOf(v) === i; });
+
+  var encodedMax = yEncode(dataMax * 1.05);
+  var encodedMin = dataMin >= 0 ? 0 : dataMin;
+
+  return {
+    min: encodedMin,
+    max: encodedMax,
+    grid: { color: '#f1f5f9' },
+    afterBuildTicks: function(scale) {
+      scale.ticks = origTicks.map(function(v) { return { value: yEncode(v) }; });
+    },
+    ticks: {
+      precision: 0,
+      callback: function(val) { return Math.round(yDecode(val)); }
+    }
+  };
+}
+
+var selectedPointLabelPlugin = {
+  id: 'selectedPointLabels',
+  afterEvent: function(chart, args, opts) {
+    if (!opts || opts.enabled === false || !opts.stateKey) return;
+    var event = args.event;
+    var area = chart.chartArea;
+    var pos = getChartEventPosition(chart, event);
+    var shouldClear = !pos || event.type === 'mouseout' || pos.x < area.left || pos.x > area.right || pos.y < area.top || pos.y > area.bottom;
+    if (shouldClear) {
+      if (state[opts.stateKey] !== null) {
+        setSelectedPointIndex(chart, opts.stateKey, null);
+        args.changed = true;
+      }
+      return;
+    }
+
+    var nextIndex = getNearestRenderedPointIndex(chart, pos.x);
+    if (nextIndex !== null && state[opts.stateKey] !== nextIndex) {
+      setSelectedPointIndex(chart, opts.stateKey, nextIndex);
+      args.changed = true;
+    }
+  },
+  afterDatasetsDraw: function(chart, args, opts) {
+    if (!opts || opts.enabled === false) return;
+    var selectedIndex = opts.selectedIndex;
+    var active = chart.getActiveElements ? chart.getActiveElements() : [];
+    if ((selectedIndex === null || selectedIndex === undefined) && active && active.length > 0) {
+      selectedIndex = active[0].index;
+    }
+    if (selectedIndex === null || selectedIndex === undefined) return;
+    var ctx = chart.ctx;
+    var area = chart.chartArea;
+    var datasets = chart.data.datasets || [];
+    var labels = [];
+
+    datasets.forEach(function(ds, datasetIndex) {
+      if (ds.hidden) return;
+      var meta = chart.getDatasetMeta(datasetIndex);
+      if (!meta || meta.hidden || !meta.data || meta.data.length === 0) return;
+      var point = meta.data[selectedIndex];
+      var parsed = meta._parsed && meta._parsed[selectedIndex];
+      if (!point || !parsed || parsed.y === null || parsed.y === undefined) return;
+
+      var rawValue = ds.data[selectedIndex];
+      var value = opts.decode ? opts.decode(rawValue) : rawValue;
+      labels.push({
+        text: ds.label + ' ' + formatMetricValue(value),
+        color: ds.borderColor || '#334155',
+        pointX: point.x,
+        pointY: point.y,
+        y: point.y,
+        isTotal: !!ds._isTotal,
+      });
+    });
+
+    labels.sort(function(a, b) { return a.y - b.y; });
+    var minGap = 18;
+    for (var i = 1; i < labels.length; i++) {
+      if (labels[i].y - labels[i - 1].y < minGap) labels[i].y = labels[i - 1].y + minGap;
+    }
+    for (var j = labels.length - 2; j >= 0; j--) {
+      if (labels[j + 1].y > area.bottom - 8) labels[j + 1].y = area.bottom - 8;
+      if (labels[j + 1].y - labels[j].y < minGap) labels[j].y = labels[j + 1].y - minGap;
+    }
+    labels.forEach(function(label) {
+      label.y = Math.max(area.top + 8, Math.min(area.bottom - 8, label.y));
+    });
+
+    ctx.save();
+    ctx.font = '600 11px Segoe UI, Arial, sans-serif';
+    ctx.textBaseline = 'middle';
+    labels.forEach(function(label) {
+      var x = label.pointX + 14;
+      var width = ctx.measureText(label.text).width;
+      var textX = x;
+      if (x + width + 10 > area.right) textX = Math.max(area.left + 4, area.right - width - 8);
+
+      ctx.beginPath();
+      ctx.moveTo(label.pointX + 3, label.pointY);
+      ctx.lineTo(textX - 5, label.y);
+      ctx.strokeStyle = 'rgba(100,116,139,0.28)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.fillRect(textX - 4, label.y - 10, width + 8, 20);
+      ctx.fillStyle = label.color;
+      ctx.fillText(label.text, textX, label.y);
+    });
+    ctx.restore();
+  }
+};
+
+function getChartEventPosition(chart, event) {
+  if (!event) return null;
+  var x = event.x;
+  var y = event.y;
+  if ((x === undefined || y === undefined) && event.native) {
+    var rect = chart.canvas.getBoundingClientRect();
+    var scaleX = chart.width / rect.width;
+    var scaleY = chart.height / rect.height;
+    x = (event.native.clientX - rect.left) * scaleX;
+    y = (event.native.clientY - rect.top) * scaleY;
+  }
+  if (x === undefined || y === undefined || isNaN(x) || isNaN(y)) return null;
+  return { x: x, y: y };
+}
+
+function getNearestRenderedPointIndex(chart, x) {
+  var labels = chart.data.labels || [];
+  if (labels.length === 0) return null;
+  var bestIndex = null;
+  var bestDiff = Infinity;
+  for (var i = 0; i < labels.length; i++) {
+    var xSum = 0;
+    var count = 0;
+    chart.data.datasets.forEach(function(ds, datasetIndex) {
+      if (ds.hidden) return;
+      var meta = chart.getDatasetMeta(datasetIndex);
+      var point = meta && meta.data && meta.data[i];
+      if (!point || point.x === undefined) return;
+      xSum += point.x;
+      count++;
+    });
+    if (count === 0) continue;
+    var px = xSum / count;
+    var diff = Math.abs(x - px);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestIndex = i;
+    }
+  }
+  return bestIndex;
+}
+
+function setSelectedPointIndex(chart, stateKey, selectedIndex) {
+  state[stateKey] = selectedIndex;
+  chart.options.plugins.selectedPointLabels.selectedIndex = selectedIndex;
+  if (!chart.setActiveElements) return;
+  if (selectedIndex === null || selectedIndex === undefined) {
+    chart.setActiveElements([]);
+    return;
+  }
+  var active = [];
+  chart.data.datasets.forEach(function(ds, datasetIndex) {
+    if (!ds.hidden) active.push({ datasetIndex: datasetIndex, index: selectedIndex });
+  });
+  chart.setActiveElements(active);
+}
+
+// 1) Sell-Out Trend
+function renderSOTrend() {
+  var canvasWrap = document.getElementById('soTrendCanvasWrap');
+  var heatmapWrap = document.getElementById('soHeatmapWrap');
+  if (state.soViewMode === 'heatmap') {
+    if (soTrendChart) { soTrendChart.destroy(); soTrendChart = null; }
+    if (canvasWrap) canvasWrap.style.display = 'none';
+    if (heatmapWrap) heatmapWrap.style.display = 'block';
+    renderSOHeatmap();
+    return;
+  }
+  if (canvasWrap) canvasWrap.style.display = 'block';
+  if (heatmapWrap) heatmapWrap.style.display = 'none';
+
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  var labels = weeks.map(weekDisplay);
+  var ctx = document.getElementById('soTrendChart').getContext('2d');
+  if (soTrendChart) soTrendChart.destroy();
+
+  var productSO = getProductSO();
+  var prods = Object.keys(productSO);
+  if (state.product !== 'All') {
+    prods = prods.filter(function(p) { return p === state.product; });
+  }
+
+  // Sort all products by total SO descending
+  var ranked = prods.map(function(p) {
+    return { name: p, total: (productSO[p] || []).reduce(function(a, b) { return a + (b || 0); }, 0) };
+  }).sort(function(a, b) { return b.total - a.total; });
+
+  // Once user has toggled legends, respect hiddenProducts state.
+  // Otherwise show every line at the current drill-down grain.
+  var hasLegendState = legendInteracted || Object.keys(hiddenProducts).length > 0;
+
+  var datasets = ranked.map(function(item, idx) {
+    var color = getGroupColor(item.name);
+    var isHidden;
+    if (totalSolo) {
+      isHidden = true;
+    } else if (state.product !== 'All') {
+      isHidden = false;
+    } else if (hasLegendState) {
+      isHidden = !!hiddenProducts[item.name];
+    } else {
+      isHidden = false;
+    }
+    return {
+      label: item.name, data: productSO[item.name] || [],
+      borderColor: color, backgroundColor: color + '15',
+      tension: 0.35, pointRadius: 2, pointHoverRadius: 5, borderWidth: 2,
+      fill: false, spanGaps: true,
+      hidden: isHidden,
+    };
+  });
+
+  // Total line: always sum ALL filtered products (ignore hiddenProducts)
+  var totalData = weeks.map(function(w, wi) {
+    var sum = 0; var hasAny = false;
+    datasets.forEach(function(ds) {
+      if (ds.data[wi] !== null && ds.data[wi] !== undefined) {
+        sum += ds.data[wi]; hasAny = true;
+      }
+    });
+    return hasAny ? sum : null;
+  });
+  datasets.push({
+    label: 'Total', data: totalData,
+    borderColor: '#1e293b', backgroundColor: totalSolo ? 'rgba(30,41,59,0.06)' : 'transparent',
+    borderWidth: totalSolo ? 3 : 2.5, borderDash: totalSolo ? [] : [8, 4],
+    tension: 0.35, pointRadius: totalSolo ? 4 : 0, pointHoverRadius: 5,
+    fill: totalSolo, spanGaps: true,
+    hidden: false, _isTotal: true,
+  });
+
+  // Y-axis: linear when Total solo, piecewise otherwise
+  var yScaleCfg;
+  if (totalSolo) {
+    yTransform = null;
+    var totalOnly = [datasets[datasets.length - 1]];
+    var allVals = [];
+    totalOnly[0].data.forEach(function(v) { if (v !== null && v !== undefined) allVals.push(v); });
+    var dataMax = allVals.length > 0 ? Math.max.apply(null, allVals) : 0;
+    var dataMin = allVals.length > 0 ? Math.min.apply(null, allVals) : 0;
+    var step = niceStep(dataMax / 6);
+    var scaleMin = dataMin >= 0 ? 0 : Math.floor(dataMin / step) * step;
+    yScaleCfg = {
+      min: scaleMin,
+      max: Math.ceil(dataMax / step) * step + step,
+      grid: { color: '#f1f5f9' },
+      ticks: { stepSize: step, precision: 0 }
+    };
+  } else {
+    yScaleCfg = calcYScale(datasets);
+  }
+
+  // Encode dataset data for piecewise Y-axis (no-op when yTransform is null)
+  datasets.forEach(function(ds) {
+    ds.data = ds.data.map(function(v) { return yEncode(v); });
+  });
+
+  soTrendChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { right: 150 } },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        selectedPointLabels: { enabled: true, selectedIndex: state.soSelectedIndex, stateKey: 'soSelectedIndex', decode: yDecode },
+        legend: {
+          position: 'bottom',
+          labels: {
+            boxWidth: 10, padding: 10, font: { size: 10 },
+            usePointStyle: true, pointStyle: 'circle',
+            generateLabels: function(chart) {
+              return chart.data.datasets.map(function(ds, i) {
+                var isTotalActive = ds._isTotal && totalSolo;
+                return {
+                  text: ds._isTotal ? (totalSolo ? '✦ Total (click to exit)' : 'Total (click to solo)') : ds.label,
+                  fillStyle: ds.borderColor,
+                  strokeStyle: ds.borderColor,
+                  lineWidth: ds._isTotal ? 2 : 0,
+                  lineDash: (ds._isTotal && !totalSolo) ? [6, 3] : [],
+                  pointStyle: ds._isTotal ? 'line' : 'circle',
+                  hidden: ds.hidden && !ds._isTotal,
+                  datasetIndex: i,
+                  fontColor: ds._isTotal ? (totalSolo ? '#2563eb' : '#1e293b') : undefined,
+                };
+              });
+            },
+          },
+          onClick: function(e, legendItem, legend) {
+            var ds = legend.chart.data.datasets[legendItem.datasetIndex];
+            if (ds._isTotal) {
+              totalSolo = !totalSolo;
+              safeRenderAll('total legend toggle');
+              return;
+            }
+            if (totalSolo) return; // ignore product clicks when Total is solo'd
+            legendInteracted = true;
+            var name = ds.label;
+            if (hiddenProducts[name]) {
+              delete hiddenProducts[name];
+            } else {
+              hiddenProducts[name] = true;
+            }
+            safeRenderAll('trend legend toggle');
+          }
+        },
+        tooltip: {
+          enabled: false,
+        },
+        datalabels: { display: false }
+      },
+      scales: {
+        y: yScaleCfg,
+        x: { grid: { display: false } }
+      }
+    },
+    plugins: [selectedPointLabelPlugin]
+  });
+}
+
+function formatMetricValue(v) {
+  if (v === null || v === undefined || isNaN(v)) return '-';
+  if (Math.abs(v) >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+  if (Math.abs(v) >= 1000) return (v / 1000).toFixed(1) + 'K';
+  return String(Math.round(v));
+}
+
+function heatColor(value, maxValue) {
+  if (!value || !maxValue) return '#f8fafc';
+  var t = Math.max(0, Math.min(1, value / maxValue));
+  var alpha = 0.08 + t * 0.72;
+  return 'rgba(37,99,235,' + alpha.toFixed(3) + ')';
+}
+
+function getSOHeatmapData() {
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  var productSO = getProductSO();
+  var rows = Object.keys(productSO).map(function(name) {
+    var values = productSO[name] || [];
+    return {
+      name: name,
+      values: values,
+      total: values.reduce(function(a, b) { return a + (b || 0); }, 0),
+    };
+  }).filter(function(row) {
+    return row.total > 0 && !hiddenProducts[row.name];
+  }).sort(function(a, b) {
+    return b.total - a.total;
+  });
+
+  var maxValue = 0;
+  rows.forEach(function(row) {
+    row.values.forEach(function(v) { if ((v || 0) > maxValue) maxValue = v; });
+  });
+  return { weeks: weeks, rows: rows, maxValue: maxValue };
+}
+
+function renderSOHeatmap() {
+  var container = document.getElementById('soHeatmap');
+  if (!container) return;
+  var data = getSOHeatmapData();
+  var weeks = data.weeks;
+  var rows = data.rows;
+  var maxValue = data.maxValue;
+
+  var gridCols = 'minmax(150px, 220px) repeat(' + weeks.length + ', minmax(86px, 1fr)) minmax(86px, 110px)';
+  var html = '<div class="heatmap-grid" style="grid-template-columns:' + gridCols + ';">';
+  html += '<div class="heatmap-head">Group</div>';
+  weeks.forEach(function(w) {
+    html += '<div class="heatmap-head" style="justify-content:center;">' + weekDisplay(w) + '</div>';
+  });
+  html += '<div class="heatmap-head" style="justify-content:center;">Total</div>';
+
+  if (rows.length === 0) {
+    html += '<div style="grid-column:1 / -1; padding:80px 0; text-align:center; color:#94a3b8; font-size:13px;">No sell-out data in selected period</div>';
+  }
+
+  rows.forEach(function(row) {
+    html += '<div class="heatmap-row-head">' + row.name + '</div>';
+    row.values.forEach(function(v, idx) {
+      var bg = heatColor(v || 0, maxValue);
+      var color = (v || 0) / (maxValue || 1) > 0.62 ? '#fff' : '#0f172a';
+      html += '<div class="heatmap-cell" title="' + row.name + ' · ' + weekDisplay(weeks[idx]) + ': ' + formatMetricValue(v || 0) + '" style="background:' + bg + '; color:' + color + ';">' + formatMetricValue(v || 0) + '</div>';
+    });
+    html += '<div class="heatmap-cell" style="background:#f1f5f9;color:#334155;">' + formatMetricValue(row.total) + '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// 1b) Stock Trend
+function renderStockTrend() {
+  var canvasWrap = document.getElementById('stockTrendCanvasWrap');
+  var heatmapWrap = document.getElementById('stockHeatmapWrap');
+  if (state.stockViewMode === 'heatmap') {
+    if (stockTrendChart) { stockTrendChart.destroy(); stockTrendChart = null; }
+    if (canvasWrap) canvasWrap.style.display = 'none';
+    if (heatmapWrap) heatmapWrap.style.display = 'block';
+    renderStockHeatmap();
+    return;
+  }
+  if (canvasWrap) canvasWrap.style.display = 'block';
+  if (heatmapWrap) heatmapWrap.style.display = 'none';
+
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  var labels = weeks.map(weekDisplay);
+  var ctx = document.getElementById('stockTrendChart').getContext('2d');
+  if (stockTrendChart) stockTrendChart.destroy();
+
+  var productStock = getProductStock();
+  var prods = Object.keys(productStock);
+  if (state.product !== 'All') {
+    prods = prods.filter(function(p) { return p === state.product; });
+  }
+
+  var ranked = prods.map(function(p) {
+    return { name: p, total: (productStock[p] || []).reduce(function(a, b) { return a + (b || 0); }, 0) };
+  }).sort(function(a, b) { return b.total - a.total; });
+
+  var hasLegendState = legendInteracted || Object.keys(hiddenProducts).length > 0;
+
+  var datasets = ranked.map(function(item, idx) {
+    var color = getGroupColor(item.name);
+    var isHidden;
+    if (state.product !== 'All') {
+      isHidden = false;
+    } else if (hasLegendState) {
+      isHidden = !!hiddenProducts[item.name];
+    } else {
+      isHidden = false;
+    }
+    return {
+      label: item.name, data: productStock[item.name] || [],
+      borderColor: color, backgroundColor: color + '15',
+      tension: 0.35, pointRadius: 2, pointHoverRadius: 5, borderWidth: 2,
+      fill: false, spanGaps: true,
+      hidden: isHidden,
+    };
+  });
+
+  stockTrendChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { right: 150 } },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        selectedPointLabels: { enabled: true, selectedIndex: state.stockSelectedIndex, stateKey: 'stockSelectedIndex' },
+        legend: { display: false },
+        tooltip: {
+          enabled: false,
+        },
+        datalabels: { display: false }
+      },
+      scales: {
+        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0 } },
+        x: { grid: { display: false } }
+      }
+    },
+    plugins: [selectedPointLabelPlugin]
+  });
+}
+
+function getStockHeatmapData() {
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  var productStock = getProductStock();
+  var rows = Object.keys(productStock).map(function(name) {
+    var values = productStock[name] || [];
+    var lastValue = 0;
+    for (var i = values.length - 1; i >= 0; i--) {
+      if (values[i] !== null && values[i] !== undefined) { lastValue = values[i] || 0; break; }
+    }
+    return {
+      name: name,
+      values: values,
+      total: lastValue,
+    };
+  }).filter(function(row) {
+    return row.values.some(function(v) { return (v || 0) > 0; }) && !hiddenProducts[row.name];
+  }).sort(function(a, b) {
+    return b.total - a.total;
+  });
+
+  var maxValue = 0;
+  rows.forEach(function(row) {
+    row.values.forEach(function(v) { if ((v || 0) > maxValue) maxValue = v; });
+  });
+  return { weeks: weeks, rows: rows, maxValue: maxValue };
+}
+
+function renderStockHeatmap() {
+  var container = document.getElementById('stockHeatmap');
+  if (!container) return;
+  var data = getStockHeatmapData();
+  var weeks = data.weeks;
+  var rows = data.rows;
+  var maxValue = data.maxValue;
+
+  var gridCols = 'minmax(150px, 220px) repeat(' + weeks.length + ', minmax(86px, 1fr)) minmax(86px, 110px)';
+  var html = '<div class="heatmap-grid" style="grid-template-columns:' + gridCols + ';">';
+  html += '<div class="heatmap-head">Group</div>';
+  weeks.forEach(function(w) {
+    html += '<div class="heatmap-head" style="justify-content:center;">' + weekDisplay(w) + '</div>';
+  });
+  html += '<div class="heatmap-head" style="justify-content:center;">Latest</div>';
+
+  if (rows.length === 0) {
+    html += '<div style="grid-column:1 / -1; padding:80px 0; text-align:center; color:#94a3b8; font-size:13px;">No stock data in selected period</div>';
+  }
+
+  rows.forEach(function(row) {
+    html += '<div class="heatmap-row-head">' + row.name + '</div>';
+    row.values.forEach(function(v, idx) {
+      var bg = heatColor(v || 0, maxValue);
+      var color = (v || 0) / (maxValue || 1) > 0.62 ? '#fff' : '#0f172a';
+      html += '<div class="heatmap-cell" title="' + row.name + ' · ' + weekDisplay(weeks[idx]) + ': ' + formatMetricValue(v || 0) + '" style="background:' + bg + '; color:' + color + ';">' + formatMetricValue(v || 0) + '</div>';
+    });
+    html += '<div class="heatmap-cell" style="background:#f1f5f9;color:#334155;">' + formatMetricValue(row.total) + '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// 2) Leader-line plugin for doughnut charts
+var pieLeaderLinePlugin = {
+  id: 'pieLeaderLines',
+  afterDraw: function(chart) {
+    var ctx = chart.ctx;
+    var meta = chart.getDatasetMeta(0);
+    if (!meta || !meta.data || meta.data.length === 0) return;
+    var dataset = chart.data.datasets[0];
+    var total = dataset.data.reduce(function(s, v) { return s + (v || 0); }, 0);
+    if (total === 0) return;
+
+    ctx.save();
+    ctx.font = '10px Segoe UI, Arial, sans-serif';
+    ctx.textBaseline = 'middle';
+
+    meta.data.forEach(function(arc, i) {
+      var value = dataset.data[i];
+      if (!value) return;
+      var pct = (value / total * 100);
+      if (pct < 2) return; // skip tiny slices
+
+      var midAngle = (arc.startAngle + arc.endAngle) / 2;
+      var outerRadius = arc.outerRadius;
+      var cx = arc.x;
+      var cy = arc.y;
+
+      // Point on outer edge
+      var edgeX = cx + Math.cos(midAngle) * outerRadius;
+      var edgeY = cy + Math.sin(midAngle) * outerRadius;
+
+      // Extended point for the elbow
+      var extLen = 18;
+      var elbowX = cx + Math.cos(midAngle) * (outerRadius + extLen);
+      var elbowY = cy + Math.sin(midAngle) * (outerRadius + extLen);
+
+      // Horizontal tail
+      var tailLen = 14;
+      var isRight = elbowX >= cx;
+      var tailX = elbowX + (isRight ? tailLen : -tailLen);
+
+      var label = chart.data.labels[i];
+      var pctStr = pct.toFixed(1) + '%';
+
+      // Draw line
+      ctx.beginPath();
+      ctx.moveTo(edgeX, edgeY);
+      ctx.lineTo(elbowX, elbowY);
+      ctx.lineTo(tailX, elbowY);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Draw label text
+      ctx.textAlign = isRight ? 'left' : 'right';
+      var textX = tailX + (isRight ? 4 : -4);
+      var weekLabel = dataset.weekLabels ? dataset.weekLabels[i] : null;
+      var hasWeek = !!weekLabel;
+      ctx.fillStyle = '#334155';
+      ctx.fillText(label, textX, elbowY - (hasWeek ? 10 : 6));
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(pctStr, textX, elbowY + (hasWeek ? 2 : 6));
+      if (hasWeek) {
+        ctx.fillStyle = '#2563eb';
+        ctx.font = '9px Segoe UI, Arial, sans-serif';
+        ctx.fillText(weekLabel, textX, elbowY + 13);
+        ctx.font = '10px Segoe UI, Arial, sans-serif';
+      }
+
+      ctx.restore();
+      ctx.save();
+      ctx.font = '10px Segoe UI, Arial, sans-serif';
+      ctx.textBaseline = 'middle';
+    });
+    ctx.restore();
+  }
+};
+
+// Product Share Pie (SO)
+function renderPieChart() {
+  var ctx = document.getElementById('pieChart').getContext('2d');
+  if (pieChart) pieChart.destroy();
+
+  var productSO = getProductSO();
+  var data = Object.keys(productSO).filter(function(name) {
+    return !hiddenProducts[name] && !pieHiddenProducts[name];
+  }).map(function(name) {
+    return { name: name, total: (productSO[name] || []).reduce(function(a, b) { return a + (b || 0); }, 0) };
+  }).filter(function(d) { return d.total > 0; }).sort(function(a, b) { return b.total - a.total; });
+
+  var grandTotal = data.reduce(function(s, d) { return s + d.total; }, 0);
+
+  pieChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: data.map(function(d) { return d.name; }),
+      datasets: [{ data: data.map(function(d) { return d.total; }),
+        backgroundColor: data.map(function(d) { return getGroupColor(d.name); }),
+        borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '55%',
+      layout: { padding: { top: 20, bottom: 20, left: 60, right: 60 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: 'rgba(15,23,42,0.9)', cornerRadius: 8, padding: 10 },
+        datalabels: { display: false }
+      }
+    },
+    plugins: [pieLeaderLinePlugin]
+  });
+}
+
+// 2b) Stock Share Pie
+function renderStockPie() {
+  var ctx = document.getElementById('stockPieChart').getContext('2d');
+  if (stockPieChart) stockPieChart.destroy();
+
+  var productStock = getProductStock();
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  // Only use the LAST week's stock (stock is a snapshot, not cumulative)
+  var data = Object.keys(productStock).filter(function(name) {
+    return !hiddenProducts[name] && !pieHiddenProducts[name];
+  }).map(function(name) {
+    var arr = productStock[name] || [];
+    // Find last non-null value and its week
+    var lastVal = null;
+    var lastWeek = null;
+    for (var i = arr.length - 1; i >= 0; i--) {
+      if (arr[i] !== null && arr[i] !== undefined) { lastVal = arr[i]; lastWeek = weeks[i]; break; }
+    }
+    return { name: name, total: lastVal || 0, week: lastWeek };
+  }).filter(function(d) { return d.total > 0; }).sort(function(a, b) { return b.total - a.total; });
+
+  var grandTotal = data.reduce(function(s, d) { return s + d.total; }, 0);
+
+  stockPieChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: data.map(function(d) { return d.name; }),
+      datasets: [{ data: data.map(function(d) { return d.total; }),
+        backgroundColor: data.map(function(d) { return getGroupColor(d.name); }),
+        weekLabels: data.map(function(d) { return d.week; }),
+        borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '55%',
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: 'rgba(15,23,42,0.9)', cornerRadius: 8, padding: 10 },
+        datalabels: { display: false }
+      },
+      layout: { padding: { top: 20, bottom: 20, left: 60, right: 60 } }
+    },
+    plugins: [pieLeaderLinePlugin]
+  });
+}
+
+// 2c) Shared Pie Legend (controls both pies)
+function renderPieLegend() {
+  var container = document.getElementById('pie-legend');
+  if (!container) return;
+
+  // Legend scope = products currently visible in SO Trend (respects Top-N and user toggles).
+  // Within that scope, pieHiddenProducts further filters the pies only.
+  var productSO = getProductSO();
+  var productStock = getProductStock();
+  var nameSet = {};
+  Object.keys(productSO).forEach(function(n) {
+    if (hiddenProducts[n]) return; // excluded by SO trend legend
+    var t = (productSO[n] || []).reduce(function(a, b) { return a + (b || 0); }, 0);
+    if (t > 0) nameSet[n] = (nameSet[n] || 0) + t;
+  });
+  Object.keys(productStock).forEach(function(n) {
+    if (hiddenProducts[n]) return;
+    var t = (productStock[n] || []).reduce(function(a, b) { return a + (b || 0); }, 0);
+    if (t > 0) nameSet[n] = (nameSet[n] || 0) + t;
+  });
+
+  var names = Object.keys(nameSet).sort(function(a, b) { return nameSet[b] - nameSet[a]; });
+
+  container.innerHTML = '';
+  names.forEach(function(name) {
+    var color = getGroupColor(name);
+    var hidden = !!pieHiddenProducts[name];
+    var item = document.createElement('div');
+    item.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:11px; user-select:none; opacity:' + (hidden ? '0.4' : '1') + ';';
+    item.innerHTML =
+      '<span style="width:10px;height:10px;border-radius:2px;background:' + color + ';flex-shrink:0;' + (hidden ? 'opacity:0.4;' : '') + '"></span>' +
+      '<span style="' + (hidden ? 'text-decoration:line-through;color:#9ca3af;' : 'color:#334155;') + '">' + name + '</span>';
+    item.onclick = function() {
+      pieHiddenProducts[name] = !pieHiddenProducts[name];
+      renderPieChart();
+      renderStockPie();
+      renderPieLegend();
+    };
+    container.appendChild(item);
+  });
+}
+
+// 3) PSI Summary Table
+function sumMetricByGroup(metric) {
+  var rows = getFilteredRows(metric);
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  var result = {};
+  rows.forEach(function(r) {
+    var key = getGroupKey(r['Product Name']);
+    if (!result[key]) result[key] = 0;
+    weeks.forEach(function(w) {
+      var val = r[w];
+      if (val !== '' && val !== null && val !== undefined) {
+        result[key] += Number(val);
+      }
+    });
+  });
+  return result;
+}
+
+function latestStockByGroup() {
+  var rows = getFilteredRows('Stock');
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  var result = {};
+  rows.forEach(function(r) {
+    var key = getGroupKey(r['Product Name']);
+    if (!result[key]) result[key] = 0;
+    for (var i = weeks.length - 1; i >= 0; i--) {
+      var val = r[weeks[i]];
+      if (val !== '' && val !== null && val !== undefined) {
+        result[key] += Number(val);
+        break;
+      }
+    }
+  });
+  return result;
+}
+
+function lastWeekMetricByGroup(metric) {
+  var rows = getFilteredRows(metric);
+  var week = WEEKS_ALL[state.weekTo];
+  var result = {};
+  rows.forEach(function(r) {
+    var key = getGroupKey(r['Product Name']);
+    if (!result[key]) result[key] = 0;
+    var val = r[week];
+    if (val !== '' && val !== null && val !== undefined) {
+      result[key] += Number(val);
+    }
+  });
+  return result;
+}
+
+function formatPct(v) {
+  if (v === null || v === undefined || !isFinite(v)) return '-';
+  return (v * 100).toFixed(1) + '%';
+}
+
+function renderPSISummaryTable() {
+  var container = document.getElementById('psi-summary-table');
+  if (!container) return;
+
+  var grainLabel = getActiveGrainLabel();
+  var volumeMetric = getVolumeMetric();
+  var volumeLabel = state.viewMode === 'fd' ? 'ST' : 'SO';
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+
+  var siMap = sumMetricByGroup('SI');
+  var volumeMap = sumMetricByGroup(volumeMetric);
+  var stockMap = latestStockByGroup();
+  var lastVolumeMap = lastWeekMetricByGroup(volumeMetric);
+  var groupSet = {};
+  [siMap, volumeMap, stockMap, lastVolumeMap].forEach(function(map) {
+    Object.keys(map).forEach(function(k) { groupSet[k] = true; });
+  });
+
+  var rows = Object.keys(groupSet).map(function(name) {
+    var si = siMap[name] || 0;
+    var volume = volumeMap[name] || 0;
+    var stock = stockMap[name] || 0;
+    var lastVolume = lastVolumeMap[name] || 0;
+    return {
+      name: name,
+      si: si,
+      volume: volume,
+      stock: stock,
+      avgVolume: weeks.length ? volume / weeks.length : 0,
+      lastVolume: lastVolume,
+      sellThrough: si > 0 ? volume / si : null,
+    };
+  }).filter(function(row) {
+    return row.si || row.volume || row.stock || row.lastVolume;
+  }).sort(function(a, b) {
+    return b.volume - a.volume || b.stock - a.stock || a.name.localeCompare(b.name);
+  });
+
+  document.getElementById('summary-subtitle').textContent =
+    'Selected period · ' + weeks.map(weekDisplay).join('–') + ' · ' + volumeLabel + ' follows current Retailer/FD mode';
+
+  if (rows.length === 0) {
+    container.innerHTML = '<div style="padding:48px 0; text-align:center; color:#94a3b8; font-size:13px;">No PSI data in selected filters</div>';
+    return;
+  }
+
+  var html = '<div style="overflow:auto;">';
+  html += '<table style="width:100%; border-collapse:separate; border-spacing:0; min-width:760px; font-size:12px;">';
+  html += '<thead><tr>';
+  [
+    grainLabel,
+    'SI',
+    volumeLabel,
+    'Latest Stock',
+    'Avg Weekly ' + volumeLabel,
+    'Last Week ' + volumeLabel,
+    volumeLabel + ' / SI'
+  ].forEach(function(h, idx) {
+    var align = idx === 0 ? 'left' : 'right';
+    html += '<th style="position:sticky; top:0; background:#f8fafc; z-index:1; text-align:' + align + '; color:#64748b; font-size:11px; text-transform:uppercase; letter-spacing:0; padding:10px 12px; border-bottom:1px solid #e2e8f0;">' + h + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  rows.forEach(function(row) {
+    var color = getGroupColor(row.name);
+    html += '<tr>';
+    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; color:#111827; font-weight:700; white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:8px;"></span>' + row.name + '</td>';
+    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + formatMetricValue(row.si) + '</td>';
+    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#111827; font-weight:700;">' + formatMetricValue(row.volume) + '</td>';
+    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + formatMetricValue(row.stock) + '</td>';
+    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + formatMetricValue(row.avgVolume) + '</td>';
+    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + formatMetricValue(row.lastVolume) + '</td>';
+    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155;">' + formatPct(row.sellThrough) + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+// ============================================================
+// INIT
+// ============================================================
+document.addEventListener('DOMContentLoaded', initApp);
+</script>
+
+<!-- ============================================================ -->
+<!-- LAYOUT -->
+<!-- ============================================================ -->
+<div style="max-width:1400px; margin:0 auto; padding:20px 16px;">
+
+  <!-- Header -->
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <div>
+      <h1 style="font-size:1.25rem; font-weight:700; display:flex; align-items:center; gap:8px;">
+        <span style="width:32px;height:32px;background:#1f2937;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:900;">P</span>
+        INIU PSI Dashboard
+      </h1>
+      <p style="font-size:12px; color:#9ca3af; margin-top:2px;">Live data from ERP database</p>
+    </div>
+    <div style="display:flex; align-items:center; gap:16px;">
+      <div style="display:flex; border-radius:8px; overflow:hidden; border:1px solid #e2e8f0;">
+        <button id="btn-retailer" onclick="onViewModeChange('retailer')"
+          style="padding:6px 16px; font-size:13px; font-weight:600; border:none; cursor:pointer; background:#2563eb; color:#fff; transition:all 0.2s;">
+          Retailer
+        </button>
+        <button id="btn-fd" onclick="onViewModeChange('fd')"
+          style="padding:6px 16px; font-size:13px; font-weight:600; border:none; cursor:pointer; background:#f8fafc; color:#64748b; transition:all 0.2s;">
+          FD
+        </button>
+      </div>
+      <div style="text-align:right;">
+        <div id="data-status" style="font-size:12px; color:#16a34a;">● Connected</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Bar -->
+  <div style="background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:14px 20px; margin-bottom:16px; display:flex; flex-wrap:wrap; align-items:flex-start; gap:20px;">
+
+    <!-- Date Range -->
+    <div style="display:flex; align-items:flex-start; gap:12px;">
+      <div class="date-input" style="text-align:center;">
+        <label style="font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; display:block; margin-bottom:4px;">From</label>
+        <input type="text" id="f-dateFrom" readonly onclick="openWeekCalendar('f-dateFrom','start')">
+        <div><span id="badge-from" class="week-badge"></span></div>
+      </div>
+      <div style="padding-top:28px; color:#d1d5db;">
+        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+      </div>
+      <div class="date-input" style="text-align:center;">
+        <label style="font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; display:block; margin-bottom:4px;">To</label>
+        <input type="text" id="f-dateTo" readonly onclick="openWeekCalendar('f-dateTo','end')">
+        <div><span id="badge-to" class="week-badge"></span></div>
+      </div>
+    </div>
+
+    <div style="width:1px; height:48px; background:#e5e7eb; margin-top:12px;"></div>
+
+    <!-- Country -->
+    <div style="padding-top:12px;">
+      <label style="font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; display:block; margin-bottom:4px;">Country</label>
+      <select id="f-country" class="filter-select" style="font-size:14px; border:1px solid #e2e8f0; border-radius:8px; padding:6px 28px 6px 12px; background:#f8fafc;" onchange="onFilterChange('country')">
+        <option value="All">All Countries</option>
+      </select>
+    </div>
+
+    <!-- Retailer -->
+    <div style="padding-top:12px;">
+      <label id="lbl-retailer-filter" style="font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; display:block; margin-bottom:4px;">Retailer</label>
+      <select id="f-retailer" class="filter-select" style="font-size:14px; border:1px solid #e2e8f0; border-radius:8px; padding:6px 28px 6px 12px; background:#f8fafc;" onchange="onFilterChange('retailer')">
+        <option value="All">All Retailers</option>
+      </select>
+    </div>
+
+    <!-- Category -->
+    <div style="padding-top:12px;">
+      <label style="font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; display:block; margin-bottom:4px;">Category</label>
+      <select id="f-category" class="filter-select" style="font-size:14px; border:1px solid #e2e8f0; border-radius:8px; padding:6px 28px 6px 12px; background:#f8fafc;" onchange="onFilterChange('category')">
+        <option value="All">All Categories</option>
+      </select>
+    </div>
+
+    <!-- Series -->
+    <div style="padding-top:12px;">
+      <label style="font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; display:block; margin-bottom:4px;">Series</label>
+      <select id="f-series" class="filter-select" style="font-size:14px; border:1px solid #e2e8f0; border-radius:8px; padding:6px 28px 6px 12px; background:#f8fafc;" onchange="onFilterChange('series')">
+        <option value="All">All Series</option>
+      </select>
+    </div>
+
+    <!-- Family -->
+    <div style="padding-top:12px;">
+      <label style="font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; display:block; margin-bottom:4px;">Family</label>
+      <select id="f-family" class="filter-select" style="font-size:14px; border:1px solid #e2e8f0; border-radius:8px; padding:6px 28px 6px 12px; background:#f8fafc;" onchange="onFilterChange('family')">
+        <option value="All">All Families</option>
+      </select>
+    </div>
+
+    <!-- Product -->
+    <div style="padding-top:12px;">
+      <label style="font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; display:block; margin-bottom:4px;">Product</label>
+      <select id="f-product" class="filter-select" style="font-size:14px; border:1px solid #e2e8f0; border-radius:8px; padding:6px 28px 6px 12px; background:#f8fafc;" onchange="onFilterChange('product')">
+        <option value="All">All Products</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Sell-Out Trend -->
+  <div style="background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px; margin-bottom:16px;">
+    <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+      <div>
+        <h2 id="lbl-so-title" style="font-size:14px; font-weight:700;">Sell-Out Trend</h2>
+        <p id="lbl-so-sub" style="font-size:12px; color:#9ca3af;">Weekly sell-out · Drill down Series → Family → Product</p>
+      </div>
+      <div style="display:flex; gap:6px; flex-shrink:0;">
+        <button id="btn-so-line" class="chart-mode-btn active" onclick="setSOViewMode('line')">Line</button>
+        <button id="btn-so-heatmap" class="chart-mode-btn" onclick="setSOViewMode('heatmap')">Heatmap</button>
+      </div>
+    </div>
+    <div id="soTrendCanvasWrap" class="chart-overlay-wrap">
+      <canvas id="soTrendChart"></canvas>
+    </div>
+    <div id="soHeatmapWrap" class="heatmap-wrap" style="display:none;"><div id="soHeatmap"></div></div>
+  </div>
+
+  <!-- Stock Trend -->
+  <div style="background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px; margin-bottom:16px;">
+    <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+      <div>
+        <h2 id="lbl-stock-title" style="font-size:14px; font-weight:700;">Stock Trend</h2>
+        <p id="lbl-stock-sub" style="font-size:12px; color:#9ca3af;">Weekly stock by product · Synced with Sell-Out legend toggle</p>
+      </div>
+      <div style="display:flex; gap:6px; flex-shrink:0;">
+        <button id="btn-stock-line" class="chart-mode-btn active" onclick="setStockViewMode('line')">Line</button>
+        <button id="btn-stock-heatmap" class="chart-mode-btn" onclick="setStockViewMode('heatmap')">Heatmap</button>
+      </div>
+    </div>
+    <div id="stockTrendCanvasWrap" class="chart-overlay-wrap">
+      <canvas id="stockTrendChart"></canvas>
+    </div>
+    <div id="stockHeatmapWrap" class="heatmap-wrap" style="display:none;"><div id="stockHeatmap"></div></div>
+  </div>
+
+  <!-- Product Share Row -->
+  <div style="display:flex; gap:16px; margin-bottom:16px; align-items:stretch;">
+    <!-- Sell-Out Pie -->
+    <div style="flex:5; background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px;">
+      <div style="margin-bottom:12px;">
+        <h2 id="lbl-pie-so-title" style="font-size:14px; font-weight:700;">Product Share — Sell-Out</h2>
+        <p id="lbl-pie-so-sub" style="font-size:12px; color:#9ca3af;">Sell-out share in selected period</p>
+      </div>
+      <div style="height:340px;"><canvas id="pieChart"></canvas></div>
+    </div>
+    <!-- Shared Legend -->
+    <div style="flex:3; background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px; display:flex; flex-direction:column;">
+      <div style="margin-bottom:12px;">
+        <h2 id="lbl-pie-legend-title" style="font-size:14px; font-weight:700;">Series</h2>
+        <p style="font-size:12px; color:#9ca3af;">Click to toggle both pies</p>
+      </div>
+      <div id="pie-legend" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:2px;"></div>
+    </div>
+    <!-- Stock Pie -->
+    <div style="flex:5; background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px;">
+      <div style="margin-bottom:12px;">
+        <h2 id="lbl-pie-stock-title" style="font-size:14px; font-weight:700;">Product Share — Stock</h2>
+        <p id="lbl-pie-stock-sub" style="font-size:12px; color:#9ca3af;">Stock share in selected period</p>
+      </div>
+      <div style="height:340px;"><canvas id="stockPieChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- PSI Summary Table -->
+  <div style="background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px;">
+    <div style="margin-bottom:12px;">
+      <h2 id="lbl-summary-title" style="font-size:14px; font-weight:700;">PSI Summary by Series</h2>
+      <p id="summary-subtitle" style="font-size:12px; color:#9ca3af;">Selected period PSI metrics</p>
+    </div>
+    <div id="psi-summary-table"></div>
+  </div>
+
+</div>
+
+</body>
+</html>
