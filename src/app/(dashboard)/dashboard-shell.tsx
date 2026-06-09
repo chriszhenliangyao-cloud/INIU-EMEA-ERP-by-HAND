@@ -60,13 +60,10 @@ export function DashboardShell({ me, buildId, children }: Props) {
           {me.isAdmin && (
             <>
               <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2 mt-4">Admin only</div>
-              {/* 没有真实路由 → 用 span 占位，避免 Next.js prefetch /admin 报 404 */}
-              <span
-                aria-disabled="true"
-                className="block px-3 py-2 rounded-lg text-sm text-gray-400 cursor-not-allowed select-none"
-              >
-                ⚙️ Master Data <span className="text-xs">(coming soon)</span>
-              </span>
+              <Link href="/admin/sku" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
+                ⚙️ SKU Master Data
+              </Link>
+              {/* TODO: Sales rep / Country 管理（继续扩展 Master Data 区） */}
             </>
           )}
         </nav>
