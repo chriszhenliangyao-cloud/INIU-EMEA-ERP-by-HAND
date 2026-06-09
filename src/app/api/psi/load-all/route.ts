@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/lib/auth/current-user'
 
+// 关闭路由静态化，每次 invocation 都新算
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 /**
  * PSI Dashboard 数据源 API.
  *
@@ -133,17 +137,31 @@ export async function GET() {
       productsFamily,
       retailers,
       weeklyPSI,
+      _debug: {
+        weekCount: weeks.length,
+        firstWeek: weeks[0],
+        lastWeek: weeks[weeks.length - 1],
+        psiRowsRaw: psiRaw.length,
+        weeklyPsiRowsWide: weeklyPSI.length,
+      },
       weeks,
       config: {},
       userCountries: me.isAdmin
         ? ['ALL']
         : me.countryIds.map(id => countryById[id]).filter(Boolean),
       accessDenied: !me.isActive,
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Pragma': 'no-cache',
+      },
     })
   } catch (err: any) {
     return NextResponse.json({
       backendError: err?.message ?? String(err),
       products: [], productsFamily: [], retailers: [], weeklyPSI: [], weeks: [], config: {}, userCountries: [],
+    }, {
+      headers: { 'Cache-Control': 'no-store' },
     })
   }
 }
