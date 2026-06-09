@@ -21,6 +21,7 @@ export type CurrentUser = {
   displayName: string
   role: 'admin' | 'sales'
   isAdmin: boolean
+  isSuperAdmin: boolean   // 只有超级 admin 能改别人的 role / super_admin 标识
   isActive: boolean
   // 该用户能访问的国家 ID 列表（admin 总是返回所有国家）
   countryIds: number[]
@@ -36,7 +37,7 @@ export async function getCurrentUser(): Promise<CurrentUser> {
   // 拉 sales_rep + 通过 sales_rep_country 关联国家
   const { data: rep, error: repErr } = await supabase
     .from('sales_rep')
-    .select('id, display_name, email, role, is_active')
+    .select('id, display_name, email, role, is_active, is_super_admin')
     .eq('user_id', user.id)
     .maybeSingle()
 
@@ -47,6 +48,7 @@ export async function getCurrentUser(): Promise<CurrentUser> {
   // 默认值（处理新用户尚未配置的情况）
   const role = (rep?.role ?? 'sales') as 'admin' | 'sales'
   const isAdmin = role === 'admin'
+  const isSuperAdmin = Boolean(rep?.is_super_admin)
   const isActive = rep?.is_active ?? true
 
   // 取该用户能访问的国家
@@ -74,6 +76,7 @@ export async function getCurrentUser(): Promise<CurrentUser> {
     displayName: rep?.display_name ?? user.email?.split('@')[0] ?? 'Unknown',
     role,
     isAdmin,
+    isSuperAdmin,
     isActive,
     countryIds,
     canAccessCountry: (id: number) => isAdmin || countryIds.includes(id),

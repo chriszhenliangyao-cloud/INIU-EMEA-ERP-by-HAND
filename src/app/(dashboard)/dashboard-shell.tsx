@@ -63,7 +63,10 @@ export function DashboardShell({ me, buildId, children }: Props) {
               <Link href="/admin/sku" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
                 ⚙️ SKU Master Data
               </Link>
-              {/* TODO: Sales rep / Country 管理（继续扩展 Master Data 区） */}
+              <Link href="/admin/sales" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
+                👤 Sales Reps
+              </Link>
+              {/* TODO: Country 管理 */}
             </>
           )}
         </nav>
