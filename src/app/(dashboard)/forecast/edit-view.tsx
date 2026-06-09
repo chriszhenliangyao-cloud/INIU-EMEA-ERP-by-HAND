@@ -6,10 +6,21 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { fmtNum } from '@/lib/utils'
 import { RunControls } from './run-controls'
+import { ManageChannelsModal } from './manage-channels-modal'
 
 type Run = { id: number; code: string; period_start: string; period_end: string; status: string }
 type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
-type Ka = { id: number; name: string; country_id: number; parent_distributor: string | null; tier: string; sort_order: number }
+type Ka = {
+  id: number
+  name: string
+  country_id: number
+  parent_distributor: string | null
+  ka_type?: string | null
+  tier: string
+  sort_order: number
+  is_active?: boolean
+  notes?: string | null
+}
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number; lifecycle: string }
 type Cell = { run_id: number; sku_id: number; ka_id: number; month: string; qty: number; updated_by: string | null; updated_at: string }
 
@@ -49,11 +60,18 @@ export function ForecastEditView({
     [selectedCountryCode, allCountries]
   )
 
-  // —— 按当前国家派生 kas / cells / lyBySku / ytdAvgBySku（in-memory filter，<1ms）——
+  // —— 按当前国家 + active 派生 kas / cells / lyBySku / ytdAvgBySku（in-memory filter，<1ms）——
+  //  ⚠️ allKas 现在包含 inactive（给 Manage Channels modal 用），主表格仅展示 active
   const kas = useMemo(
+    () => allKas.filter(k => k.country_id === selectedCountry.id && k.is_active !== false),
+    [allKas, selectedCountry.id]
+  )
+  // Modal 用：当前国家所有 KA（含 inactive）
+  const allKasInCountry = useMemo(
     () => allKas.filter(k => k.country_id === selectedCountry.id),
     [allKas, selectedCountry.id]
   )
+  const [manageChannelsOpen, setManageChannelsOpen] = useState(false)
   const kaIdSet = useMemo(() => new Set(kas.map(k => k.id)), [kas])
   const cells = useMemo(
     () => allCells.filter(c => kaIdSet.has(c.ka_id)),
@@ -244,6 +262,15 @@ export function ForecastEditView({
 
   return (
     <div className="p-6 max-w-[1700px] mx-auto">
+      {/* ⚙️ Manage Channels modal — 销售自助管理本国 KA */}
+      <ManageChannelsModal
+        open={manageChannelsOpen}
+        onClose={() => setManageChannelsOpen(false)}
+        country={selectedCountry}
+        allKas={allKasInCountry}
+        viewerName={viewerName}
+      />
+
       {/* Toast 通知（fixed top-center） */}
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
@@ -330,6 +357,17 @@ export function ForecastEditView({
               </span>
             )}
           </div>
+
+          {/* ⚙️ 管理渠道 — 销售自助新增/停用本国 KA */}
+          <button
+            onClick={() => setManageChannelsOpen(true)}
+            className="ml-auto px-3 py-1.5 rounded-md text-sm font-medium border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 hover:border-blue-400 transition flex items-center gap-1.5"
+            title="Add, edit, or deactivate channels in this country"
+          >
+            <span>⚙️</span>
+            <span>Manage channels</span>
+            <span className="text-xs text-gray-400">({kas.length})</span>
+          </button>
 
         </div>
 

@@ -142,10 +142,11 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       .eq('is_active', true)
       .order('sort_order').order('code'),
 
-    // 一次拉所有 active KA（不再按 country_id 过滤）—— RLS 会让 sales 只看自己的
+    // 一次拉所有 KA (active+inactive) —— RLS 会让 sales 只看自己国家
+    //   - 主表格在客户端 filter is_active=true（保持现有渲染）
+    //   - Manage Channels Modal 用全部（含 inactive 用于 reactivate / 永久删除）
     supabase.from('ka')
-      .select('id, name, country_id, parent_distributor, tier, sort_order')
-      .eq('is_active', true)
+      .select('id, name, country_id, parent_distributor, ka_type, tier, sort_order, is_active, notes')
       .order('country_id').order('sort_order').order('name'),
 
     // 一次拉本 run 的所有 cells —— RLS 会过滤
