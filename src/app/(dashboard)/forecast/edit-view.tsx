@@ -428,7 +428,7 @@ export function ForecastEditView({
                   </th>
                 ))}
                 <th className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-gray-100 text-gray-700"
-                    colSpan={monthsIso.length}>
+                    colSpan={1 + monthsIso.length}>
                   Sub-total
                 </th>
                 <th className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-amber-100 text-amber-800"
@@ -457,7 +457,13 @@ export function ForecastEditView({
                     ))}
                   </Fragment>
                 ))}
-                {/* SUB-TOTAL 各月 */}
+                {/* SUB-TOTAL 区：Σ SI/SO 总览 + 各月 */}
+                <th className="sticky z-20 px-2 py-1.5 text-center text-[10px] font-medium text-gray-500 border-b border-r border-gray-200 bg-slate-50"
+                    style={{ top: 36, minWidth: 56 }}>
+                  <div className="text-violet-600">Σ SI</div>
+                  <div className="text-emerald-600">Σ SO</div>
+                  <div className="text-[9px] text-gray-400 mt-0.5">all KAs</div>
+                </th>
                 {monthsIso.map((m, i) => (
                   <th key={`subtot-${m}`}
                       className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-gray-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
@@ -480,10 +486,15 @@ export function ForecastEditView({
             <tbody>
               {visibleSkus.map(sku => {
                 const subTotal = rowSubtotal(sku.id)
-                // 该 SKU 跨所有 KA 的 FD/HQ stock 之和（KA 级别原始数据加总到 SKU 级）
+                // 跨所有 KA 汇总：SI/SO 历史 + FD/HQ stock
+                let siTotal = 0
+                let soTotal = 0
                 let fdTotal = 0
                 let hqTotal = 0
                 kas.forEach(ka => {
+                  const ref = rollingByKaSku[ka.id]?.[sku.id]
+                  siTotal += ref?.si ?? 0
+                  soTotal += ref?.so ?? 0
                   fdTotal += fdStockByKaSku[ka.id]?.[sku.id] ?? 0
                   hqTotal += hqStockByKaSku[ka.id]?.[sku.id] ?? 0
                 })
@@ -534,7 +545,16 @@ export function ForecastEditView({
                         </Fragment>
                       )
                     })}
-                    {/* Sub-total per month */}
+                    {/* SUB-TOTAL 区：Σ SI/SO 总览 + 各月 */}
+                    <td className="px-1 py-0 text-right border-b border-r border-gray-200 bg-slate-100/70 align-middle"
+                        style={{ minWidth: 56 }}>
+                      <div className="text-[10px] tabular-nums leading-tight border-b border-violet-100 py-0.5 px-1 text-violet-700 font-semibold">
+                        {siTotal > 0 ? Math.round(siTotal) : <span className="text-gray-300">-</span>}
+                      </div>
+                      <div className="text-[10px] tabular-nums leading-tight py-0.5 px-1 text-emerald-700 font-semibold">
+                        {soTotal > 0 ? Math.round(soTotal) : <span className="text-gray-300">-</span>}
+                      </div>
+                    </td>
                     {monthsIso.map((m, i) => {
                       let monthSubtotal = 0
                       kas.forEach(ka => { monthSubtotal += cellQty[cellKey(sku.id, ka.id, m)] ?? 0 })
@@ -561,7 +581,7 @@ export function ForecastEditView({
               })}
               {!visibleSkus.length && (
                 <tr>
-                  <td colSpan={2 + kas.length * (1 + monthsIso.length) + monthsIso.length + 3} className="py-16 text-center text-gray-400">
+                  <td colSpan={2 + kas.length * (1 + monthsIso.length) + 1 + monthsIso.length + 3} className="py-16 text-center text-gray-400">
                     {hideZero ? 'No SKUs filled yet · uncheck "Hide empty SKUs" to see all' : 'No KAs / SKUs available for this country'}
                   </td>
                 </tr>
@@ -588,7 +608,26 @@ export function ForecastEditView({
                       </Fragment>
                     )
                   })}
-                  {/* Sub-total 行：跨 KA 月份汇总 */}
+                  {/* SUB-TOTAL 区底行：Σ SI/SO 总和 + 各月汇总 */}
+                  {(() => {
+                    let siGrand = 0
+                    let soGrand = 0
+                    kas.forEach(ka => allSkus.forEach(s => {
+                      const ref = rollingByKaSku[ka.id]?.[s.id]
+                      siGrand += ref?.si ?? 0
+                      soGrand += ref?.so ?? 0
+                    }))
+                    return (
+                      <td className="px-1 py-0 text-right border-r border-t-2 border-gray-300 bg-slate-200/70 align-middle" style={{ minWidth: 56 }}>
+                        <div className="text-[10px] tabular-nums leading-tight border-b border-violet-200 py-0.5 px-1 text-violet-800 font-bold">
+                          {siGrand > 0 ? fmtNum(Math.round(siGrand)) : '-'}
+                        </div>
+                        <div className="text-[10px] tabular-nums leading-tight py-0.5 px-1 text-emerald-800 font-bold">
+                          {soGrand > 0 ? fmtNum(Math.round(soGrand)) : '-'}
+                        </div>
+                      </td>
+                    )
+                  })()}
                   {monthsIso.map((m, i) => {
                     let total = 0
                     kas.forEach(ka => { total += colSubtotal(ka.id, m) })
