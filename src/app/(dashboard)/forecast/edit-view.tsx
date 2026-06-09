@@ -31,7 +31,7 @@ export function ForecastEditView({
   runs, selectedRun, allCountries, initialCountryCode,
   allKas, allSkus, allCells,
   editorNameMap,
-  siByCountrySku, soByKaSku,
+  poByCountrySku, soByKaSku,
   fdStockByKaSku, hqStockByKaSku,
   viewerIsAdmin, viewerName,
 }: {
@@ -43,8 +43,8 @@ export function ForecastEditView({
   allSkus: Sku[]
   allCells: Cell[]
   editorNameMap: Record<string, string>
-  // Σ SI: shipment 出货 (country × sku 维度, 跨 KA 不细分)
-  siByCountrySku: Record<number, Record<number, number>>
+  // Σ PO: shipment 出货 (country × sku 维度, 跨 KA 不细分)
+  poByCountrySku: Record<number, Record<number, number>>
   // Σ SO: PSI 按 ka 类型 (ka × sku, retailer=SO / distributor=ST)
   soByKaSku: Record<number, Record<number, number>>
   // FD/HQ Stock（by ka × sku）
@@ -385,7 +385,7 @@ export function ForecastEditView({
           </label>
 
           <span className="ml-3 text-xs text-gray-500">
-            <span className="inline-block w-2 h-2 rounded-sm bg-violet-200 mr-1 align-middle"></span>SI / <span className="inline-block w-2 h-2 rounded-sm bg-emerald-200 mr-1 ml-1 align-middle"></span>SO ref = past 3 complete months avg
+            <span className="inline-block w-2 h-2 rounded-sm bg-violet-200 mr-1 align-middle"></span>PO / <span className="inline-block w-2 h-2 rounded-sm bg-emerald-200 mr-1 ml-1 align-middle"></span>SO ref = past 3 complete months avg
           </span>
 
           {/* ⚙️ 管理渠道 — 销售自助新增/停用本国 KA。挪到 Save 旁边，主表格附近显眼 */}
@@ -450,10 +450,10 @@ export function ForecastEditView({
                     </th>
                   ))
                 ))}
-                {/* SUB-TOTAL 区：Σ SI/SO 总览 + 各月 */}
+                {/* SUB-TOTAL 区：Σ PO/SO 总览 + 各月 */}
                 <th className="sticky z-20 px-2 py-1.5 text-center text-[10px] font-medium text-gray-500 border-b border-r border-gray-200 bg-slate-50"
                     style={{ top: 36, minWidth: 56 }}>
-                  <div className="text-violet-600">Σ SI</div>
+                  <div className="text-violet-600">Σ PO</div>
                   <div className="text-emerald-600">Σ SO</div>
                   <div className="text-[9px] text-gray-400 mt-0.5">all KAs</div>
                 </th>
@@ -479,8 +479,8 @@ export function ForecastEditView({
             <tbody>
               {visibleSkus.map(sku => {
                 const subTotal = rowSubtotal(sku.id)
-                // Σ SI: shipment 出货 — country × sku 级（不细分 KA, 因为出货跨 KA 汇总同义）
-                const siTotal = siByCountrySku[selectedCountry.id]?.[sku.id] ?? 0
+                // Σ PO: shipment 出货 — country × sku 级（不细分 KA, 因为出货跨 KA 汇总同义）
+                const poTotal = poByCountrySku[selectedCountry.id]?.[sku.id] ?? 0
                 // Σ SO: 跨所有 KA 求和（每个 KA 按类型已经选 SO 或 ST）
                 let soTotal = 0
                 let fdTotal = 0
@@ -519,11 +519,11 @@ export function ForecastEditView({
                         )
                       })
                     ))}
-                    {/* SUB-TOTAL 区：Σ SI/SO 总览 + 各月 */}
+                    {/* SUB-TOTAL 区：Σ PO/SO 总览 + 各月 */}
                     <td className="px-1 py-0 text-right border-b border-r border-gray-200 bg-slate-100/70 align-middle"
                         style={{ minWidth: 56 }}>
                       <div className="text-[10px] tabular-nums leading-tight border-b border-violet-100 py-0.5 px-1 text-violet-700 font-semibold">
-                        {siTotal > 0 ? Math.round(siTotal) : <span className="text-gray-300">-</span>}
+                        {poTotal > 0 ? Math.round(poTotal) : <span className="text-gray-300">-</span>}
                       </div>
                       <div className="text-[10px] tabular-nums leading-tight py-0.5 px-1 text-emerald-700 font-semibold">
                         {soTotal > 0 ? Math.round(soTotal) : <span className="text-gray-300">-</span>}
@@ -576,12 +576,12 @@ export function ForecastEditView({
                       </td>
                     ))
                   ))}
-                  {/* SUB-TOTAL 区底行：Σ SI (shipment) / Σ SO (跨 KA) + 各月汇总 */}
+                  {/* SUB-TOTAL 区底行：Σ PO (shipment) / Σ SO (跨 KA) + 各月汇总 */}
                   {(() => {
-                    let siGrand = 0
+                    let poGrand = 0
                     let soGrand = 0
                     allSkus.forEach(s => {
-                      siGrand += siByCountrySku[selectedCountry.id]?.[s.id] ?? 0
+                      poGrand += poByCountrySku[selectedCountry.id]?.[s.id] ?? 0
                     })
                     kas.forEach(ka => allSkus.forEach(s => {
                       soGrand += soByKaSku[ka.id]?.[s.id] ?? 0
@@ -589,7 +589,7 @@ export function ForecastEditView({
                     return (
                       <td className="px-1 py-0 text-right border-r border-t-2 border-gray-300 bg-slate-200/70 align-middle" style={{ minWidth: 56 }}>
                         <div className="text-[10px] tabular-nums leading-tight border-b border-violet-200 py-0.5 px-1 text-violet-800 font-bold">
-                          {siGrand > 0 ? fmtNum(Math.round(siGrand)) : '-'}
+                          {poGrand > 0 ? fmtNum(Math.round(poGrand)) : '-'}
                         </div>
                         <div className="text-[10px] tabular-nums leading-tight py-0.5 px-1 text-emerald-800 font-bold">
                           {soGrand > 0 ? fmtNum(Math.round(soGrand)) : '-'}
@@ -635,7 +635,7 @@ export function ForecastEditView({
       {/* 调试提示 */}
       <div className="mt-4 text-xs text-gray-400 text-center">
         💡 Edited cells show yellow until saved · click Save or press <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">⌘/Ctrl + S</kbd> ·
-        SI/SO ref = avg of past 3 complete months (excl. current) · You'll be warned before leaving with unsaved changes ·
+        PO (shipment) / SO (PSI) ref = avg of past 3 complete months (excl. current) · You'll be warned before leaving with unsaved changes ·
         Writes are RLS-protected — out-of-scope writes are auto-rejected
       </div>
     </div>

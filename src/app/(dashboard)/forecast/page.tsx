@@ -173,7 +173,7 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
     { data: allSkus },
     { data: allKas },
     { data: allCells },
-    { data: shipmentSiData },
+    { data: shipmentPoData },
     { data: rollingSoData },
     { data: fdStockRaw },
     { data: hqStockRaw },
@@ -196,9 +196,9 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       .select('run_id, sku_id, ka_id, month, qty, updated_by, updated_at')
       .eq('run_id', selectedRun.id),
 
-    // Σ SI 数据源: shipment 出货量 (country × sku, 过去 3 月均) — 跨 KA 累加
-    supabase.from('shipment_si_3mo_avg')
-      .select('country_id, sku_id, si_avg_3mo')
+    // Σ PO 数据源: shipment 出货量 (country × sku, 过去 3 月均) — PO = Purchase Order
+    supabase.from('shipment_po_3mo_avg')
+      .select('country_id, sku_id, po_avg_3mo')
       .range(0, 49999),
 
     // Σ SO 数据源: PSI 按 ka 类型 (retailer=SO / distributor=ST) (ka × sku, 过去 3 月均)
@@ -239,11 +239,11 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
   const initialCountryCode = countryParam && myCountries.some((c: any) => c.code === countryParam)
     ? countryParam : (myCountries[0] as any).code
 
-  // ───────── Σ SI: shipment 出货 (country × sku, 过去 3 月均) ─────────
-  const siByCountrySku: Record<number, Record<number, number>> = {}
-  ;(shipmentSiData ?? []).forEach((r: any) => {
-    if (!siByCountrySku[r.country_id]) siByCountrySku[r.country_id] = {}
-    siByCountrySku[r.country_id][r.sku_id] = Number(r.si_avg_3mo) || 0
+  // ───────── Σ PO: shipment 出货 (country × sku, 过去 3 月均) ─────────
+  const poByCountrySku: Record<number, Record<number, number>> = {}
+  ;(shipmentPoData ?? []).forEach((r: any) => {
+    if (!poByCountrySku[r.country_id]) poByCountrySku[r.country_id] = {}
+    poByCountrySku[r.country_id][r.sku_id] = Number(r.po_avg_3mo) || 0
   })
 
   // ───────── Σ SO: PSI 按 ka 类型 (ka × sku, 过去 3 月均) ─────────
@@ -283,7 +283,7 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       allKas={allKas ?? []}
       allSkus={allSkus ?? []}
       allCells={(allCells ?? []) as any[]}
-      siByCountrySku={siByCountrySku}
+      poByCountrySku={poByCountrySku}
       soByKaSku={soByKaSku}
       fdStockByKaSku={fdStockByKaSku}
       hqStockByKaSku={hqStockByKaSku}
