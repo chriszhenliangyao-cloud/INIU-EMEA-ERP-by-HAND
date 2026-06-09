@@ -10,6 +10,7 @@ type Run = {
   period_start: string
   period_end: string
   status: string
+  month_count?: number
 }
 
 type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number } | null
@@ -232,7 +233,7 @@ function CreateRunModal({
       >
         <h2 className="text-lg font-bold text-gray-900 mb-1">➕ New forecast cycle</h2>
         <p className="text-sm text-gray-500 mb-5">
-          Create a new 4-month forecast window for the EU region. Start month is aligned to the 1st; code is auto-generated.
+          Create a new rolling forecast window for the EU region. Default 3 months; start month aligned to the 1st; code auto-generated.
         </p>
 
         {/* Start month */}
@@ -247,9 +248,9 @@ function CreateRunModal({
           <div className="text-xs text-gray-500 mt-1">
             Window: <strong>{periodMonth}</strong> ~ {(() => {
               const [y, m] = periodMonth.split('-').map(Number)
-              const end = new Date(y, m - 1 + 3, 1)
+              const end = new Date(y, m - 1 + 2, 1)  // +2 = 3 个月窗口的最后一个月
               return `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}`
-            })()} (4 months)
+            })()} (3 months · rolling)
             · Code: <code className="bg-gray-100 px-1 rounded">EU-FCST-{periodMonth}</code>
           </div>
           {wouldConflict && (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useRef, useEffect, useCallback, useTransition } from 'react'
+import { Fragment, useMemo, useState, useRef, useEffect, useCallback, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -8,7 +8,7 @@ import { fmtNum } from '@/lib/utils'
 import { RunControls } from './run-controls'
 import { ManageChannelsModal } from './manage-channels-modal'
 
-type Run = { id: number; code: string; period_start: string; period_end: string; status: string }
+type Run = { id: number; code: string; period_start: string; period_end: string; status: string; month_count?: number }
 type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
 type Ka = {
   id: number
@@ -27,13 +27,11 @@ type Cell = { run_id: number; sku_id: number; ka_id: number; month: string; qty:
 type CellKey = string  // `${sku_id}|${ka_id}|${YYYY-MM-01}`
 const cellKey = (sku_id: number, ka_id: number, monthIso: string) => `${sku_id}|${ka_id}|${monthIso}`
 
-type PeekMode = null | 'ly' | 'ytd'
-
 export function ForecastEditView({
   runs, selectedRun, allCountries, initialCountryCode,
   allKas, allSkus, allCells,
   editorNameMap,
-  lyByCountrySku, ytdByCountrySku, ytdMonthsCount,
+  rollingByKaSku, fdStockByKaSku, hqStockByKaSku,
   viewerIsAdmin, viewerName,
 }: {
   runs: Run[]
@@ -44,9 +42,11 @@ export function ForecastEditView({
   allSkus: Sku[]
   allCells: Cell[]
   editorNameMap: Record<string, string>
-  lyByCountrySku: Record<number, Record<string, Record<string, number>>>
-  ytdByCountrySku: Record<number, Record<string, number>>
-  ytdMonthsCount: number
+  // 3-mo rolling SI/SO 平均（by ka × sku）
+  rollingByKaSku: Record<number, Record<number, { si: number; so: number; months: number }>>
+  // FD/HQ Stock（by ka × sku）
+  fdStockByKaSku: Record<number, Record<number, number>>
+  hqStockByKaSku: Record<number, Record<number, number>>
   viewerIsAdmin: boolean
   viewerName: string
 }) {
@@ -60,7 +60,7 @@ export function ForecastEditView({
     [selectedCountryCode, allCountries]
   )
 
-  // —— 按当前国家 + active 派生 kas / cells / lyBySku / ytdAvgBySku（in-memory filter，<1ms）——
+  // —— 按当前国家 + active 派生 kas / cells（in-memory filter，<1ms）——
   //  ⚠️ allKas 现在包含 inactive（给 Manage Channels modal 用），主表格仅展示 active
   const kas = useMemo(
     () => allKas.filter(k => k.country_id === selectedCountry.id && k.is_active !== false),
@@ -77,14 +77,7 @@ export function ForecastEditView({
     () => allCells.filter(c => kaIdSet.has(c.ka_id)),
     [allCells, kaIdSet]
   )
-  const lyBySku = useMemo(
-    () => lyByCountrySku[selectedCountry.id] ?? {},
-    [lyByCountrySku, selectedCountry.id]
-  )
-  const ytdAvgBySku = useMemo(
-    () => ytdByCountrySku[selectedCountry.id] ?? {},
-    [ytdByCountrySku, selectedCountry.id]
-  )
+  // 注：rolling / FD / HQ stock 已按 ka_id 索引，国家切换无需重派生
 
   // —— 切国家（纯客户端 + URL 同步，不触发 server fetch）——
   const switchCountry = useCallback((code: string) => {
@@ -104,16 +97,18 @@ export function ForecastEditView({
     })
   }
 
-  // —— 计算 4 个月（YYYY-MM-01 / YYYY-MM 双格式）——
+  // —— 动态月数：新 cycle = 3, 历史 = 4 ——
+  const monthCount = selectedRun.month_count ?? 4
+
   const monthsIso = useMemo(() => {
     const result: string[] = []
     const d = new Date(selectedRun.period_start)
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < monthCount; i++) {
       const md = new Date(d); md.setMonth(d.getMonth() + i)
       result.push(`${md.getFullYear()}-${String(md.getMonth() + 1).padStart(2, '0')}-01`)
     }
     return result
-  }, [selectedRun])
+  }, [selectedRun, monthCount])
 
   const monthsYm = monthsIso.map(m => m.slice(0, 7))
   const monthLabels = monthsIso.map(m => {
@@ -136,7 +131,6 @@ export function ForecastEditView({
   // —— dirty cells（修改过未保存的）——
   const [dirtyKeys, setDirtyKeys] = useState<Set<CellKey>>(new Set())
   const [saving, setSaving] = useState(false)
-  const [peekMode, setPeekMode] = useState<PeekMode>(null)
 
   // —— Toast 通知（替代 alert）——
   type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number }
@@ -379,9 +373,9 @@ export function ForecastEditView({
         </div>
       </div>
 
-      {/* KPI */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <KpiCard label={`${selectedCountry.flag_emoji} ${selectedCountry.code} 4-month total`} value={fmtNum(grandTotal)} hint={`${kas.length} KAs × ${visibleSkus.length} SKUs`} big />
+      {/* KPI — 列数动态：1 个总 KPI + monthCount 个月 KPI */}
+      <div className={`grid grid-cols-2 gap-3 mb-4`} style={{ gridTemplateColumns: `repeat(${1 + monthCount}, minmax(0, 1fr))` }}>
+        <KpiCard label={`${selectedCountry.flag_emoji} ${selectedCountry.code} ${monthCount}-month total`} value={fmtNum(grandTotal)} hint={`${kas.length} KAs × ${visibleSkus.length} SKUs`} big />
         {monthsYm.map((ym, i) => {
           let monthTotal = 0
           kas.forEach(ka => { monthTotal += colSubtotal(ka.id, monthsIso[i]) })
@@ -391,40 +385,17 @@ export function ForecastEditView({
 
       {/* 主表 wrapper：工具栏 + 表格滚动区 */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        {/* 工具栏（sticky 表格顶部，滚动表格时不变；滚动主页面时跟随）*/}
+        {/* 工具栏 — 删 LY/YTD peek 按钮（被左列 SI/SO 取代）*/}
         <div className="flex items-center gap-2 flex-wrap px-4 py-3 bg-gray-50 border-b border-gray-200">
           <label className="flex items-center gap-1.5 text-sm text-gray-600">
             <input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} />
             Hide empty SKUs
           </label>
 
-          {/* Hover peek 按钮 */}
-          <div className="flex gap-0 rounded-lg overflow-hidden border border-gray-300 ml-2">
-            <button
-              onMouseEnter={() => setPeekMode('ly')}
-              onMouseLeave={() => setPeekMode(null)}
-              onFocus={() => setPeekMode('ly')}
-              onBlur={() => setPeekMode(null)}
-              className={`px-3 py-1.5 text-sm font-medium border-r border-gray-300 transition ${
-                peekMode === 'ly' ? 'bg-purple-600 text-white' : 'bg-white text-gray-700 hover:bg-purple-50'
-              }`}
-            >
-              👻 Last year
-            </button>
-            <button
-              onMouseEnter={() => setPeekMode('ytd')}
-              onMouseLeave={() => setPeekMode(null)}
-              onFocus={() => setPeekMode('ytd')}
-              onBlur={() => setPeekMode(null)}
-              className={`px-3 py-1.5 text-sm font-medium transition ${
-                peekMode === 'ytd' ? 'bg-cyan-600 text-white' : 'bg-white text-gray-700 hover:bg-cyan-50'
-              }`}
-            >
-              📊 YTD avg
-            </button>
-          </div>
+          <span className="ml-3 text-xs text-gray-500">
+            <span className="inline-block w-2 h-2 rounded-sm bg-violet-200 mr-1 align-middle"></span>SI / <span className="inline-block w-2 h-2 rounded-sm bg-emerald-200 mr-1 ml-1 align-middle"></span>SO ref = past 3 complete months avg
+          </span>
 
-          {/* Save 按钮 */}
           <button
             onClick={handleSave}
             disabled={saving || dirtyKeys.size === 0 || editLockedForAll}
@@ -440,96 +411,157 @@ export function ForecastEditView({
 
         {/* 表格滚动区 */}
         <div className="overflow-auto max-h-[700px]">
-          <table className="text-sm border-collapse" style={{ minWidth: 1200 }}>
+          <table className="text-sm border-collapse" style={{ minWidth: 1400 }}>
             <thead>
+              {/* row 1: 分组表头（KA × N · SUB-TOTAL · TOTAL block）*/}
               <tr className="bg-gray-50">
                 <th className="sticky left-0 top-0 bg-gray-50 z-30 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r border-gray-200"
                     rowSpan={2} style={{ minWidth: 90, maxWidth: 90 }}>SKU</th>
                 <th className="sticky top-0 bg-gray-50 z-30 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300"
                     rowSpan={2}
                     style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>Product</th>
-                {kas.map((ka, ki) => (
-                  <th key={ka.id} className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-blue-100 text-blue-700" colSpan={monthsIso.length}>
+                {kas.map(ka => (
+                  <th key={ka.id}
+                      className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-blue-100 text-blue-700"
+                      colSpan={1 + monthsIso.length}>
                     {ka.name}
                   </th>
                 ))}
-                <th className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-gray-900 text-white" rowSpan={2}>
-                  Sub-total<br /><span className="text-[10px] font-normal opacity-80">(4 months)</span>
+                <th className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-gray-100 text-gray-700"
+                    colSpan={monthsIso.length}>
+                  Sub-total
+                </th>
+                <th className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-amber-100 text-amber-800"
+                    colSpan={3}>
+                  Total · Stock
                 </th>
               </tr>
+              {/* row 2: 子标签 — KA 下"Ref / 月份"，SUB-TOTAL 下"月份"，TOTAL block 下"Total/FD/HQ" */}
               <tr className="bg-gray-50">
                 {kas.map(ka => (
-                  monthsIso.map((m, i) => (
-                    <th key={`${ka.id}-${m}`} className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-blue-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
-                        style={{ top: 36 }}>
-                      {monthLabels[i]}
+                  <Fragment key={ka.id}>
+                    {/* SI/SO 参考列 */}
+                    <th className="sticky z-20 px-2 py-1.5 text-center text-[10px] font-medium text-gray-500 border-b border-r border-gray-200 bg-slate-50"
+                        style={{ top: 36, minWidth: 56 }}>
+                      <div className="text-violet-600">SI</div>
+                      <div className="text-emerald-600">SO</div>
+                      <div className="text-[9px] text-gray-400 mt-0.5">3-mo avg</div>
                     </th>
-                  ))
+                    {/* 各月预测列 */}
+                    {monthsIso.map((m, i) => (
+                      <th key={`${ka.id}-${m}`}
+                          className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-blue-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
+                          style={{ top: 36 }}>
+                        {monthLabels[i]}
+                      </th>
+                    ))}
+                  </Fragment>
                 ))}
+                {/* SUB-TOTAL 各月 */}
+                {monthsIso.map((m, i) => (
+                  <th key={`subtot-${m}`}
+                      className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-gray-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
+                      style={{ top: 36 }}>
+                    {monthLabels[i]}
+                  </th>
+                ))}
+                {/* TOTAL block 3 列 */}
+                <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }}>
+                  Total
+                </th>
+                <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }} title="Stock from FD (channel distributor)">
+                  Stock-FD
+                </th>
+                <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }} title="Stock from HQ (INIU warehouse)">
+                  Stock-HQ
+                </th>
               </tr>
             </thead>
             <tbody>
               {visibleSkus.map(sku => {
                 const subTotal = rowSubtotal(sku.id)
-                const lyTotal = monthsYm.reduce((s, ym) => s + ((lyBySku[sku.code] ?? {})[ym] ?? 0), 0)
-                const ytd = ytdAvgBySku[sku.code] ?? 0
+                // 该 SKU 跨所有 KA 的 FD/HQ stock 之和（KA 级别原始数据加总到 SKU 级）
+                let fdTotal = 0
+                let hqTotal = 0
+                kas.forEach(ka => {
+                  fdTotal += fdStockByKaSku[ka.id]?.[sku.id] ?? 0
+                  hqTotal += hqStockByKaSku[ka.id]?.[sku.id] ?? 0
+                })
                 return (
                   <tr key={sku.id} className="hover:bg-gray-50 group">
                     <td className="sticky left-0 bg-white group-hover:bg-gray-50 z-10 px-3 py-1.5 font-mono text-xs font-bold text-gray-900 border-b border-r border-gray-100" style={{ minWidth: 90, maxWidth: 90 }}>
                       {sku.code}
-                      {peekMode === 'ly' && lyTotal > 0 && (
-                        <div className="text-[10px] text-purple-500 font-normal mt-0.5">LY {fmtNum(lyTotal)}</div>
-                      )}
-                      {peekMode === 'ytd' && ytd > 0 && (
-                        <div className="text-[10px] text-cyan-500 font-normal mt-0.5">YTD avg {fmtNum(ytd)}</div>
-                      )}
                     </td>
                     <td className="sticky bg-white group-hover:bg-gray-50 z-10 px-3 py-1.5 text-xs text-gray-600 border-b border-r-2 border-gray-300" style={{ left: 90, minWidth: 200, maxWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.35', boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>
                       {sku.name}
                     </td>
-                    {kas.map(ka => (
-                      monthsIso.map((m, i) => {
-                        const key = cellKey(sku.id, ka.id, m)
-                        const value = cellQty[key] ?? 0
-                        const dirty = dirtyKeys.has(key)
-                        const lyVal = (lyBySku[sku.code] ?? {})[monthsYm[i]] ?? 0
-                        const isLast = i === monthsIso.length - 1
-                        return (
-                          <td key={key} className={`px-1 py-1 text-right border-b border-gray-100 ${isLast ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'} ${dirty ? 'bg-yellow-50' : ''} relative`}>
-                            {/* hover peek overlay */}
-                            {peekMode === 'ly' && lyVal > 0 && (
-                              <div className="absolute inset-0 flex items-center justify-center bg-purple-100 text-purple-700 font-medium text-xs pointer-events-none">
-                                {fmtNum(lyVal)}
-                              </div>
-                            )}
-                            {peekMode === 'ytd' && ytd > 0 && (
-                              <div className="absolute inset-0 flex items-center justify-center bg-cyan-100 text-cyan-700 font-medium text-xs pointer-events-none">
-                                {fmtNum(ytd)}
-                              </div>
-                            )}
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              value={value === 0 ? '' : String(value)}
-                              onChange={(e) => updateCell(sku.id, ka.id, m, e.target.value)}
-                              placeholder="0"
-                              disabled={editLockedForAll}
-                              className={`w-full text-xs text-right tabular-nums bg-transparent focus:bg-white focus:ring-2 focus:ring-blue-300 rounded px-1 py-1 outline-none ${value > 0 ? 'text-gray-900 font-medium' : 'text-gray-300'} ${editLockedForAll ? 'cursor-not-allowed' : ''}`}
-                            />
+                    {kas.map(ka => {
+                      const ref = rollingByKaSku[ka.id]?.[sku.id]
+                      const si = ref?.si ?? 0
+                      const so = ref?.so ?? 0
+                      return (
+                        <Fragment key={ka.id}>
+                          {/* SI/SO 参考列 — 上下分隔 */}
+                          <td className="px-1 py-0 text-right border-b border-r border-gray-200 bg-slate-50/50 align-middle"
+                              style={{ minWidth: 56 }}>
+                            <div className="text-[10px] tabular-nums leading-tight border-b border-violet-100 py-0.5 px-1 text-violet-700">
+                              {si > 0 ? Math.round(si) : <span className="text-gray-300">-</span>}
+                            </div>
+                            <div className="text-[10px] tabular-nums leading-tight py-0.5 px-1 text-emerald-700">
+                              {so > 0 ? Math.round(so) : <span className="text-gray-300">-</span>}
+                            </div>
                           </td>
-                        )
-                      })
-                    ))}
-                    {/* Sub-total */}
-                    <td className="px-3 py-1.5 text-right text-sm tabular-nums font-bold bg-gray-900 text-white border-b border-gray-700">
-                      {subTotal > 0 ? fmtNum(subTotal) : '-'}
+                          {/* 各月预测 cell */}
+                          {monthsIso.map((m, i) => {
+                            const key = cellKey(sku.id, ka.id, m)
+                            const value = cellQty[key] ?? 0
+                            const dirty = dirtyKeys.has(key)
+                            const isLast = i === monthsIso.length - 1
+                            return (
+                              <td key={key} className={`px-1 py-1 text-right border-b border-gray-100 ${isLast ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'} ${dirty ? 'bg-yellow-50' : ''}`}>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={value === 0 ? '' : String(value)}
+                                  onChange={(e) => updateCell(sku.id, ka.id, m, e.target.value)}
+                                  placeholder="0"
+                                  disabled={editLockedForAll}
+                                  className={`w-full text-xs text-right tabular-nums bg-transparent focus:bg-white focus:ring-2 focus:ring-blue-300 rounded px-1 py-1 outline-none ${value > 0 ? 'text-gray-900 font-medium' : 'text-gray-300'} ${editLockedForAll ? 'cursor-not-allowed' : ''}`}
+                                />
+                              </td>
+                            )
+                          })}
+                        </Fragment>
+                      )
+                    })}
+                    {/* Sub-total per month */}
+                    {monthsIso.map((m, i) => {
+                      let monthSubtotal = 0
+                      kas.forEach(ka => { monthSubtotal += cellQty[cellKey(sku.id, ka.id, m)] ?? 0 })
+                      const isLast = i === monthsIso.length - 1
+                      return (
+                        <td key={`subtot-${sku.id}-${m}`}
+                            className={`px-2 py-1.5 text-right text-xs tabular-nums font-semibold bg-gray-100 text-gray-800 border-b border-gray-200 ${isLast ? 'border-r-2 border-gray-300' : 'border-r border-gray-200'}`}>
+                          {monthSubtotal > 0 ? fmtNum(monthSubtotal) : <span className="text-gray-300">-</span>}
+                        </td>
+                      )
+                    })}
+                    {/* TOTAL block */}
+                    <td className="px-2 py-1.5 text-right text-sm tabular-nums font-bold bg-amber-50 text-amber-900 border-b border-r border-amber-200">
+                      {subTotal > 0 ? fmtNum(subTotal) : <span className="text-gray-300">-</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
+                      {fdTotal > 0 ? fmtNum(fdTotal) : <span className="text-gray-300">-</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
+                      {hqTotal > 0 ? fmtNum(hqTotal) : <span className="text-gray-300" title="HQ stock data not yet imported">-</span>}
                     </td>
                   </tr>
                 )
               })}
               {!visibleSkus.length && (
                 <tr>
-                  <td colSpan={3 + kas.length * monthsIso.length + 1} className="py-16 text-center text-gray-400">
+                  <td colSpan={2 + kas.length * (1 + monthsIso.length) + monthsIso.length + 3} className="py-16 text-center text-gray-400">
                     {hideZero ? 'No SKUs filled yet · uncheck "Hide empty SKUs" to see all' : 'No KAs / SKUs available for this country'}
                   </td>
                 </tr>
@@ -538,19 +570,52 @@ export function ForecastEditView({
             {visibleSkus.length > 0 && (
               <tfoot>
                 <tr>
-                  <td className="sticky left-0 bg-gray-900 text-white z-10 px-3 py-2.5 text-xs font-bold uppercase border-r" style={{ minWidth: 90, maxWidth: 90 }}>TTL</td>
-                  <td className="sticky bg-gray-900 text-white z-10 px-3 py-2.5 text-xs font-medium border-r-2 border-gray-700" style={{ left: 90, minWidth: 200, maxWidth: 200 }}>
+                  <td className="sticky left-0 bg-gray-100 text-gray-700 z-10 px-3 py-2.5 text-xs font-bold uppercase border-r border-t-2 border-gray-300" style={{ minWidth: 90, maxWidth: 90 }}>TTL</td>
+                  <td className="sticky bg-gray-100 text-gray-700 z-10 px-3 py-2.5 text-xs font-medium border-r-2 border-t-2 border-gray-300" style={{ left: 90, minWidth: 200, maxWidth: 200 }}>
                     All SKUs total
                   </td>
-                  {kas.map(ka => (
-                    monthsIso.map((m, i) => (
-                      <td key={`ft-${ka.id}-${m}`} className={`px-1 py-2 text-right text-xs font-bold tabular-nums text-white bg-blue-700 ${i === monthsIso.length - 1 ? 'border-r-2 border-blue-500' : 'border-r border-blue-600'}`}>
-                        {fmtNum(colSubtotal(ka.id, m))}
+                  {kas.map(ka => {
+                    // KA TTL 行：SI/SO 列留空（参考型不汇总），月份列加总
+                    return (
+                      <Fragment key={ka.id}>
+                        <td className="bg-slate-100 border-r border-t-2 border-gray-300" />
+                        {monthsIso.map((m, i) => (
+                          <td key={`ft-${ka.id}-${m}`}
+                              className={`px-1 py-2 text-right text-xs font-bold tabular-nums bg-blue-50 text-blue-900 border-t-2 border-gray-300 ${i === monthsIso.length - 1 ? 'border-r-2 border-r-gray-300' : 'border-r border-r-blue-200'}`}>
+                            {fmtNum(colSubtotal(ka.id, m))}
+                          </td>
+                        ))}
+                      </Fragment>
+                    )
+                  })}
+                  {/* Sub-total 行：跨 KA 月份汇总 */}
+                  {monthsIso.map((m, i) => {
+                    let total = 0
+                    kas.forEach(ka => { total += colSubtotal(ka.id, m) })
+                    return (
+                      <td key={`ft-subtot-${m}`}
+                          className={`px-2 py-2 text-right text-xs font-bold tabular-nums bg-gray-200 text-gray-900 border-t-2 border-gray-300 ${i === monthsIso.length - 1 ? 'border-r-2 border-r-gray-300' : 'border-r border-r-gray-300'}`}>
+                        {fmtNum(total)}
                       </td>
-                    ))
-                  ))}
-                  <td className="px-3 py-2.5 text-right text-sm font-bold tabular-nums text-white bg-black">
+                    )
+                  })}
+                  {/* TOTAL block 底行 */}
+                  <td className="px-2 py-2 text-right text-sm font-bold tabular-nums bg-amber-100 text-amber-900 border-r border-t-2 border-amber-300">
                     {fmtNum(grandTotal)}
+                  </td>
+                  <td className="px-2 py-2 text-right text-xs font-bold tabular-nums bg-amber-50 text-gray-700 border-r border-t-2 border-amber-300">
+                    {(() => {
+                      let total = 0
+                      kas.forEach(ka => allSkus.forEach(s => { total += fdStockByKaSku[ka.id]?.[s.id] ?? 0 }))
+                      return total > 0 ? fmtNum(total) : '-'
+                    })()}
+                  </td>
+                  <td className="px-2 py-2 text-right text-xs font-bold tabular-nums bg-amber-50 text-gray-700 border-r border-t-2 border-amber-300">
+                    {(() => {
+                      let total = 0
+                      kas.forEach(ka => allSkus.forEach(s => { total += hqStockByKaSku[ka.id]?.[s.id] ?? 0 }))
+                      return total > 0 ? fmtNum(total) : '-'
+                    })()}
                   </td>
                 </tr>
               </tfoot>
@@ -562,7 +627,7 @@ export function ForecastEditView({
       {/* 调试提示 */}
       <div className="mt-4 text-xs text-gray-400 text-center">
         💡 Edited cells show yellow until saved · click Save or press <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">⌘/Ctrl + S</kbd> ·
-        Hover "Last year" / "YTD avg" to peek historical reference · You'll be warned before leaving with unsaved changes ·
+        SI/SO ref = avg of past 3 complete months (excl. current) · You'll be warned before leaving with unsaved changes ·
         Writes are RLS-protected — out-of-scope writes are auto-rejected
       </div>
     </div>

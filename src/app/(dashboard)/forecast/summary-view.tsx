@@ -13,6 +13,7 @@ type Run = {
   period_start: string
   period_end: string
   status: string
+  month_count?: number   // 动态周期长度（新 cycle=3, 历史默认 4）
   filled_cells: number
   total_qty: number
   sku_count: number
@@ -61,19 +62,19 @@ export function ForecastSummaryView({
 }) {
   const router = useRouter()
   const [hideZero, setHideZero] = useState(false)
-  const [peekLastYear, setPeekLastYear] = useState(false)
 
-  // ============== 计算 4 个月份（YYYY-MM 格式）==============
+  // ============== 计算月份（动态：新 cycle=3, 历史=4）==============
+  const monthCount = (selectedRun as any).month_count ?? 4
   const months = useMemo(() => {
     const result: string[] = []
     const start = new Date(selectedRun.period_start)
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < monthCount; i++) {
       const d = new Date(start)
       d.setMonth(d.getMonth() + i)
       result.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
     }
     return result
-  }, [selectedRun])
+  }, [selectedRun, monthCount])
 
   const monthLabels = months.map(m => {
     const [y, mo] = m.split('-')
@@ -281,7 +282,7 @@ export function ForecastSummaryView({
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
-        <KpiCard label="EU 4-month total" value={fmtNum(totalQty)} hint={`${tableRows.length} SKUs · ${tableCountries.length} countries × 4 months`} color="purple" big />
+        <KpiCard label={`EU ${monthCount}-month total`} value={fmtNum(totalQty)} hint={`${tableRows.length} SKUs · ${tableCountries.length} countries × ${monthCount} months`} color="purple" big />
         {tableCountries.map(c => (
           <KpiCard key={c.code} label={`${c.flag_emoji} ${c.code} total`} value={fmtNum(totalByCountry[c.code] ?? 0)} hint={`${totalQty > 0 ? ((totalByCountry[c.code] ?? 0) / totalQty * 100).toFixed(1) : '0'}% of EU`} />
         ))}
@@ -297,7 +298,7 @@ export function ForecastSummaryView({
         <Legend color="#fef3c7" label="ES Spain" />
         <Legend color="#fce7f3" label="NL Netherlands" />
         <Legend color="#ede9fe" label="EU TTL" />
-        <Legend color="#e5e7eb" label="Sub-total (4-month sum)" textColor="text-gray-700" />
+        <Legend color="#e5e7eb" label={`Sub-total (${monthCount}-month sum)`} textColor="text-gray-700" />
       </div>
 
       {/* 主表 */}
@@ -317,8 +318,9 @@ export function ForecastSummaryView({
                 <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-purple-100 text-purple-700" colSpan={months.length}>
                   EU TTL
                 </th>
-                <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-gray-100 text-gray-700" rowSpan={2}>
-                  Sub-total<br /><span className="text-[10px] font-normal opacity-80">(4 months)</span>
+                <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-gray-100 text-gray-700"
+                    colSpan={months.length}>
+                  Sub-total
                 </th>
               </tr>
               {/* 第二行：月份 — sticky top-[32px] 紧贴第一行 */}
@@ -332,6 +334,13 @@ export function ForecastSummaryView({
                 ))}
                 {months.map((m, i) => (
                   <th key={`eu-${m}`} className={`sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-purple-700 border-b border-gray-200 bg-purple-50 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}>
+                    {monthLabels[i].short}
+                  </th>
+                ))}
+                {/* Sub-total 各月 */}
+                {months.map((m, i) => (
+                  <th key={`subtot-${m}`}
+                      className={`sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-gray-700 border-b border-gray-200 bg-gray-100 ${i === months.length - 1 ? 'border-r border-gray-300' : 'border-r border-gray-200'}`}>
                     {monthLabels[i].short}
                   </th>
                 ))}
@@ -364,14 +373,18 @@ export function ForecastSummaryView({
                       </td>
                     )
                   })}
-                  <td className="px-3 py-2 text-right text-sm tabular-nums font-bold bg-gray-100 text-gray-900 border-b border-gray-200">
-                    {r.subTotal > 0 ? fmtNum(r.subTotal) : '-'}
-                  </td>
+                  {/* Sub-total per month (替换原单列汇总) */}
+                  {months.map((m, i) => (
+                    <td key={`subtot-${r.sku_code}-${m}`}
+                        className={`px-2 py-2 text-right text-xs tabular-nums font-semibold bg-gray-100 text-gray-800 border-b border-gray-200 ${i === months.length - 1 ? 'border-r border-gray-300' : 'border-r border-gray-200'}`}>
+                      {(r.monthlyTtl[m] ?? 0) > 0 ? fmtNum(r.monthlyTtl[m]) : <span className="text-gray-300">-</span>}
+                    </td>
+                  ))}
                 </tr>
               ))}
               {!tableRows.length && (
                 <tr>
-                  <td colSpan={3 + tableCountries.length * months.length + months.length} className="py-12 text-center text-gray-400">
+                  <td colSpan={2 + tableCountries.length * months.length + months.length + months.length} className="py-12 text-center text-gray-400">
                     No data for this cycle yet · waiting for sales input or switch to another cycle
                   </td>
                 </tr>
@@ -398,9 +411,13 @@ export function ForecastSummaryView({
                       {fmtNum(footTotals.byEuMonth[m] ?? 0)}
                     </td>
                   ))}
-                  <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-gray-900 bg-gray-200 border-t-2 border-gray-300">
-                    {fmtNum(footTotals.grandTotal)}
-                  </td>
+                  {/* Sub-total 各月 footer */}
+                  {months.map((m, i) => (
+                    <td key={`ft-subtot-${m}`}
+                        className={`px-2 py-3 text-right text-xs font-bold tabular-nums bg-gray-200 text-gray-900 border-t-2 border-gray-300 ${i === months.length - 1 ? 'border-r border-r-gray-300' : 'border-r border-r-gray-300'}`}>
+                      {fmtNum(footTotals.byEuMonth[m] ?? 0)}
+                    </td>
+                  ))}
                 </tr>
               </tfoot>
             )}
@@ -412,7 +429,7 @@ export function ForecastSummaryView({
       <div className="mt-4 text-xs text-gray-400 text-center">
         💡 Source: <code className="bg-gray-100 px-1 rounded text-purple-600">forecast_eu_summary</code> view (KA aggregated to country level) ·
         Monthly EU TTL = FR + PL + ES + NL ·
-        Sub-total = 4-month EU TTL sum
+        Sub-total = monthly EU TTL ({monthCount}-month window)
       </div>
     </div>
   )

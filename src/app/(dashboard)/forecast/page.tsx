@@ -13,7 +13,7 @@ export default async function ForecastPage({ searchParams }: { searchParams?: Se
   // —— 拉 forecast_runs 列表（admin/sales 都需要看到所有周期）——
   const { data: runs, error: runsErr } = await supabase
     .from('forecast_run_summary')
-    .select('id, code, region, period_start, period_end, status, filled_cells, total_qty, sku_count, ka_count, country_count, created_by_name, submitted_at, approved_at, published_at')
+    .select('id, code, region, period_start, period_end, status, month_count, filled_cells, total_qty, sku_count, ka_count, country_count, created_by_name, submitted_at, approved_at, published_at')
     .eq('region', 'EU')
     .order('period_start', { ascending: false })
 
@@ -77,10 +77,11 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
   // 🔐 admin 看全部 EU，sales 只看自己负责的国家
   const countries = (allEuCountries ?? []).filter((c: any) => me.canAccessCountry(c.id))
 
-  // 去年同期数据（hover-peek 备用）
+  // 去年同期数据（hover-peek 备用） — 窗口长度跟随 month_count
   const startDate = new Date(selectedRun.period_start)
+  const monthCount = (selectedRun as any).month_count ?? 4
   const lyStart = new Date(startDate); lyStart.setFullYear(lyStart.getFullYear() - 1)
-  const lyEnd = new Date(lyStart); lyEnd.setMonth(lyEnd.getMonth() + 4)
+  const lyEnd = new Date(lyStart); lyEnd.setMonth(lyEnd.getMonth() + monthCount)
   const { data: lyData } = await supabase
     .from('shipment')
     .select(`qty, effective_date, sku:sku_id ( id, code ), country:country_id ( id, code )`)
@@ -115,22 +116,16 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
 // ============ Edit View（sales 默认 / 显式 view=edit）============
 async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) {
   // ⚡ 一次拉全量数据 —— 切国家在前端纯本地切换，0 网络请求
-  // 数据量级：24 KA × 6 国家 + cells（当前 0 行）+ 5 年 shipment ≈ <100KB
-  // RLS 会自动把 sales 看不到的国家/KA/cell 过滤掉，所以"全拉"不会越权
-  const startDate = new Date(selectedRun.period_start)
-  const lyStart = new Date(startDate); lyStart.setFullYear(lyStart.getFullYear() - 1)
-  const lyEnd = new Date(lyStart); lyEnd.setMonth(lyEnd.getMonth() + 4)
-  const currentYear = new Date().getFullYear()
-  const currentMonth = new Date().getMonth()
-  const ytdMonthsCount = currentMonth
+  // 周期月数动态：新 cycle = 3, 历史 cycle = 4
 
   const [
     { data: allEuCountries },
     { data: allSkus },
     { data: allKas },
     { data: allCells },
-    { data: lyData },
-    { data: ytdData },
+    { data: rollingPsi },
+    { data: fdStockRaw },
+    { data: hqStockRaw },
   ] = await Promise.all([
     supabase.from('country')
       .select('id, code, name_en, flag_emoji, region, sort_order')
@@ -142,33 +137,34 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       .eq('is_active', true)
       .order('sort_order').order('code'),
 
-    // 一次拉所有 KA (active+inactive) —— RLS 会让 sales 只看自己国家
-    //   - 主表格在客户端 filter is_active=true（保持现有渲染）
-    //   - Manage Channels Modal 用全部（含 inactive 用于 reactivate / 永久删除）
+    // 全量 KA (active+inactive)，主表格客户端 filter active
     supabase.from('ka')
       .select('id, name, country_id, parent_distributor, ka_type, tier, sort_order, is_active, notes')
       .order('country_id').order('sort_order').order('name'),
 
-    // 一次拉本 run 的所有 cells —— RLS 会过滤
+    // 本 cycle 的 cells
     supabase.from('forecast_cell')
       .select('run_id, sku_id, ka_id, month, qty, updated_by, updated_at')
       .eq('run_id', selectedRun.id),
 
-    // 去年同期：拉所有国家的 4 个月 shipment（一次到位）
-    supabase.from('shipment')
-      .select(`qty, effective_date, country_id, sku:sku_id ( id, code )`)
-      .eq('source_type', 'channel')
-      .gte('effective_date', lyStart.toISOString().slice(0, 10))
-      .lt('effective_date', lyEnd.toISOString().slice(0, 10)),
+    // 第 1 列 SI/SO: 过去 3 完整月平均，view 派生 (country × ka × sku)
+    supabase.from('rolling_si_so_avg')
+      .select('country_id, ka_id, sku_id, si_avg_3mo, so_avg_3mo, months_with_data, from_month, to_month')
+      .range(0, 49999),
 
-    // YTD：拉所有国家的今年到目前的 shipment
-    ytdMonthsCount > 0
-      ? supabase.from('shipment')
-          .select(`qty, effective_date, country_id, sku:sku_id ( id, code )`)
-          .eq('source_type', 'channel')
-          .gte('effective_date', `${currentYear}-01-01`)
-          .lt('effective_date', `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`)
-      : Promise.resolve({ data: [] as any[] }),
+    // Stock from FD: PSI 渠道库存 (distributor 类型 KA) 最新一周
+    // 拉最近 8 周以确保能找到最新非空 stock
+    supabase.from('weekly_psi_v2')
+      .select('country_id, ka_id, sku_id, week_start, stock_qty')
+      .gte('week_start', new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString().slice(0, 10))
+      .order('week_start', { ascending: false })
+      .range(0, 49999),
+
+    // Stock from HQ: 当前数据为空（admin 还没导入），保留 schema 占位
+    supabase.from('hq_stock')
+      .select('country_id, ka_id, sku_id, stock_qty, as_of_date')
+      .order('as_of_date', { ascending: false })
+      .range(0, 9999),
   ])
 
   // 🔐 应用用户权限：admin 看全部 EU 国家，sales 只看自己负责的国家
@@ -192,34 +188,37 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
   const initialCountryCode = countryParam && myCountries.some((c: any) => c.code === countryParam)
     ? countryParam : (myCountries[0] as any).code
 
-  // ───────── 服务端聚合 hover-peek 数据（按 country_id 分桶）─────────
-  // lyByCountrySku[country_id][sku_code][YYYY-MM] = qty
-  const lyByCountrySku: Record<number, Record<string, Record<string, number>>> = {}
-  ;(lyData ?? []).forEach((r: any) => {
-    const cid = r.country_id
-    const skuCode = r.sku?.code
-    const ym = String(r.effective_date).slice(0, 7)
-    if (!cid || !skuCode) return
-    if (!lyByCountrySku[cid]) lyByCountrySku[cid] = {}
-    if (!lyByCountrySku[cid][skuCode]) lyByCountrySku[cid][skuCode] = {}
-    lyByCountrySku[cid][skuCode][ym] = (lyByCountrySku[cid][skuCode][ym] ?? 0) + (r.qty ?? 0)
+  // ───────── Rolling 3-month SI/SO 平均（按 country × ka × sku）─────────
+  // 结构：rollingByKaSku[ka_id][sku_id] = { si, so, months }
+  const rollingByKaSku: Record<number, Record<number, { si: number; so: number; months: number }>> = {}
+  ;(rollingPsi ?? []).forEach((r: any) => {
+    if (!rollingByKaSku[r.ka_id]) rollingByKaSku[r.ka_id] = {}
+    rollingByKaSku[r.ka_id][r.sku_id] = {
+      si: Number(r.si_avg_3mo) || 0,
+      so: Number(r.so_avg_3mo) || 0,
+      months: r.months_with_data,
+    }
   })
 
-  // ytdByCountrySku[country_id][sku_code] = 月均
-  const ytdByCountrySku: Record<number, Record<string, number>> = {}
-  const ytdSumTmp: Record<number, Record<string, number>> = {}
-  ;(ytdData ?? []).forEach((r: any) => {
-    const cid = r.country_id
-    const skuCode = r.sku?.code
-    if (!cid || !skuCode) return
-    if (!ytdSumTmp[cid]) ytdSumTmp[cid] = {}
-    ytdSumTmp[cid][skuCode] = (ytdSumTmp[cid][skuCode] ?? 0) + (r.qty ?? 0)
+  // ───────── Stock from FD: PSI 最新一周非空 stock_qty by KA × SKU ─────
+  // 拉的是最近 60 天降序排列的所有数据，每个 (ka,sku) 取第一条非空 stock
+  const fdStockByKaSku: Record<number, Record<number, number>> = {}
+  ;(fdStockRaw ?? []).forEach((r: any) => {
+    if (r.stock_qty === null || r.stock_qty === undefined) return
+    if (!fdStockByKaSku[r.ka_id]) fdStockByKaSku[r.ka_id] = {}
+    if (fdStockByKaSku[r.ka_id][r.sku_id] === undefined) {
+      // 由于已 ORDER BY week_start DESC，首次见到即为最新
+      fdStockByKaSku[r.ka_id][r.sku_id] = Number(r.stock_qty)
+    }
   })
-  Object.entries(ytdSumTmp).forEach(([cid, m]) => {
-    ytdByCountrySku[Number(cid)] = {}
-    Object.entries(m).forEach(([k, v]) => {
-      ytdByCountrySku[Number(cid)][k] = ytdMonthsCount > 0 ? Math.round(v / ytdMonthsCount) : 0
-    })
+
+  // ───────── Stock from HQ: 同上，目前可能为空 ─────────
+  const hqStockByKaSku: Record<number, Record<number, number>> = {}
+  ;(hqStockRaw ?? []).forEach((r: any) => {
+    if (!hqStockByKaSku[r.ka_id]) hqStockByKaSku[r.ka_id] = {}
+    if (hqStockByKaSku[r.ka_id][r.sku_id] === undefined) {
+      hqStockByKaSku[r.ka_id][r.sku_id] = Number(r.stock_qty)
+    }
   })
 
   return (
@@ -231,9 +230,9 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       allKas={allKas ?? []}
       allSkus={allSkus ?? []}
       allCells={(allCells ?? []) as any[]}
-      lyByCountrySku={lyByCountrySku}
-      ytdByCountrySku={ytdByCountrySku}
-      ytdMonthsCount={ytdMonthsCount}
+      rollingByKaSku={rollingByKaSku}
+      fdStockByKaSku={fdStockByKaSku}
+      hqStockByKaSku={hqStockByKaSku}
       editorNameMap={{}}
       viewerIsAdmin={me.isAdmin}
       viewerName={me.displayName}
