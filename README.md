@@ -2,7 +2,7 @@
 
 欧洲市场销售运营系统 — Next.js 14 + Supabase。
 
-支持 7 国（FR / PL / ES / NL · DE/SE/GB 预留未启动）4 大业务板块：发货登记 · 需求预测 · PSI 看板 · 渠道自助管理。
+支持 7 国（FR / PL / ES / NL 已启动 · DE / SE / GB 预留未启动）5 大业务板块：发货登记 · 滚动需求预测 · PSI 看板 · 渠道自助管理 · 主数据管理（SKU / Sales Rep）。
 
 ---
 
@@ -25,8 +25,10 @@
 | `/shipments` | 发货登记（SheetJS 智能解析 Excel + 列映射 + 批量回滚）| ✅ |
 | `/admin/import` | Admin 上传周度 shipment 数据 | ✅ |
 | `/admin/history` | 历史 import batch 列表 + 回滚 | ✅ |
-| `/forecast?view=summary` | 4 国 × 4 月预测 summary（admin 默认）| ✅ |
-| `/forecast?view=edit` | 销售填报 + ⚙️ Manage Channels（KA self-service）| ✅ |
+| `/admin/sku` | SKU 主数据管理（admin only · drawer 编辑 · audit log）| ✅ |
+| `/admin/sales` | Sales Rep 主数据管理（含 super_admin 角色控制 + 国家分配 chips）| ✅ |
+| `/forecast?view=summary` | 4 国 × 动态月数预测 summary（admin 默认 · 含 Total/Stock-FD/Stock-HQ 列）| ✅ |
+| `/forecast?view=edit` | 销售填报 + Σ PO/Σ SO 历史参考 + Manage Channels modal | ✅ |
 | `/psi` | PSI 周度看板（SO / ST / Stock / 派生 DOS · 持久 iframe）| ✅ |
 
 ---
@@ -35,41 +37,87 @@
 
 ```
 ┌─────────────────────────────────────────┐
+│ super_admin (你 / chris)                 │
+│ ├─ is_super_admin() = true              │
+│ └─ 唯一能 change role / 提 super_admin   │
+├─────────────────────────────────────────┤
 │ admin (HQ)                              │
 │ ├─ can_access_country() → 全部 EU       │
-│ └─ is_admin() → 写权限 bypass           │
+│ ├─ is_admin() → 写权限 bypass           │
+│ └─ 不能修改 role 字段（trigger 拦截）    │
 ├─────────────────────────────────────────┤
 │ sales (国家销售)                         │
 │ └─ sales_rep_country 关联 → 仅自己国家  │
 └─────────────────────────────────────────┘
 ```
 
-- 数据库层 RLS 全量配置（`can_access_country()` / `is_admin()`），前端无须判断权限
+- 数据库层 RLS 全量配置（`can_access_country()` / `is_admin()` / `is_super_admin()`），前端无须判断权限
 - 销售可以管理自己国家的 KA（新增 / 改名 / 停用 / 重启 / 硬删，自助）
-- 所有 KA 变更写入 `ka_audit_log` 表
+- Admin 可以管理 SKU 主数据（带 reference count 删除保护）
+- Admin 可以管理 Sales Rep + 国家分配（valid_from/valid_to 时间区间，历史可追溯）
+- Super admin 控制 role 升降级（`enforce_super_admin_for_privileged_changes` trigger）
+- 所有 master data 变更写入对应 audit log 表
 
 ---
 
 ## 数据模型核心表
 
+### 主数据 (Master Data)
 | 表 | 用途 |
 |---|---|
 | `country` | 国家主数据（`is_active=false` 表示未启动，看板自动隐藏）|
-| `sku` | SKU 主数据（含 series / family / lifecycle） |
+| `sku` | SKU 主数据（含 series / family / lifecycle / 价格 / EAN / box_qty） |
 | `ka` | 渠道（retailer / distributor），按 country_id 分配 |
-| `ka_audit_log` | KA 变更审计日志（trigger 自动写）|
-| `sales_rep` + `sales_rep_country` | 销售人员 + 国家关联 |
-| `shipment` | 发货明细（按 country_id + sku_id + ka_id）|
+| `sales_rep` | 销售人员（含 `is_super_admin` + `left_at` 离职追踪）|
+| `sales_rep_country` | 销售 × 国家关联（带 `valid_from` / `valid_to` 历史区间）|
+
+### 业务数据
+| 表 | 用途 |
+|---|---|
+| `shipment` | 发货明细（按 country_id + sku_id + ka_id + source_type）|
 | `import_batch` | Excel 批次记录（支持整批回滚）|
-| `forecast_run` + `forecast_cell` | 4 个月滚动预测（按 run × sku × ka × month） |
-| `forecast_eu_summary` | Summary view（KA 聚合到国家级别） |
-| `weekly_psi_v2` | PSI 宽表（每行 = country × ka × sku × week，列 = si/so/st/stock）|
-| `weekly_psi_long_compat` | 兼容 view（反 pivot 回 long + 4 周移动平均 DOS 派生）|
+| `forecast_run` | 预测周期（`month_count` 字段：新 cycle=3 / 历史=4）|
+| `forecast_cell` | 每个 SKU × KA × 月的预测填报 |
+| `weekly_psi_v2` | PSI 宽表（每行 = country × ka × sku × week, 列 = si/so/st/stock）|
+| `hq_stock` | INIU 总部仓库库存（admin only 写，待数据导入）|
+
+### Audit logs（trigger 自动写入，append-only）
+| 表 | 触发自 |
+|---|---|
+| `ka_audit_log` | `ka` 表变更 |
+| `sku_audit_log` | `sku` 表变更 |
+| `sales_rep_audit_log` | `sales_rep` 表变更（含 role_change / left / rejoined）|
+| `sales_rep_country_audit_log` | `sales_rep_country` 关联变更 |
+
+### Views (派生数据)
+| View | 派生自 | 用途 |
+|---|---|---|
+| `weekly_psi_long_compat` | `weekly_psi_v2` | 反 pivot 回 long + 4 周移动均派生 DOS |
+| `shipment_po_3mo_avg` | `shipment (channel)` | 出货量过去 3 完整月均（按 country × sku） |
+| `rolling_so_by_ka_sku` | `weekly_psi_v2 + ka.ka_type` | SO 过去 3 月均，retailer→so_qty / distributor→st_qty |
+| `forecast_eu_summary` | `forecast_cell + ka` | KA 聚合到国家级，admin summary 视图直读 |
+| `forecast_run_summary` | `forecast_run + cells + sales_rep` | run 列表 + 填写进度 + 创建人 |
+
+### Helper RPC
+| RPC | 用途 |
+|---|---|
+| `create_forecast_run(region, period_start, month_count=3)` | 新 cycle，默认 3 月窗口 |
+| `clone_forecast_run(source, new_period_start)` | 克隆历史 cycle 数据到新周期（沿用 month_count） |
+| `assign_rep_country(rep_id, country_id, is_primary)` | 给销售加国家（自动 valid_from=today） |
+| `unassign_rep_country(rep_id, country_id)` | 取消国家分配（valid_to=today，不删，保留历史） |
+| `mark_rep_left(rep_id, leave_date)` | 原子离职：is_active=false + left_at + 所有国家关联 valid_to |
+| `upsert_forecast_cells(run_id, cells)` | 批量保存填报，跳过未变更行 |
+| `bulk_upsert_shipments(rows)` / `rollback_import_batch(batch_id)` | Shipment 导入/回滚 |
 
 **PSI 双表架构**：
-- 数据写入 → `weekly_psi_v2`（宽表，存储紧凑）
-- 看板读取 → `weekly_psi_long_compat`（view，包含派生 DOS）
+- 数据写入 → `weekly_psi_v2`（宽表，每行 4 个 metric 列）
+- 看板读取 → `weekly_psi_long_compat`（view，含派生 DOS）
 - DOS 公式：`stock_qty / avg4(COALESCE(so_qty, st_qty)) * 7`
+
+**Forecast PO/SO 参考体系**：
+- PO 列（紫色）= 我们卖给 KA 的出货量（shipment.qty）
+- SO 列（绿色）= KA 卖给下游/消费者的数量（PSI 数据按 KA 类型自动选 SO 或 ST）
+- 都是过去 3 完整月（不含当前月）平均
 
 ---
 
@@ -92,7 +140,7 @@ npm run dev
 
 ```bash
 npx tsc --noEmit    # TypeScript 类型检查
-npm run build       # 完整构建（含 ESLint）
+npm run build       # 完整构建
 ```
 
 ---
@@ -110,18 +158,26 @@ src/
 │       ├── shipments/                 # 发货登记
 │       ├── admin/
 │       │   ├── import/                # Excel 导入（SheetJS + 列映射）
-│       │   └── history/               # 批次回滚
+│       │   ├── history/               # 批次回滚
+│       │   ├── sku/                   # SKU 主数据 (admin only)
+│       │   │   ├── page.tsx
+│       │   │   ├── sku-management-view.tsx  # 表格 + drawer 编辑
+│       │   │   └── _actions/manage-sku.ts
+│       │   └── sales/                 # Sales Rep 主数据 (admin only)
+│       │       ├── page.tsx
+│       │       ├── sales-rep-management-view.tsx  # 表格 + 国家 chips
+│       │       └── _actions/manage-sales-rep.ts
 │       ├── forecast/
-│       │   ├── page.tsx               # 路由分发 summary/edit
-│       │   ├── summary-view.tsx       # Admin: 4 国 KPI + 主表（sticky thead）
-│       │   ├── edit-view.tsx          # Sales: 填报 + Manage Channels 入口
-│       │   ├── run-controls.tsx       # 周期管理（new cycle / submit / publish）
+│       │   ├── page.tsx               # 路由分发 summary/edit + 数据查询
+│       │   ├── summary-view.tsx       # Admin: 表格 + SUB-TOTAL + TOTAL block
+│       │   ├── edit-view.tsx          # Sales: 填报 + Σ PO/Σ SO + TOTAL block
+│       │   ├── run-controls.tsx       # 周期管理 (+ New cycle / Submit / Publish)
 │       │   ├── manage-channels-modal.tsx  # KA self-service modal
-│       │   └── _actions/manage-ka.ts  # KA CRUD server actions
+│       │   └── _actions/manage-ka.ts
 │       └── psi/page.tsx               # 占位（实际看板在 layout 持久 iframe）
 ├── lib/
 │   ├── supabase/{client,server,middleware}.ts
-│   ├── auth/current-user.ts
+│   ├── auth/current-user.ts           # isSuperAdmin / isAdmin / canAccessCountry
 │   └── utils.ts
 ├── components/
 │   ├── ui/                            # 基础 UI 组件
@@ -146,22 +202,32 @@ public/
 
 ## 关键架构决策
 
-1. **PSI 看板为何用 iframe**: 原 Google Apps Script 看板有 2400 行 vanilla JS + Chart.js，迁移成本高。改用 iframe 嵌入 + 替换 `google.script.run` 为 `fetch('/api/psi/load-all')` 即可上线。后续可逐步原生化。
+1. **PSI 看板用 iframe 嵌入**: 原 Google Apps Script 看板 2400 行 vanilla JS + Chart.js，迁移成本高。改用 iframe 嵌入 + 替换 `google.script.run` 为 `fetch('/api/psi/load-all')`。后续可逐步原生化。
 
-2. **iframe 持久挂载**: `DashboardShell` 通过 `display:none/block` 切换可见性而非卸载 DOM，保留图表实例 + 已拉数据。新部署时通过 `?v={commit-sha}` + React `key` 强制 remount 取新版。
+2. **iframe 持久挂载**: `DashboardShell` 通过 `display:none/block` 切换可见性而非卸载 DOM，保留图表实例 + 已拉数据。新部署时通过 `?v={commit-sha}` + React `key` 强制 remount 取新版（不用关 tab）。
 
-3. **PSI 宽表 + 兼容 view**: 原 long 格式 4255 行（含已存 DOS），新宽表 2014 行 + view 派生 DOS。5 层交叉验证（MD5 字节级一致）。优势：存储减 53%，DOS 派生消除"漏填"。
+3. **PSI 宽表 + 兼容 view**: 原 long 格式 4255 行（含已存 DOS），新宽表 2014 行 + view 派生 DOS。5 层交叉验证（MD5 字节级一致）。存储减 53%，DOS 派生消除"漏填"。
 
-4. **KA self-service**: 销售自助加/改/停用本国渠道。`BEFORE DELETE` trigger 拦截带历史数据的硬删（防止破坏 forecast/shipment/PSI 引用完整性）。`ka_audit_log` 表全量审计。
+4. **Forecast 动态月数**: `forecast_run.month_count` 控制每个 cycle 月数（新建默认 3 个月滚动，历史 4 月 cycle 保持兼容）。前端 KPI / 表格列数 / kpi 标签全部动态。
 
-5. **国家启动状态**: `country.is_active` 字段，未启动国家（DE/SE/GB）在所有看板自动隐藏。Admin 仍能通过 `can_access_country()` bypass 看历史散单。
+5. **PO/SO 参考用 view 派生**: `shipment_po_3mo_avg` (按 country × sku) + `rolling_so_by_ka_sku`（按 KA 类型自动选 SO 或 ST）。避免前端复杂聚合，CTE + window function 在 DB 层算完。
+
+6. **Master data self-service + audit**: KA 销售自助、SKU/Sales Rep admin 自助。所有变更走 audit log（trigger 自动写入），删除保护防误删（带历史数据时 raise exception）。
+
+7. **Super admin 一层防护**: `is_super_admin()` 控制 role 变更权限。普通 admin 不能互相提升/降级，super_admin（你）单点控制。trigger 在 DB 层强制（`enforce_super_admin_for_privileged_changes`）。
+
+8. **国家启动状态**: `country.is_active` 字段，未启动国家（DE/SE/GB）在所有看板自动隐藏。Admin 仍能通过 `can_access_country()` bypass 看历史散单。
+
+9. **HQ stock schema 先建好**: 总仓库存 `hq_stock` 表 + RLS 就绪，前端正确显示 `-`（数据未导入），等 admin 导数据后自动生效 — 不需要再改前端。
 
 ---
 
 ## 下一步规划
 
+- HQ stock 数据导入（admin 提供数据后从 CSV 或 admin UI 录入）
 - PSI 阶段 2：标准 CSV 导入模板 + admin 周度数据清洗 UI
 - PSI 阶段 3：LLM 辅助 retailer 原始格式 → 标准模板转换
-- Master Data 管理面板（侧栏现在显示 "coming soon"）
+- Country 主数据面板（目前直接改 DB 即可，低优先级）
+- Forecast hover peek 替代品：family/series 级历史聚合作为新品 SI/SO 兜底
 
-详见各 `forecast/`、`psi/` 目录下的内联注释。
+详见各 `forecast/`、`psi/`、`admin/` 目录下的内联注释。
