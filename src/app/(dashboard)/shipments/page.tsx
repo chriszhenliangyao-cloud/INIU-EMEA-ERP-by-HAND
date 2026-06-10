@@ -63,5 +63,12 @@ export default async function ShipmentsPage() {
     ka_name: r.ka?.name ?? null,
   }))
 
-  return <ShipmentsView rows={rows} viewerIsAdmin={me.isAdmin} viewerName={me.displayName} />
+  return (
+    <ShipmentsView
+      rows={rows}
+      viewerIsAdmin={me.isAdmin}
+      viewerName={me.displayName}
+      marketCount={me.countryIds.length}
+    />
+  )
 }

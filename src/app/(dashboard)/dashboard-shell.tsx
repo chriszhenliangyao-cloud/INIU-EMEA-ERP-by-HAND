@@ -69,6 +69,9 @@ export function DashboardShell({ me, buildId, children }: Props) {
               <Link href="/admin/ka" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
                 🗺️ KA Channel Map
               </Link>
+              <Link href="/admin/sku/map" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
+                🧬 SKU Product Map
+              </Link>
               {/* TODO: Country 管理 */}
             </>
           )}

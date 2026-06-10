@@ -119,9 +119,24 @@
 - forecast 表格排除 group 节点（Eurotel 不出现在填报行）
 - `npx tsc --noEmit` 0 错误
 
+## 🛡️ 导入映射/对账规则（2026-06-10 加，防合并回潮）
+
+shipment / weekly_psi_v2 定期导入时**必须**遵守：
+
+1. **KA 名解析统一走 `resolve_ka_id(country_id, raw_name)`**
+   - 精确匹配本国 KA 名（不分大小写，排除 group 节点和已合并废弃节点）→ 查 `ka_alias` 别名表 → 都没有返回 **null**
+   - 返回 null = 未知渠道，**人工确认后再导，禁止自动建新 KA**
+   - 已收录别名：XKOM/x kom→x-kom、KTR(.COM)→Komputronik、LINKU→Tech Linku、Others (ICP)/ICP Orange→ICP、Btel/Bouygues→BYT、BBC/Bigben Connected→Bigben、**Eurotel→iDream**、全称系（Media Expert/MediaMarkt/El Corte Ingles/Vodafone/PC Componentes/The Phone House…）
+2. **守护 trigger 兜底**（`trg_guard_shipment_ka` / `trg_guard_psi_ka`）：绕过解析直接插数据时，目标是已合并废弃 KA 或 group 节点 → 直接 RAISE 报错，不会脏库
+3. **新别名维护**：源文件出现新拼写时 `insert into ka_alias (alias_norm, ka_id, note) values (lower('新拼写'), 正确id, '说明')`
+4. **导入后对账**：按 国家×KA 汇总导入批次总量 vs 源文件总量；全局基线（2026-06-10 审计修复后）：ship 330 行 / 148,488 件，**PSI 1,991 行**（已剔除 23 行跨年假 W53，详见 SYSTEM-AUDIT-2026-06-10.md）
+5. **⚠️ 禁用旧 RPC `bulk_upsert_weekly_psi`**：它写 v1 旧表且按精确名匹配 KA。PSI 导入直接写 `weekly_psi_v2`（iso 字段会被 trigger 自动归一，给错也没事）
+
+已实测：`resolve_ka_id(2,'Eurotel')`→12 (iDream)、`resolve_ka_id(3,'LINKU')`→20、未知名→null；往 LINKU(36) 插 PSI 被 trigger 拦截 ✅
+
 ## ⏭️ 待办（部署后）
 
-1. **Chris push + Vercel 部署完成后**，执行 Migration 3：drop `parent_distributor` / `downstream` / `tier` 三列 + drop `rolling_si_so_avg` 旧 view（已确认前端零引用）。**部署前不能删**——线上旧代码还在 select 这些列
+1. ✅ ~~Migration 3~~ 已执行（2026-06-10，部署 "KA clean" READY 后）：drop `parent_distributor` / `downstream` / `tier` + `rolling_si_so_avg`。audit trigger 冒烟通过
 2. T-Mobile PL 合作启动时：在 /admin/ka 新建 KA，parent 选 Eurotel
 3. TPH / PCC / Buying Group（ES）按需建 KA，parent 选 Tech Linku
 4. 5 月发货数据补导 + esprinet 发货日期核实（D 节异味清单）

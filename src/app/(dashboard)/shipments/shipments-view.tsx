@@ -28,7 +28,7 @@ type FlatRow = {
   ka_name: string | null
 }
 
-export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatRow[]; viewerIsAdmin: boolean; viewerName: string }) {
+export function ShipmentsView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows: FlatRow[]; viewerIsAdmin: boolean; viewerName: string; marketCount: number }) {
   // ============== 筛选状态 ==============
   const [yearFilter, setYearFilter] = useState<string>(String(new Date().getFullYear()))
   const [countryFilter, setCountryFilter] = useState<string>('ALL')
@@ -271,8 +271,8 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
         <KpiCard label="Total Shipped" value={fmtNum(stats.totalQty)} hint="units" />
         <KpiCard label="Shipment Records" value={fmtNum(filtered.length)} hint={`Shipped ${stats.shippedCount} · Planned ${stats.plannedCount}`} color="blue" />
         <KpiCard label="SKUs" value={fmtNum(stats.skuCount)} hint="distinct product codes" color="purple" />
-        <KpiCard label="Accounts" value={fmtNum(stats.kaCount)} hint="accounts / restock types" color="amber" />
-        <KpiCard label="Markets" value={fmtNum(stats.countryCount)} hint="countries" color="green" />
+        <KpiCard label="Key Accounts" value={fmtNum(stats.kaCount)} hint="KAs / restock types" color="amber" />
+        <KpiCard label="Markets" value={fmtNum(marketCount)} hint="active countries" color="green" />
       </div>
 
       {/* Top two charts */}
@@ -291,7 +291,7 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
           </ResponsiveContainer>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-sm font-semibold text-gray-700 mb-3">🏢 Top 10 accounts by volume</div>
+          <div className="text-sm font-semibold text-gray-700 mb-3">🏢 Top 10 key accounts by volume</div>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={topKas} layout="vertical" margin={{ top: 5, right: 60, left: 60, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
@@ -352,7 +352,7 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
 
         {/* 3 placeholder cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <PlaceholderCard icon="💶" title="Revenue" desc="Monthly / account / SKU revenue" hint={`Pending data entry (${currentCountryLabel})`} />
+          <PlaceholderCard icon="💶" title="Revenue" desc="Monthly / KA / SKU revenue" hint={`Pending data entry (${currentCountryLabel})`} />
           <PlaceholderCard icon="🏷️" title="Unit Price" desc="SKU unit price / price trend" hint={`Pending data entry (${currentCountryLabel})`} />
           <PlaceholderCard icon="🎯" title="Target" desc="Monthly / quarterly target & attainment" hint={`Pending data entry (${currentCountryLabel})`} />
         </div>
@@ -382,16 +382,16 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
         </div>
       </div>
 
-      {/* Month × SKU × Account aggregation table */}
+      {/* Month × SKU × KA aggregation table */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="text-base font-semibold text-gray-900 mb-3">📋 Month × SKU × Account aggregation</div>
+        <div className="text-base font-semibold text-gray-900 mb-3">📋 Month × SKU × KA aggregation</div>
 
         {/* Filter row */}
         <div className="flex gap-2 flex-wrap items-center mb-3">
           <FilterSelect label="Year" value={yearFilter} onChange={setYearFilter} options={options.years} />
           <FilterSelect label="Month" value={monthFilter} onChange={setMonthFilter} options={options.months} />
           <FilterSelect label="SKU" value={skuFilter} onChange={setSkuFilter} options={options.skus} />
-          <FilterSelect label="Account" value={kaFilter} onChange={setKaFilter} options={options.kas} />
+          <FilterSelect label="KA" value={kaFilter} onChange={setKaFilter} options={options.kas} />
           <FilterSelect label="Category" value={categoryFilter} onChange={setCategoryFilter} options={options.cats} />
           <input
             value={search}
@@ -420,7 +420,7 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName }: { rows: FlatR
                 <SortableHeader col="month" label="Month" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
                 <SortableHeader col="sku_code" label="SKU" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
                 <SortableHeader col="sku_name" label="Product" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="ka_name" label="Account" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
+                <SortableHeader col="ka_name" label="KA" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
                 <SortableHeader col="country_code" label="Country" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
                 <SortableHeader col="category" label="Category" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
                 <SortableHeader col="qty" label="Qty" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} align="right" />
