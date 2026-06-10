@@ -26,7 +26,7 @@ type Ka = {
   name: string
   country_id: number
   ka_type?: string | null
-  parent_distributor: string | null
+  parent_ka_id: number | null
   sort_order: number
   is_active?: boolean
   notes?: string | null
@@ -124,7 +124,12 @@ export function ManageChannelsModal({ open, onClose, country, allKas, viewerName
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {/* Add new */}
-          <AddChannelForm countryId={country.id} onSuccess={() => flash('success', 'Channel added')} onError={(msg) => flash('error', msg)} />
+          <AddChannelForm
+            countryId={country.id}
+            parentOptions={activeKas.filter(k => k.ka_type === 'distributor' || k.ka_type === 'group')}
+            onSuccess={() => flash('success', 'Channel added')}
+            onError={(msg) => flash('error', msg)}
+          />
 
           {/* Active list */}
           <div className="mt-6">
@@ -141,6 +146,7 @@ export function ManageChannelsModal({ open, onClose, country, allKas, viewerName
                   <KaRow
                     key={ka.id}
                     ka={ka}
+                    parentOptions={activeKas.filter(k => (k.ka_type === 'distributor' || k.ka_type === 'group') && k.id !== ka.id)}
                     onChange={() => flash('success', 'Channel updated')}
                     onError={(msg) => flash('error', msg)}
                   />
@@ -195,8 +201,9 @@ export function ManageChannelsModal({ open, onClose, country, allKas, viewerName
 // ───────────────────────────────────────
 // Add form
 // ───────────────────────────────────────
-function AddChannelForm({ countryId, onSuccess, onError }: {
+function AddChannelForm({ countryId, parentOptions, onSuccess, onError }: {
   countryId: number
+  parentOptions: Ka[]
   onSuccess: () => void
   onError: (msg: string) => void
 }) {
@@ -204,13 +211,13 @@ function AddChannelForm({ countryId, onSuccess, onError }: {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [type, setType] = useState<'retailer' | 'distributor'>('retailer')
-  const [parent, setParent] = useState('')
+  const [parentId, setParentId] = useState<number | ''>('')
   const [isPending, startTransition] = useTransition()
 
   const reset = () => {
     setName('')
     setType('retailer')
-    setParent('')
+    setParentId('')
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -221,7 +228,7 @@ function AddChannelForm({ countryId, onSuccess, onError }: {
         country_id: countryId,
         name: name.trim(),
         ka_type: type,
-        parent_distributor: type === 'retailer' && parent.trim() ? parent.trim() : null,
+        parent_ka_id: type === 'retailer' && parentId !== '' ? parentId : null,
       })
       if (!result.ok) {
         onError(result.error)
@@ -281,15 +288,20 @@ function AddChannelForm({ countryId, onSuccess, onError }: {
       {type === 'retailer' && (
         <div>
           <label className="text-xs text-gray-600 block mb-1">
-            Parent distributor <span className="text-gray-400">(optional, leave blank if retailer is direct)</span>
+            Parent distributor / group <span className="text-gray-400">(optional, leave blank if direct)</span>
           </label>
-          <input
-            value={parent}
-            onChange={(e) => setParent(e.target.value)}
-            placeholder="e.g. LINKU"
-            className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
-            maxLength={100}
-          />
+          <select
+            value={parentId}
+            onChange={(e) => setParentId(e.target.value === '' ? '' : Number(e.target.value))}
+            className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm bg-white"
+          >
+            <option value="">— Direct (no parent) —</option>
+            {parentOptions.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.ka_type === 'group' ? '🏢' : '📦'} {p.name}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
@@ -316,8 +328,9 @@ function AddChannelForm({ countryId, onSuccess, onError }: {
 // ───────────────────────────────────────
 // Active KA row (with inline edit)
 // ───────────────────────────────────────
-function KaRow({ ka, onChange, onError }: {
+function KaRow({ ka, parentOptions, onChange, onError }: {
   ka: Ka
+  parentOptions: Ka[]
   onChange: () => void
   onError: (msg: string) => void
 }) {
@@ -325,7 +338,7 @@ function KaRow({ ka, onChange, onError }: {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(ka.name)
   const [type, setType] = useState<'retailer' | 'distributor'>((ka.ka_type ?? 'retailer') as any)
-  const [parent, setParent] = useState(ka.parent_distributor ?? '')
+  const [parentId, setParentId] = useState<number | ''>(ka.parent_ka_id ?? '')
   const [isPending, startTransition] = useTransition()
 
   const handleSave = () => {
@@ -334,7 +347,7 @@ function KaRow({ ka, onChange, onError }: {
         id: ka.id,
         name,
         ka_type: type,
-        parent_distributor: type === 'retailer' ? parent : null,
+        parent_ka_id: type === 'retailer' && parentId !== '' ? parentId : null,
       })
       if (!result.ok) {
         onError(result.error)
@@ -378,17 +391,23 @@ function KaRow({ ka, onChange, onError }: {
             <option value="distributor">📦 Distributor</option>
           </select>
           {type === 'retailer' && (
-            <input
-              value={parent}
-              onChange={(e) => setParent(e.target.value)}
-              className="px-2 py-1 border border-gray-300 rounded text-sm"
-              placeholder="Parent distributor (optional)"
-            />
+            <select
+              value={parentId}
+              onChange={(e) => setParentId(e.target.value === '' ? '' : Number(e.target.value))}
+              className="px-2 py-1 border border-gray-300 rounded text-sm bg-white"
+            >
+              <option value="">— Direct (no parent) —</option>
+              {parentOptions.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.ka_type === 'group' ? '🏢' : '📦'} {p.name}
+                </option>
+              ))}
+            </select>
           )}
         </div>
         <div className="flex justify-end gap-2">
           <button
-            onClick={() => { setName(ka.name); setType((ka.ka_type ?? 'retailer') as any); setParent(ka.parent_distributor ?? ''); setEditing(false) }}
+            onClick={() => { setName(ka.name); setType((ka.ka_type ?? 'retailer') as any); setParentId(ka.parent_ka_id ?? ''); setEditing(false) }}
             className="px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 rounded"
           >
             Cancel
@@ -405,13 +424,17 @@ function KaRow({ ka, onChange, onError }: {
     )
   }
 
+  const parentName = ka.parent_ka_id != null
+    ? parentOptions.find(p => p.id === ka.parent_ka_id)?.name ?? null
+    : null
+
   return (
     <div className="px-3 py-2 flex items-center gap-2 hover:bg-gray-50">
-      <span className="text-base">{ka.ka_type === 'distributor' ? '📦' : '🛒'}</span>
+      <span className="text-base">{ka.ka_type === 'distributor' ? '📦' : ka.ka_type === 'group' ? '🏢' : '🛒'}</span>
       <div className="flex-1 min-w-0">
         <div className="font-medium text-sm text-gray-900 truncate">{ka.name}</div>
-        {ka.parent_distributor && (
-          <div className="text-xs text-gray-500">via {ka.parent_distributor}</div>
+        {parentName && (
+          <div className="text-xs text-gray-500">via {parentName}</div>
         )}
       </div>
       <button

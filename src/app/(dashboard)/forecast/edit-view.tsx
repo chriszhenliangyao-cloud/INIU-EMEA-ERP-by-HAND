@@ -14,9 +14,8 @@ type Ka = {
   id: number
   name: string
   country_id: number
-  parent_distributor: string | null
+  parent_ka_id: number | null
   ka_type?: string | null
-  tier: string
   sort_order: number
   is_active?: boolean
   notes?: string | null
@@ -66,7 +65,8 @@ export function ForecastEditView({
   // —— 按当前国家 + active 派生 kas / cells（in-memory filter，<1ms）——
   //  ⚠️ allKas 现在包含 inactive（给 Manage Channels modal 用），主表格仅展示 active
   const kas = useMemo(
-    () => allKas.filter(k => k.country_id === selectedCountry.id && k.is_active !== false),
+    // group 节点（如 Eurotel）是结构层，不是动销终端，不进 forecast 表格
+    () => allKas.filter(k => k.country_id === selectedCountry.id && k.is_active !== false && k.ka_type !== 'group'),
     [allKas, selectedCountry.id]
   )
   // Modal 用：当前国家所有 KA（含 inactive）

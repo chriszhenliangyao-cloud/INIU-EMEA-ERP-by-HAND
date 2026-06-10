@@ -28,7 +28,7 @@ export async function GET() {
         .select('code, name, category, series, family')
         .eq('is_active', true),
       supabase.from('ka')
-        .select('id, name, country_id, ka_type, downstream'),
+        .select('id, name, country_id, ka_type, parent_ka_id'),
       supabase.from('country')
         .select('id, code'),
       // weekly_psi_long_compat view：底层是 weekly_psi_v2 (wide)，view 反 pivot 回 long + 派生 DOS
@@ -53,6 +53,14 @@ export async function GET() {
     const countryById: Record<number, string> = {}
     dbCountries.forEach((c: any) => { countryById[c.id] = c.code })
 
+    // downstream 从 parent_ka_id 反向派生：parent 的 downstream = 所有 children 的名字
+    const childrenByParent: Record<number, string[]> = {}
+    dbKas.forEach((k: any) => {
+      if (k.parent_ka_id != null) {
+        ;(childrenByParent[k.parent_ka_id] ??= []).push(k.name)
+      }
+    })
+
     type KaInfo = { name: string; country: string; type: string; downstream: string[] | null }
     const kaById: Record<number, KaInfo> = {}
     dbKas.forEach((k: any) => {
@@ -60,7 +68,7 @@ export async function GET() {
         name: k.name,
         country: countryById[k.country_id] ?? '',
         type: k.ka_type ?? 'retailer',
-        downstream: k.downstream,
+        downstream: childrenByParent[k.id] ?? null,
       }
     })
 
@@ -107,7 +115,7 @@ export async function GET() {
     })
     const weeklyPSI = Array.from(wideMap.values())
 
-    // ─── retailers（dashboard 只用到 retailer 维度）─────────────────
+    // ─── retailers（dashboard 只用到 retailer 维度；group 结构节点不进看板）─────
     const retailers = dbKas
       .filter((k: any) => k.ka_type === 'retailer' || k.ka_type === 'distributor')
       .map((k: any) => ({
@@ -115,7 +123,7 @@ export async function GET() {
         Country: countryById[k.country_id] ?? '',
         Status: 'Active',
         Type: k.ka_type === 'distributor' ? 'Distributor' : 'Retailer',
-        Downstream: k.downstream ? k.downstream.join(', ') : '',
+        Downstream: (childrenByParent[k.id] ?? []).join(', '),
       }))
 
     // ─── products / productsFamily（前端 PRODUCTS_META 派生用）─────────

@@ -189,7 +189,7 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       .order('sort_order').order('code'),
 
     supabase.from('ka')
-      .select('id, name, country_id, parent_distributor, ka_type, tier, sort_order, is_active, notes')
+      .select('id, name, country_id, parent_ka_id, ka_type, sort_order, is_active, notes')
       .order('country_id').order('sort_order').order('name'),
 
     supabase.from('forecast_cell')

@@ -24,8 +24,8 @@ type ActionResult =
 export async function createKA(input: {
   country_id: number
   name: string
-  ka_type: 'retailer' | 'distributor'
-  parent_distributor?: string | null
+  ka_type: 'retailer' | 'distributor' | 'group'
+  parent_ka_id?: number | null
   sort_order?: number
   notes?: string | null
 }): Promise<ActionResult> {
@@ -43,10 +43,9 @@ export async function createKA(input: {
       country_id: input.country_id,
       name,
       ka_type: input.ka_type,
-      parent_distributor: input.parent_distributor || null,
+      parent_ka_id: input.parent_ka_id ?? null,
       sort_order: input.sort_order ?? 999,
       notes: input.notes || null,
-      tier: 'tier1',
       is_active: true,
       created_by: user.id,
       updated_by: user.id,
@@ -68,13 +67,13 @@ export async function createKA(input: {
 }
 
 // ───────────────────────────────────────
-// 2. Update (name / type / parent_distributor / sort_order / notes)
+// 2. Update (name / type / parent_ka_id / sort_order / notes)
 // ───────────────────────────────────────
 export async function updateKA(input: {
   id: number
   name?: string
-  ka_type?: 'retailer' | 'distributor'
-  parent_distributor?: string | null
+  ka_type?: 'retailer' | 'distributor' | 'group'
+  parent_ka_id?: number | null
   sort_order?: number
   notes?: string | null
 }): Promise<ActionResult> {
@@ -90,7 +89,7 @@ export async function updateKA(input: {
     patch.name = n
   }
   if (input.ka_type !== undefined) patch.ka_type = input.ka_type
-  if (input.parent_distributor !== undefined) patch.parent_distributor = input.parent_distributor || null
+  if (input.parent_ka_id !== undefined) patch.parent_ka_id = input.parent_ka_id
   if (input.sort_order !== undefined) patch.sort_order = input.sort_order
   if (input.notes !== undefined) patch.notes = input.notes || null
 
