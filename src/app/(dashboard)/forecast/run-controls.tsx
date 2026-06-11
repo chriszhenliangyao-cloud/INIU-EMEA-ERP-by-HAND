@@ -70,16 +70,31 @@ export function RunControls({
         p_period_start: periodStart,
       })
     }
-    setBusy(null)
     if (result.error) {
+      setBusy(null)
       showToast('error', `Create failed: ${result.error.message}`)
       return
     }
     const newRun = result.data
     const newRunId = Array.isArray(newRun) ? newRun[0]?.id : newRun?.id
+
+    // —— Rolling 带入：从上一周期按【同日历月】预填（source='rollover'，表格里淡灰显示）——
+    // 仅普通新建走带入；clone 本身已复制 cells（平移语义），不再叠加
+    let rolledOver = 0
+    if (cloneFromRunId === null && newRunId) {
+      const ro = await supabase.rpc('rollover_forecast_run', { p_run_id: newRunId })
+      if (ro.error) {
+        showToast('error', `Cycle created, but rollover failed: ${ro.error.message}`)
+      } else {
+        rolledOver = ro.data ?? 0
+      }
+    }
+    setBusy(null)
     showToast('success', cloneFromRunId !== null
       ? `Cloned from ${allRuns.find(r => r.id === cloneFromRunId)?.code} into new cycle`
-      : 'New cycle created')
+      : rolledOver > 0
+        ? `New cycle created · ${rolledOver} cells rolled over from previous cycle`
+        : 'New cycle created')
     setShowCreateModal(false)
     onAfterAction?.()
     // 跳到新 run

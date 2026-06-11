@@ -20,6 +20,12 @@ import {
 } from './_actions/manage-sales-rep'
 import type { SalesRepInput } from './_actions/manage-sales-rep'
 
+// 彩蛋徽章（按 email 挂，Chris 钦定 2026-06-10）
+const FUN_BADGES: Record<string, { emoji: string; label: string; cls: string }> = {
+  'jiwen.wang@iniushop.com': { emoji: '👑', label: 'Majesty', cls: 'bg-amber-50 text-amber-700 border-amber-300' },
+  'julio.pu@iniushop.com':   { emoji: '🍞', label: 'Carbohydrate Killer', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
+}
+
 type Rep = {
   id: number
   user_id: string | null
@@ -234,6 +240,11 @@ export function SalesRepManagementView({
                         </div>
                         <span>{rep.display_name}</span>
                         {rep.is_super_admin && <span title="Super admin" className="text-yellow-500">⭐</span>}
+                        {FUN_BADGES[rep.email] && (
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${FUN_BADGES[rep.email].cls}`}>
+                            {FUN_BADGES[rep.email].emoji} {FUN_BADGES[rep.email].label}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100">{rep.email}</td>

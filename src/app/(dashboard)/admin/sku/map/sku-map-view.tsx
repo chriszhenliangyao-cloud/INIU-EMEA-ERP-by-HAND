@@ -5,7 +5,7 @@
  *
  * 层级：Category 区块 → Family 节点（树状连接线）→ 型号卡片
  *  - 同型号的颜色变体聚合在一张卡片里，渲染成色点 chips（命名规范：code = <MODEL>-<颜色全称>）
- *  - 每个 SKU 显示 lifecycle 徽章 / active 状态 / 数据量（🚚 ship · 📊 PSI）/ notes ⓘ
+ *  - 每个 SKU 显示 lifecycle 徽章 / active 状态 / notes ⓘ
  *  - chip / 卡片点击 → 行内编辑（name/code/category/series/family/lifecycle/active/notes）
  *  - 完整字段编辑（价格/EAN/箱规等）仍去 ⚙️ SKU Master Data 表格面板
  */
@@ -38,8 +38,6 @@ type Sku = {
 
 type Props = {
   allSkus: Sku[]
-  shipCount: Record<number, number>
-  psiCount: Record<number, number>
   viewerName: string
 }
 
@@ -75,7 +73,7 @@ const LIFECYCLE_STYLE: Record<string, string> = {
   discontinued: 'bg-gray-200 text-gray-500',
 }
 
-export function SkuMapView({ allSkus, shipCount, psiCount, viewerName }: Props) {
+export function SkuMapView({ allSkus, viewerName }: Props) {
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; msg: string } | null>(null)
   const flash = (kind: 'success' | 'error', msg: string) => {
     setToast({ kind, msg })
@@ -118,8 +116,6 @@ export function SkuMapView({ allSkus, shipCount, psiCount, viewerName }: Props) 
             key={cat}
             category={cat}
             skus={allSkus.filter(s => (s.category ?? '(uncategorized)') === cat)}
-            shipCount={shipCount}
-            psiCount={psiCount}
             onSuccess={(m) => flash('success', m)}
             onError={(m) => flash('error', m)}
           />
@@ -132,11 +128,9 @@ export function SkuMapView({ allSkus, shipCount, psiCount, viewerName }: Props) 
 // ───────────────────────────────────────
 // Category 区块 → Family 树
 // ───────────────────────────────────────
-function CategorySection({ category, skus, shipCount, psiCount, onSuccess, onError }: {
+function CategorySection({ category, skus, onSuccess, onError }: {
   category: string
   skus: Sku[]
-  shipCount: Record<number, number>
-  psiCount: Record<number, number>
   onSuccess: (m: string) => void
   onError: (m: string) => void
 }) {
@@ -168,8 +162,6 @@ function CategorySection({ category, skus, shipCount, psiCount, onSuccess, onErr
             series={group.series}
             skus={group.skus}
             isLast={fi === families.length - 1}
-            shipCount={shipCount}
-            psiCount={psiCount}
             onSuccess={onSuccess}
             onError={onError}
           />
@@ -179,13 +171,11 @@ function CategorySection({ category, skus, shipCount, psiCount, onSuccess, onErr
   )
 }
 
-function FamilyBlock({ family, series, skus, isLast, shipCount, psiCount, onSuccess, onError }: {
+function FamilyBlock({ family, series, skus, isLast, onSuccess, onError }: {
   family: string
   series: string | null
   skus: Sku[]
   isLast: boolean
-  shipCount: Record<number, number>
-  psiCount: Record<number, number>
   onSuccess: (m: string) => void
   onError: (m: string) => void
 }) {
@@ -218,8 +208,6 @@ function FamilyBlock({ family, series, skus, isLast, shipCount, psiCount, onSucc
             key={model}
             model={model}
             variants={variants}
-            shipCount={shipCount}
-            psiCount={psiCount}
             onSuccess={onSuccess}
             onError={onError}
           />
@@ -232,11 +220,9 @@ function FamilyBlock({ family, series, skus, isLast, shipCount, psiCount, onSucc
 // ───────────────────────────────────────
 // 型号卡片：单体 SKU 或 颜色变体 chips
 // ───────────────────────────────────────
-function ModelCard({ model, variants, shipCount, psiCount, onSuccess, onError }: {
+function ModelCard({ model, variants, onSuccess, onError }: {
   model: string
   variants: Sku[]
-  shipCount: Record<number, number>
-  psiCount: Record<number, number>
   onSuccess: (m: string) => void
   onError: (m: string) => void
 }) {
@@ -244,8 +230,6 @@ function ModelCard({ model, variants, shipCount, psiCount, onSuccess, onError }:
   const multi = variants.length > 1 || splitModel(variants[0].code).color !== null
   // 型号显示名：去掉颜色后缀的公共部分
   const baseName = variants[0].name.split(' - ')[0]
-  const totalShip = variants.reduce((s, v) => s + (shipCount[v.id] ?? 0), 0)
-  const totalPsi = variants.reduce((s, v) => s + (psiCount[v.id] ?? 0), 0)
   const anyActive = variants.some(v => v.is_active)
   const lifecycle = variants[0].lifecycle ?? 'active'
 
@@ -267,10 +251,7 @@ function ModelCard({ model, variants, shipCount, psiCount, onSuccess, onError }:
           {variants.length === 1 && variants[0].notes && (
             <span className="text-gray-400 hover:text-gray-700 cursor-help text-xs" title={variants[0].notes}>ⓘ</span>
           )}
-          <span className="ml-auto text-[11px] text-gray-400 tabular-nums flex-shrink-0">
-            {totalShip > 0 && <span className="mr-2">🚚 {totalShip}</span>}
-            {totalPsi > 0 && <span>📊 {totalPsi}</span>}
-          </span>
+          <span className="ml-auto flex-shrink-0" />
           {!multi && (
             <button
               onClick={() => setEditingId(editingId === variants[0].id ? null : variants[0].id)}
@@ -290,7 +271,7 @@ function ModelCard({ model, variants, shipCount, psiCount, onSuccess, onError }:
                 <button
                   key={v.id}
                   onClick={() => setEditingId(editingId === v.id ? null : v.id)}
-                  title={`${v.code} · ${v.name}${v.notes ? `\n${v.notes}` : ''}\n🚚 ${shipCount[v.id] ?? 0} · 📊 ${psiCount[v.id] ?? 0}`}
+                  title={`${v.code} · ${v.name}${v.notes ? `\n${v.notes}` : ''}`}
                   className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[11px] transition
                     ${editingId === v.id ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-white hover:border-gray-400'}
                     ${!v.is_active ? 'opacity-50 line-through' : ''}`}
@@ -300,9 +281,6 @@ function ModelCard({ model, variants, shipCount, psiCount, onSuccess, onError }:
                     style={{ background: color ? COLOR_DOT[color] : '#fff' }}
                   />
                   {color ?? v.code}
-                  <span className="text-gray-400 tabular-nums">
-                    {(shipCount[v.id] ?? 0) + (psiCount[v.id] ?? 0) > 0 ? `· ${(shipCount[v.id] ?? 0) + (psiCount[v.id] ?? 0)}` : ''}
-                  </span>
                 </button>
               )
             })}

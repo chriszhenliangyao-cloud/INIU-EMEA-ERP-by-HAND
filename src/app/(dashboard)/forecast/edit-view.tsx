@@ -21,7 +21,7 @@ type Ka = {
   notes?: string | null
 }
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number; lifecycle: string }
-type Cell = { run_id: number; sku_id: number; ka_id: number; month: string; qty: number; updated_by: string | null; updated_at: string }
+type Cell = { run_id: number; sku_id: number; ka_id: number; month: string; qty: number; source?: string | null; updated_by: string | null; updated_at: string }
 
 type CellKey = string  // `${sku_id}|${ka_id}|${YYYY-MM-01}`
 const cellKey = (sku_id: number, ka_id: number, monthIso: string) => `${sku_id}|${ka_id}|${monthIso}`
@@ -134,6 +134,16 @@ export function ForecastEditView({
   // —— dirty cells（修改过未保存的）——
   const [dirtyKeys, setDirtyKeys] = useState<Set<CellKey>>(new Set())
   const [saving, setSaving] = useState(false)
+
+  // —— rollover cells：上期自动带入、还没被人工确认的格子（淡灰显示）——
+  // 人工编辑（dirty）即视为确认转黑；保存后服务端 source 清空，刷新后自然消失
+  const rolloverKeys = useMemo(() => {
+    const s = new Set<CellKey>()
+    allCells.forEach((c: Cell) => {
+      if (c.source === 'rollover') s.add(cellKey(c.sku_id, c.ka_id, c.month))
+    })
+    return s
+  }, [allCells])
 
   // —— Toast 通知（替代 alert）——
   type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number }
@@ -388,6 +398,12 @@ export function ForecastEditView({
             <span className="inline-block w-2 h-2 rounded-sm bg-violet-200 mr-1 align-middle"></span>PO / <span className="inline-block w-2 h-2 rounded-sm bg-emerald-200 mr-1 ml-1 align-middle"></span>SO ref = past 3 complete months avg
           </span>
 
+          {rolloverKeys.size > 0 && (
+            <span className="ml-3 text-xs text-gray-500">
+              <span className="text-gray-400 font-medium">gray numbers</span> = rolled over from previous cycle, edit to confirm
+            </span>
+          )}
+
           {/* ⚙️ 管理渠道 — 销售自助新增/停用本国 KA。挪到 Save 旁边，主表格附近显眼 */}
           <button
             onClick={() => setManageChannelsOpen(true)}
@@ -513,7 +529,11 @@ export function ForecastEditView({
                               onChange={(e) => updateCell(sku.id, ka.id, m, e.target.value)}
                               placeholder="0"
                               disabled={editLockedForAll}
-                              className={`w-full text-xs text-right tabular-nums bg-transparent focus:bg-white focus:ring-2 focus:ring-blue-300 rounded px-1 py-1 outline-none ${value > 0 ? 'text-gray-900 font-medium' : 'text-gray-300'} ${editLockedForAll ? 'cursor-not-allowed' : ''}`}
+                              className={`w-full text-xs text-right tabular-nums bg-transparent focus:bg-white focus:ring-2 focus:ring-blue-300 rounded px-1 py-1 outline-none ${
+                                value > 0
+                                  ? (rolloverKeys.has(key) && !dirty ? 'text-gray-400' : 'text-gray-900 font-medium')
+                                  : 'text-gray-300'
+                              } ${editLockedForAll ? 'cursor-not-allowed' : ''}`}
                             />
                           </td>
                         )

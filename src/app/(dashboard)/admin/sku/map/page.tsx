@@ -17,17 +17,9 @@ export default async function AdminSkuMapPage() {
 
   const supabase = createClient()
 
-  const [
-    { data: allSkus, error: skuError },
-    { data: shipSkuIds },
-    { data: psiSkuIds },
-  ] = await Promise.all([
-    supabase.from('sku')
-      .select('id, code, name, category, series, family, color, lifecycle, is_active, sort_order, notes, rrp_eur')
-      .order('category').order('series').order('family').order('sort_order').order('code'),
-    supabase.from('shipment').select('sku_id').range(0, 49999),
-    supabase.from('weekly_psi_v2').select('sku_id').range(0, 49999),
-  ])
+  const { data: allSkus, error: skuError } = await supabase.from('sku')
+    .select('id, code, name, category, series, family, color, lifecycle, is_active, sort_order, notes, rrp_eur')
+    .order('category').order('series').order('family').order('sort_order').order('code')
 
   if (skuError || !allSkus) {
     return (
@@ -40,16 +32,9 @@ export default async function AdminSkuMapPage() {
     )
   }
 
-  const shipCount: Record<number, number> = {}
-  ;(shipSkuIds ?? []).forEach((r: any) => { shipCount[r.sku_id] = (shipCount[r.sku_id] ?? 0) + 1 })
-  const psiCount: Record<number, number> = {}
-  ;(psiSkuIds ?? []).forEach((r: any) => { psiCount[r.sku_id] = (psiCount[r.sku_id] ?? 0) + 1 })
-
   return (
     <SkuMapView
       allSkus={allSkus}
-      shipCount={shipCount}
-      psiCount={psiCount}
       viewerName={me.displayName}
     />
   )

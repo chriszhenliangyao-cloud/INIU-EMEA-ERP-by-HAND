@@ -193,7 +193,7 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       .order('country_id').order('sort_order').order('name'),
 
     supabase.from('forecast_cell')
-      .select('run_id, sku_id, ka_id, month, qty, updated_by, updated_at')
+      .select('run_id, sku_id, ka_id, month, qty, source, updated_by, updated_at')
       .eq('run_id', selectedRun.id),
 
     // Σ PO 数据源: shipment 出货量 (country × sku, 过去 3 月均) — PO = Purchase Order
