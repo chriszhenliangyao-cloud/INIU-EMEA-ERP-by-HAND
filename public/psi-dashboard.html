@@ -2187,11 +2187,103 @@ function latestDosByGroup() {
 //  - 点击系列行 → 展开该系列全部产品子表（列结构与主表一致）
 // ============================================================
 var summaryExpandedSeries = {};
+// 本表专属筛选（与页面顶部筛选完全独立）
+var summaryCountry = 'All';
+var summaryRetailer = 'All';
+var summaryFiltersBound = false;
+
+function syncSummaryFilters() {
+  var cSel = document.getElementById('summary-country-filter');
+  var rSel = document.getElementById('summary-retailer-filter');
+  if (!cSel || !rSel) return;
+  var isFD = state.viewMode === 'fd';
+
+  // 国家选项 = 当前模式下有渠道的国家
+  var countrySet = {};
+  DB.retailers.forEach(function(r) {
+    if (isRetailerInView(r.Retailer)) countrySet[r.Country] = true;
+  });
+  var countries = Object.keys(countrySet).sort();
+  if (countries.indexOf(summaryCountry) === -1) summaryCountry = 'All';
+  var cHtml = '<option value="All">All countries</option>';
+  countries.forEach(function(c) { cHtml += '<option value="' + c + '"' + (c === summaryCountry ? ' selected' : '') + '>' + c + '</option>'; });
+  cSel.innerHTML = cHtml;
+
+  // 渠道选项 = 当前模式（Retailer/FD）+ 所选国家 级联；FD 模式下首项显示 distributors
+  var rs = [];
+  DB.retailers.forEach(function(r) {
+    if (!isRetailerInView(r.Retailer)) return;
+    if (summaryCountry !== 'All' && r.Country !== summaryCountry) return;
+    if (rs.indexOf(r.Retailer) === -1) rs.push(r.Retailer);
+  });
+  rs.sort();
+  if (rs.indexOf(summaryRetailer) === -1) summaryRetailer = 'All';
+  var rHtml = '<option value="All">' + (isFD ? 'All distributors' : 'All retailers') + '</option>';
+  rs.forEach(function(r) { rHtml += '<option value="' + r + '"' + (r === summaryRetailer ? ' selected' : '') + '>' + r + '</option>'; });
+  rSel.innerHTML = rHtml;
+
+  if (!summaryFiltersBound) {
+    summaryFiltersBound = true;
+    cSel.addEventListener('change', function() {
+      summaryCountry = cSel.value;
+      summaryRetailer = 'All';  // 国家变了，渠道选择重置（级联）
+      renderPSISummaryTable();
+    });
+    rSel.addEventListener('change', function() {
+      summaryRetailer = rSel.value;
+      renderPSISummaryTable();
+    });
+    var expBtn = document.getElementById('summary-export-csv');
+    if (expBtn) expBtn.addEventListener('click', exportFullPsiCsv);
+  }
+}
+
+// 全量 PSI 导出：不受任何筛选/模式影响 —— 全部国家、全部渠道（Retailer + FD）、
+// 全部产品、全部周、全部指标（SI/SO/ST/Stock/DOS），long 格式方便 Excel 透视
+function exportFullPsiCsv() {
+  function esc(v) {
+    var str = (v === null || v === undefined) ? '' : String(v);
+    return (str.indexOf(',') !== -1 || str.indexOf('"') !== -1)
+      ? '"' + str.replace(/"/g, '""') + '"' : str;
+  }
+  var lines = [];
+  var header = ['Series', 'Family', 'Product', 'Country', 'Channel', 'Channel Type', 'Metric'];
+  WEEKS_ALL.forEach(function(w) { header.push(weekDisplay(w)); });
+  lines.push(header.map(esc).join(','));
+
+  DB.weeklyPSI.forEach(function(r) {
+    var meta = PRODUCTS_META[r['Product Name']] || {};
+    var row = [
+      meta.series || 'Other',
+      meta.family || 'Other',
+      r['Product Name'],
+      r.Country,
+      r.Retailer,
+      DISTRIBUTOR_SET[r.Retailer] ? 'Distributor (FD)' : 'Retailer',
+      r.Metric,
+    ];
+    WEEKS_ALL.forEach(function(w) {
+      var val = r[w];
+      row.push(val === '' || val === null || val === undefined ? '' : val);
+    });
+    lines.push(row.map(esc).join(','));
+  });
+
+  var blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'INIU-PSI-full-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+}
 
 function getSummaryBaseRows(metric) {
-  // 与 getFilteredRows 的区别：只过滤 metric + 视图模式，无视其余筛选
+  // 与 getFilteredRows 的区别：只跟随 视图模式 + 本表专属的国家/渠道筛选，无视页面顶部其余筛选
   return DB.weeklyPSI.filter(function(r) {
-    return r.Metric === metric && isRetailerInView(r.Retailer);
+    if (r.Metric !== metric) return false;
+    if (!isRetailerInView(r.Retailer)) return false;
+    if (summaryCountry !== 'All' && r.Country !== summaryCountry) return false;
+    if (summaryRetailer !== 'All' && r.Retailer !== summaryRetailer) return false;
+    return true;
   });
 }
 
@@ -2273,6 +2365,8 @@ function renderPSISummaryTable() {
   var container = document.getElementById('psi-summary-table');
   if (!container) return;
 
+  syncSummaryFilters();
+
   var volumeMetric = getVolumeMetric();
   var volumeLabel = state.viewMode === 'fd' ? 'ST' : 'SO';
   var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
@@ -2288,8 +2382,10 @@ function renderPSISummaryTable() {
   var productRows = summaryRowsFromAgg(productAgg);
 
   document.getElementById('summary-subtitle').textContent =
-    'Period ' + weekDisplay(weeks[0]) + '–' + weekDisplay(weeks[weeks.length - 1]) +
-    ' · all countries & retailers (not affected by filters above) · ' + volumeLabel + ' follows Retailer/FD mode · click a series to expand products';
+    'Period ' + weekDisplay(weeks[0]) + '\u2013' + weekDisplay(weeks[weeks.length - 1]) +
+    ' \u00b7 ' + (summaryCountry === 'All' ? 'all countries' : summaryCountry) +
+    ' \u00b7 ' + (summaryRetailer === 'All' ? (state.viewMode === 'fd' ? 'all distributors' : 'all retailers') : summaryRetailer) +
+    ' \u00b7 independent of filters above \u00b7 click a series to expand products';
 
   if (seriesRows.length === 0) {
     container.innerHTML = '<div style="padding:48px 0; text-align:center; color:#94a3b8; font-size:13px;">No PSI data in this period</div>';
@@ -2530,6 +2626,12 @@ document.addEventListener('DOMContentLoaded', initApp);
     <div style="margin-bottom:12px;">
       <h2 id="lbl-summary-title" style="font-size:14px; font-weight:700;">PSI Summary by Series</h2>
       <p id="summary-subtitle" style="font-size:12px; color:#9ca3af;">Selected period PSI metrics</p>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <select id="summary-country-filter" style="padding:6px 10px; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; background:#fff; color:#334155;"></select>
+        <select id="summary-retailer-filter" style="padding:6px 10px; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; background:#fff; color:#334155;"></select>
+        <button id="summary-export-csv" title="导出全量 PSI 明细：全部国家/渠道（含 Retailer 与 FD）× 全部产品 × 全部周 × 全部指标，不受任何筛选影响"
+          style="padding:6px 12px; border:none; border-radius:8px; font-size:12px; background:#7c3aed; color:#fff; cursor:pointer;">&#128228; Export CSV</button>
+      </div>
     </div>
     <div id="psi-summary-table"></div>
   </div>

@@ -321,9 +321,15 @@ export function ForecastSummaryView({
                 <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-purple-100 text-purple-700" colSpan={months.length}>
                   EU TTL
                 </th>
-                <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-amber-100 text-amber-800"
-                    colSpan={3}>
-                  Total · Stock
+                {/* TOTAL block：Total / Stock-FD 占双行，Stock-HQ 分组下挂 CN / Oversea */}
+                <th className="sticky top-0 z-30 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-amber-800 border-b border-r border-gray-200 bg-amber-100 align-middle" rowSpan={2}>
+                  Total
+                </th>
+                <th className="sticky top-0 z-30 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-amber-800 border-b border-r border-gray-200 bg-amber-100 align-middle" rowSpan={2} title="Stock from FD (channel distributor latest)">
+                  Stock-FD
+                </th>
+                <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b border-r border-gray-300 bg-amber-100 text-amber-800" colSpan={2}>
+                  Stock-HQ
                 </th>
               </tr>
               {/* 第二行：月份 — sticky top-[32px] 紧贴第一行 */}
@@ -340,18 +346,12 @@ export function ForecastSummaryView({
                     {monthLabels[i].short}
                   </th>
                 ))}
-                {/* TOTAL block 3 子标签 */}
-                <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50">
-                  Total
-                </th>
-                <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" title="Stock from FD (channel distributor latest)">
-                  Stock-FD
-                </th>
+                {/* Stock-HQ 子列 */}
                 <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" title="HQ 国内库存 (domestic warehouse)">
-                  HQ·CN
+                  CN
                 </th>
                 <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" title="HQ 海外仓库存 (overseas warehouse)">
-                  HQ·OVS
+                  Oversea
                 </th>
               </tr>
             </thead>
@@ -386,13 +386,13 @@ export function ForecastSummaryView({
                   <td className="px-2 py-2 text-right text-sm tabular-nums font-bold bg-amber-50 text-amber-900 border-b border-r border-amber-200">
                     {r.subTotal > 0 ? fmtNum(r.subTotal) : <span className="text-gray-300">-</span>}
                   </td>
-                  <td className="px-2 py-2 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
+                  <td className="px-2 py-2 text-right text-xs tabular-nums bg-amber-50 text-gray-700 border-b border-r border-amber-200">
                     {(fdStockBySkuCode?.[r.sku_code] ?? 0) > 0 ? fmtNum(fdStockBySkuCode![r.sku_code]) : <span className="text-gray-300">-</span>}
                   </td>
-                  <td className="px-2 py-2 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
+                  <td className="px-2 py-2 text-right text-xs tabular-nums bg-amber-50 text-gray-700 border-b border-r border-amber-200">
                     {(hqCnStockBySkuCode?.[r.sku_code] ?? 0) > 0 ? fmtNum(hqCnStockBySkuCode![r.sku_code]) : <span className="text-gray-300" title="HQ domestic stock not yet imported">-</span>}
                   </td>
-                  <td className="px-2 py-2 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
+                  <td className="px-2 py-2 text-right text-xs tabular-nums bg-amber-50 text-gray-700 border-b border-r border-amber-200">
                     {(hqOvsStockBySkuCode?.[r.sku_code] ?? 0) > 0 ? fmtNum(hqOvsStockBySkuCode![r.sku_code]) : <span className="text-gray-300" title="HQ overseas stock not yet imported">-</span>}
                   </td>
                 </tr>
