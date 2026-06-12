@@ -108,7 +108,7 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
       .order('week_start', { ascending: false })
       .range(0, 49999),
     supabase.from('hq_stock')
-      .select('country_id, sku_id, stock_qty, as_of_date')
+      .select('sku_id, stock_qty, as_of_date, location, warehouse')
       .order('as_of_date', { ascending: false })
       .range(0, 9999),
   ])
@@ -127,25 +127,50 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
     fdBySkuId[sku_id] = (fdBySkuId[sku_id] ?? 0) + v
   })
 
-  // hqBySku 同样按 (country, sku) 最新一条，再求和到 sku
-  const hqLatestByCSku: Record<string, number> = {}
+  // hqBySku：HQ 库存 = SKU × 仓库 粒度（共享池）。每个 (sku, warehouse) 取最新一条，再按 location 汇总到 SKU
+  const hqLatestBySkuWh: Record<string, { qty: number; location: string; as_of: string }> = {}
   ;(hqStockRaw ?? []).forEach((r: any) => {
-    const k = `${r.country_id}|${r.sku_id}`
-    if (hqLatestByCSku[k] === undefined) hqLatestByCSku[k] = Number(r.stock_qty)
+    const k = `${r.sku_id}|${r.warehouse ?? 'legacy'}`
+    if (hqLatestBySkuWh[k] === undefined) {
+      hqLatestBySkuWh[k] = { qty: Number(r.stock_qty), location: r.location, as_of: r.as_of_date }
+    }
   })
-  const hqBySkuId: Record<number, number> = {}
-  Object.entries(hqLatestByCSku).forEach(([k, v]) => {
-    const sku_id = Number(k.split('|')[1])
-    hqBySkuId[sku_id] = (hqBySkuId[sku_id] ?? 0) + v
+  const hqCnBySkuId: Record<number, number> = {}
+  const hqOvsBySkuId: Record<number, number> = {}
+  Object.entries(hqLatestBySkuWh).forEach(([k, v]) => {
+    const sku_id = Number(k.split('|')[0])
+    const target = v.location === 'overseas' ? hqOvsBySkuId : hqCnBySkuId
+    target[sku_id] = (target[sku_id] ?? 0) + v.qty
   })
 
   // 把 sku_id → code 索引（summary view 是按 sku_code 显示的）
   const fdBySkuCode: Record<string, number> = {}
-  const hqBySkuCode: Record<string, number> = {}
+  const hqCnBySkuCode: Record<string, number> = {}
+  const hqOvsBySkuCode: Record<string, number> = {}
   ;(allSkus ?? []).forEach((s: any) => {
     if (fdBySkuId[s.id]) fdBySkuCode[s.code] = fdBySkuId[s.id]
-    if (hqBySkuId[s.id]) hqBySkuCode[s.code] = hqBySkuId[s.id]
+    if (hqCnBySkuId[s.id]) hqCnBySkuCode[s.code] = hqCnBySkuId[s.id]
+    if (hqOvsBySkuId[s.id]) hqOvsBySkuCode[s.code] = hqOvsBySkuId[s.id]
   })
+
+  // Stock 导出用：仓库级明细行（每个 sku × warehouse 最新一条），给客户的下载版本
+  const skuMetaById: Record<number, { code: string; name: string }> = {}
+  ;(allSkus ?? []).forEach((s: any) => { skuMetaById[s.id] = { code: s.code, name: s.name } })
+  const hqStockExportRows = Object.entries(hqLatestBySkuWh)
+    .map(([k, v]) => {
+      const [skuIdStr, warehouse] = k.split('|')
+      const meta = skuMetaById[Number(skuIdStr)]
+      return meta ? {
+        sku_code: meta.code,
+        sku_name: meta.name,
+        warehouse,
+        location: v.location === 'overseas' ? 'Overseas' : 'Domestic',
+        qty: v.qty,
+        as_of: v.as_of,
+      } : null
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+    .sort((a, b) => a.location.localeCompare(b.location) || a.warehouse.localeCompare(b.warehouse) || a.sku_code.localeCompare(b.sku_code))
 
   return (
     <ForecastSummaryView
@@ -156,7 +181,9 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
       countries={countries ?? []}
       lastYearData={ly}
       fdStockBySkuCode={fdBySkuCode}
-      hqStockBySkuCode={hqBySkuCode}
+      hqCnStockBySkuCode={hqCnBySkuCode}
+      hqOvsStockBySkuCode={hqOvsBySkuCode}
+      hqStockExportRows={hqStockExportRows}
       viewerIsAdmin={me.isAdmin}
       viewerName={me.displayName}
     />
@@ -213,7 +240,7 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       .range(0, 49999),
 
     supabase.from('hq_stock')
-      .select('country_id, ka_id, sku_id, stock_qty, as_of_date')
+      .select('sku_id, stock_qty, as_of_date, location, warehouse')
       .order('as_of_date', { ascending: false })
       .range(0, 9999),
   ])
@@ -265,13 +292,19 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
     }
   })
 
-  // ───────── Stock from HQ: 同上，目前可能为空 ─────────
-  const hqStockByKaSku: Record<number, Record<number, number>> = {}
+  // ───────── Stock from HQ: SKU × 仓库 粒度共享池，按 location 汇总到 SKU ─────────
+  // 全 EU 共享同一池货，所有国家的销售看到相同的 HQ 数字
+  const hqWhLatest: Record<string, { qty: number; location: string }> = {}
   ;(hqStockRaw ?? []).forEach((r: any) => {
-    if (!hqStockByKaSku[r.ka_id]) hqStockByKaSku[r.ka_id] = {}
-    if (hqStockByKaSku[r.ka_id][r.sku_id] === undefined) {
-      hqStockByKaSku[r.ka_id][r.sku_id] = Number(r.stock_qty)
-    }
+    const k = `${r.sku_id}|${r.warehouse ?? 'legacy'}`
+    if (hqWhLatest[k] === undefined) hqWhLatest[k] = { qty: Number(r.stock_qty), location: r.location }
+  })
+  const hqCnStockBySku: Record<number, number> = {}
+  const hqOvsStockBySku: Record<number, number> = {}
+  Object.entries(hqWhLatest).forEach(([k, v]) => {
+    const sku_id = Number(k.split('|')[0])
+    const target = v.location === 'overseas' ? hqOvsStockBySku : hqCnStockBySku
+    target[sku_id] = (target[sku_id] ?? 0) + v.qty
   })
 
   return (
@@ -286,7 +319,8 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       poByCountrySku={poByCountrySku}
       soByKaSku={soByKaSku}
       fdStockByKaSku={fdStockByKaSku}
-      hqStockByKaSku={hqStockByKaSku}
+      hqCnStockBySku={hqCnStockBySku}
+      hqOvsStockBySku={hqOvsStockBySku}
       editorNameMap={{}}
       viewerIsAdmin={me.isAdmin}
       viewerName={me.displayName}

@@ -31,7 +31,7 @@ export function ForecastEditView({
   allKas, allSkus, allCells,
   editorNameMap,
   poByCountrySku, soByKaSku,
-  fdStockByKaSku, hqStockByKaSku,
+  fdStockByKaSku, hqCnStockBySku, hqOvsStockBySku,
   viewerIsAdmin, viewerName,
 }: {
   runs: Run[]
@@ -48,7 +48,8 @@ export function ForecastEditView({
   soByKaSku: Record<number, Record<number, number>>
   // FD/HQ Stock（by ka × sku）
   fdStockByKaSku: Record<number, Record<number, number>>
-  hqStockByKaSku: Record<number, Record<number, number>>
+  hqCnStockBySku: Record<number, number>   // HQ 国内库存（共享池，SKU 级）
+  hqOvsStockBySku: Record<number, number>  // HQ 海外仓库存（共享池，SKU 级）
   viewerIsAdmin: boolean
   viewerName: string
 }) {
@@ -135,15 +136,8 @@ export function ForecastEditView({
   const [dirtyKeys, setDirtyKeys] = useState<Set<CellKey>>(new Set())
   const [saving, setSaving] = useState(false)
 
-  // —— rollover cells：上期自动带入、还没被人工确认的格子（淡灰显示）——
-  // 人工编辑（dirty）即视为确认转黑；保存后服务端 source 清空，刷新后自然消失
-  const rolloverKeys = useMemo(() => {
-    const s = new Set<CellKey>()
-    allCells.forEach((c: Cell) => {
-      if (c.source === 'rollover') s.add(cellKey(c.sku_id, c.ka_id, c.month))
-    })
-    return s
-  }, [allCells])
+  // 注：上期 rollover 预填值与人工值同等显示（销售要求：实体数据、免重复填报）
+  // source 字段仅作为来源痕迹保留（admin 的 Forecast Activity 用它区分 人工/预填）
 
   // —— Toast 通知（替代 alert）——
   type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number }
@@ -398,11 +392,6 @@ export function ForecastEditView({
             <span className="inline-block w-2 h-2 rounded-sm bg-violet-200 mr-1 align-middle"></span>PO / <span className="inline-block w-2 h-2 rounded-sm bg-emerald-200 mr-1 ml-1 align-middle"></span>SO ref = past 3 complete months avg
           </span>
 
-          {rolloverKeys.size > 0 && (
-            <span className="ml-3 text-xs text-gray-500">
-              <span className="text-gray-400 font-medium">gray numbers</span> = rolled over from previous cycle, edit to confirm
-            </span>
-          )}
 
           {/* ⚙️ 管理渠道 — 销售自助新增/停用本国 KA。挪到 Save 旁边，主表格附近显眼 */}
           <button
@@ -487,8 +476,11 @@ export function ForecastEditView({
                 <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }} title="Stock from FD (channel distributor)">
                   Stock-FD
                 </th>
-                <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }} title="Stock from HQ (INIU warehouse)">
-                  Stock-HQ
+                <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }} title="HQ 国内库存 (domestic warehouse)">
+                  HQ·CN
+                </th>
+                <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }} title="HQ 海外仓库存 (overseas warehouse)">
+                  HQ·OVS
                 </th>
               </tr>
             </thead>
@@ -500,12 +492,13 @@ export function ForecastEditView({
                 // Σ SO: 跨所有 KA 求和（每个 KA 按类型已经选 SO 或 ST）
                 let soTotal = 0
                 let fdTotal = 0
-                let hqTotal = 0
                 kas.forEach(ka => {
                   soTotal += soByKaSku[ka.id]?.[sku.id] ?? 0
                   fdTotal += fdStockByKaSku[ka.id]?.[sku.id] ?? 0
-                  hqTotal += hqStockByKaSku[ka.id]?.[sku.id] ?? 0
                 })
+                // HQ 库存是共享池（SKU 级），不随国家/KA 变化
+                const hqCnTotal = hqCnStockBySku[sku.id] ?? 0
+                const hqOvsTotal = hqOvsStockBySku[sku.id] ?? 0
                 return (
                   <tr key={sku.id} className="hover:bg-gray-50 group">
                     <td className="sticky left-0 bg-white group-hover:bg-gray-50 z-10 px-3 py-1.5 font-mono text-xs font-bold text-gray-900 border-b border-r border-gray-100" style={{ minWidth: 90, maxWidth: 90 }}>
@@ -529,11 +522,7 @@ export function ForecastEditView({
                               onChange={(e) => updateCell(sku.id, ka.id, m, e.target.value)}
                               placeholder="0"
                               disabled={editLockedForAll}
-                              className={`w-full text-xs text-right tabular-nums bg-transparent focus:bg-white focus:ring-2 focus:ring-blue-300 rounded px-1 py-1 outline-none ${
-                                value > 0
-                                  ? (rolloverKeys.has(key) && !dirty ? 'text-gray-400' : 'text-gray-900 font-medium')
-                                  : 'text-gray-300'
-                              } ${editLockedForAll ? 'cursor-not-allowed' : ''}`}
+                              className={`w-full text-xs text-right tabular-nums bg-transparent focus:bg-white focus:ring-2 focus:ring-blue-300 rounded px-1 py-1 outline-none ${value > 0 ? 'text-gray-900 font-medium' : 'text-gray-300'} ${editLockedForAll ? 'cursor-not-allowed' : ''}`}
                             />
                           </td>
                         )
@@ -568,14 +557,17 @@ export function ForecastEditView({
                       {fdTotal > 0 ? fmtNum(fdTotal) : <span className="text-gray-300">-</span>}
                     </td>
                     <td className="px-2 py-1.5 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
-                      {hqTotal > 0 ? fmtNum(hqTotal) : <span className="text-gray-300" title="HQ stock data not yet imported">-</span>}
+                      {hqCnTotal > 0 ? fmtNum(hqCnTotal) : <span className="text-gray-300" title="HQ domestic stock not yet imported">-</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
+                      {hqOvsTotal > 0 ? fmtNum(hqOvsTotal) : <span className="text-gray-300" title="HQ overseas stock not yet imported">-</span>}
                     </td>
                   </tr>
                 )
               })}
               {!visibleSkus.length && (
                 <tr>
-                  <td colSpan={2 + kas.length * monthsIso.length + 1 + monthsIso.length + 3} className="py-16 text-center text-gray-400">
+                  <td colSpan={2 + kas.length * monthsIso.length + 1 + monthsIso.length + 4} className="py-16 text-center text-gray-400">
                     {hideZero ? 'No SKUs filled yet · uncheck "Hide empty SKUs" to see all' : 'No KAs / SKUs available for this country'}
                   </td>
                 </tr>
@@ -641,7 +633,14 @@ export function ForecastEditView({
                   <td className="px-2 py-2 text-right text-xs font-bold tabular-nums bg-amber-50 text-gray-700 border-r border-t-2 border-amber-300">
                     {(() => {
                       let total = 0
-                      kas.forEach(ka => allSkus.forEach(s => { total += hqStockByKaSku[ka.id]?.[s.id] ?? 0 }))
+                      allSkus.forEach(s => { total += hqCnStockBySku[s.id] ?? 0 })
+                      return total > 0 ? fmtNum(total) : '-'
+                    })()}
+                  </td>
+                  <td className="px-2 py-2 text-right text-xs font-bold tabular-nums bg-amber-50 text-gray-700 border-r border-t-2 border-amber-300">
+                    {(() => {
+                      let total = 0
+                      allSkus.forEach(s => { total += hqOvsStockBySku[s.id] ?? 0 })
                       return total > 0 ? fmtNum(total) : '-'
                     })()}
                   </td>

@@ -50,7 +50,7 @@ type Sku = { id: number; code: string; name: string; category: string | null; so
 
 export function ForecastSummaryView({
   runs, selectedRun, cells, allSkus, countries, lastYearData,
-  fdStockBySkuCode, hqStockBySkuCode,
+  fdStockBySkuCode, hqCnStockBySkuCode, hqOvsStockBySkuCode, hqStockExportRows,
   viewerIsAdmin, viewerName,
 }: {
   runs: Run[]
@@ -60,7 +60,9 @@ export function ForecastSummaryView({
   countries: Country[]
   lastYearData: Record<string, Record<string, Record<string, number>>>
   fdStockBySkuCode?: Record<string, number>
-  hqStockBySkuCode?: Record<string, number>
+  hqCnStockBySkuCode?: Record<string, number>   // HQ 国内库存
+  hqOvsStockBySkuCode?: Record<string, number>  // HQ 海外仓库存
+  hqStockExportRows?: { sku_code: string; sku_name: string; warehouse: string; location: string; qty: number; as_of: string }[]
   viewerIsAdmin: boolean
   viewerName: string
 }) {
@@ -190,34 +192,29 @@ export function ForecastSummaryView({
     return <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${s.bg}`}>{s.label}</span>
   })()
 
-  // ============== 导出 CSV ==============
-  const exportCsv = () => {
+  // ============== 导出 Stock CSV（仓库级明细，给客户的下载版本）==============
+  // 格式（Chris 定）：每个仓库一行，海外仓不合并；含国内（生产部）与各海外仓
+  const exportStockCsv = () => {
+    const rows = hqStockExportRows ?? []
     const lines: string[] = []
-    // 表头行 1
-    const h1 = ['', '']
-    tableCountries.forEach(c => { for (let i = 0; i < months.length; i++) h1.push(i === 0 ? c.code : '') })
-    for (let i = 0; i < months.length; i++) h1.push(i === 0 ? 'EU TTL' : '')
-    h1.push('Sub-total')
-    lines.push(h1.join(','))
-    // 表头行 2
-    const h2 = ['Model', 'Product Name']
-    tableCountries.forEach(() => months.forEach(m => h2.push(m)))
-    months.forEach(m => h2.push(m))
-    h2.push('')
-    lines.push(h2.join(','))
-    // 数据
-    tableRows.forEach(r => {
-      const row: any[] = [r.sku_code, `"${(r.sku_name ?? '').replace(/"/g, '""')}"`]
-      tableCountries.forEach(c => months.forEach(m => row.push(r.countryMonthQty[c.code]?.[m] ?? 0)))
-      months.forEach(m => row.push(r.monthlyTtl[m] ?? 0))
-      row.push(r.subTotal)
-      lines.push(row.join(','))
+    lines.push(['SKU', 'Product Name', 'Warehouse', 'Location', 'Qty', 'As of'].join(','))
+    rows.forEach(r => {
+      lines.push([
+        r.sku_code,
+        `"${(r.sku_name ?? '').replace(/"/g, '""')}"`,
+        `"${r.warehouse.replace(/"/g, '""')}"`,
+        r.location,
+        r.qty,
+        r.as_of,
+      ].join(','))
     })
-    // BOM + 换行
+    // 合计行
+    lines.push(['TOTAL', '', '', '', rows.reduce((s, r) => s + r.qty, 0), ''].join(','))
+    // BOM（仓库名含中文，Excel 需要 BOM 才不乱码）
     const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `${selectedRun.code}.csv`
+    a.download = `INIU-stock-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
   }
 
@@ -277,8 +274,10 @@ export function ForecastSummaryView({
               <input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} />
               Hide empty SKUs
             </label>
-            <button onClick={exportCsv} className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700">
-              📤 Export CSV
+            <button onClick={exportStockCsv}
+              title="导出 HQ 库存仓库级明细（国内 + 各海外仓逐行），可直接发给客户"
+              className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700">
+              📤 Export Stock CSV
             </button>
           </div>
         </div>
@@ -302,7 +301,7 @@ export function ForecastSummaryView({
         <Legend color="#fef3c7" label="ES Spain" />
         <Legend color="#fce7f3" label="NL Netherlands" />
         <Legend color="#ede9fe" label="EU TTL" />
-        <Legend color="#e5e7eb" label={`Sub-total (${monthCount}-month sum)`} textColor="text-gray-700" />
+        <Legend color="#fef3c7" label={`Total (${monthCount}-month sum) · Stock`} textColor="text-amber-800" />
       </div>
 
       {/* 主表 */}
@@ -321,10 +320,6 @@ export function ForecastSummaryView({
                 ))}
                 <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-purple-100 text-purple-700" colSpan={months.length}>
                   EU TTL
-                </th>
-                <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-gray-100 text-gray-700"
-                    colSpan={months.length}>
-                  Sub-total
                 </th>
                 <th className="sticky top-0 z-30 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r border-gray-300 bg-amber-100 text-amber-800"
                     colSpan={3}>
@@ -345,13 +340,6 @@ export function ForecastSummaryView({
                     {monthLabels[i].short}
                   </th>
                 ))}
-                {/* Sub-total 各月 */}
-                {months.map((m, i) => (
-                  <th key={`subtot-${m}`}
-                      className={`sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-gray-700 border-b border-gray-200 bg-gray-100 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-200'}`}>
-                    {monthLabels[i].short}
-                  </th>
-                ))}
                 {/* TOTAL block 3 子标签 */}
                 <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50">
                   Total
@@ -359,8 +347,11 @@ export function ForecastSummaryView({
                 <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" title="Stock from FD (channel distributor latest)">
                   Stock-FD
                 </th>
-                <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" title="Stock from HQ (INIU warehouse)">
-                  Stock-HQ
+                <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" title="HQ 国内库存 (domestic warehouse)">
+                  HQ·CN
+                </th>
+                <th className="sticky top-[32px] z-30 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" title="HQ 海外仓库存 (overseas warehouse)">
+                  HQ·OVS
                 </th>
               </tr>
             </thead>
@@ -391,13 +382,6 @@ export function ForecastSummaryView({
                       </td>
                     )
                   })}
-                  {/* Sub-total per month */}
-                  {months.map((m, i) => (
-                    <td key={`subtot-${r.sku_code}-${m}`}
-                        className={`px-2 py-2 text-right text-xs tabular-nums font-semibold bg-gray-100 text-gray-800 border-b border-gray-200 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-200'}`}>
-                      {(r.monthlyTtl[m] ?? 0) > 0 ? fmtNum(r.monthlyTtl[m]) : <span className="text-gray-300">-</span>}
-                    </td>
-                  ))}
                   {/* TOTAL block */}
                   <td className="px-2 py-2 text-right text-sm tabular-nums font-bold bg-amber-50 text-amber-900 border-b border-r border-amber-200">
                     {r.subTotal > 0 ? fmtNum(r.subTotal) : <span className="text-gray-300">-</span>}
@@ -406,13 +390,16 @@ export function ForecastSummaryView({
                     {(fdStockBySkuCode?.[r.sku_code] ?? 0) > 0 ? fmtNum(fdStockBySkuCode![r.sku_code]) : <span className="text-gray-300">-</span>}
                   </td>
                   <td className="px-2 py-2 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
-                    {(hqStockBySkuCode?.[r.sku_code] ?? 0) > 0 ? fmtNum(hqStockBySkuCode![r.sku_code]) : <span className="text-gray-300" title="HQ stock data not yet imported">-</span>}
+                    {(hqCnStockBySkuCode?.[r.sku_code] ?? 0) > 0 ? fmtNum(hqCnStockBySkuCode![r.sku_code]) : <span className="text-gray-300" title="HQ domestic stock not yet imported">-</span>}
+                  </td>
+                  <td className="px-2 py-2 text-right text-xs tabular-nums bg-amber-50/60 text-gray-700 border-b border-r border-amber-200">
+                    {(hqOvsStockBySkuCode?.[r.sku_code] ?? 0) > 0 ? fmtNum(hqOvsStockBySkuCode![r.sku_code]) : <span className="text-gray-300" title="HQ overseas stock not yet imported">-</span>}
                   </td>
                 </tr>
               ))}
               {!tableRows.length && (
                 <tr>
-                  <td colSpan={2 + tableCountries.length * months.length + months.length + months.length + 3} className="py-12 text-center text-gray-400">
+                  <td colSpan={2 + tableCountries.length * months.length + months.length + 4} className="py-12 text-center text-gray-400">
                     No data for this cycle yet · waiting for sales input or switch to another cycle
                   </td>
                 </tr>
@@ -439,13 +426,6 @@ export function ForecastSummaryView({
                       {fmtNum(footTotals.byEuMonth[m] ?? 0)}
                     </td>
                   ))}
-                  {/* Sub-total 各月 footer */}
-                  {months.map((m, i) => (
-                    <td key={`ft-subtot-${m}`}
-                        className={`px-2 py-3 text-right text-xs font-bold tabular-nums bg-gray-200 text-gray-900 border-t-2 border-gray-300 ${i === months.length - 1 ? 'border-r-2 border-r-gray-300' : 'border-r border-r-gray-300'}`}>
-                      {fmtNum(footTotals.byEuMonth[m] ?? 0)}
-                    </td>
-                  ))}
                   {/* TOTAL block footer */}
                   <td className="px-2 py-3 text-right text-sm font-bold tabular-nums bg-amber-100 text-amber-900 border-r border-t-2 border-amber-300">
                     {fmtNum(footTotals.grandTotal)}
@@ -458,7 +438,13 @@ export function ForecastSummaryView({
                   </td>
                   <td className="px-2 py-3 text-right text-xs font-bold tabular-nums bg-amber-50 text-gray-700 border-r border-t-2 border-amber-300">
                     {(() => {
-                      const t = Object.values(hqStockBySkuCode ?? {}).reduce((s, v) => s + v, 0)
+                      const t = Object.values(hqCnStockBySkuCode ?? {}).reduce((s, v) => s + v, 0)
+                      return t > 0 ? fmtNum(t) : '-'
+                    })()}
+                  </td>
+                  <td className="px-2 py-3 text-right text-xs font-bold tabular-nums bg-amber-50 text-gray-700 border-r border-t-2 border-amber-300">
+                    {(() => {
+                      const t = Object.values(hqOvsStockBySkuCode ?? {}).reduce((s, v) => s + v, 0)
                       return t > 0 ? fmtNum(t) : '-'
                     })()}
                   </td>
@@ -473,7 +459,7 @@ export function ForecastSummaryView({
       <div className="mt-4 text-xs text-gray-400 text-center">
         💡 Source: <code className="bg-gray-100 px-1 rounded text-purple-600">forecast_eu_summary</code> view (KA aggregated to country level) ·
         Monthly EU TTL = FR + PL + ES + NL ·
-        Sub-total = monthly EU TTL ({monthCount}-month window)
+        Total = {monthCount}-month sum of EU TTL
       </div>
     </div>
   )

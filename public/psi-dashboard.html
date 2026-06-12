@@ -1197,7 +1197,7 @@ function updateViewLabels() {
   document.getElementById('lbl-pie-stock-title').textContent = grainLabel + ' Share — ' + stockLabel;
   document.getElementById('lbl-pie-stock-sub').textContent = stockLabel.toLowerCase() + ' share in selected period';
   document.getElementById('lbl-pie-legend-title').textContent = grainLabel;
-  document.getElementById('lbl-summary-title').textContent = 'PSI Summary by ' + grainLabel;
+  document.getElementById('lbl-summary-title').textContent = 'PSI Summary by Series';  // 固定 series 粒度，不随筛选切换
   document.getElementById('lbl-retailer-filter').textContent = isFD ? 'Distributor' : 'Retailer';
 }
 
@@ -2180,97 +2180,177 @@ function latestDosByGroup() {
   return result;
 }
 
-function renderPSISummaryTable() {
-  var container = document.getElementById('psi-summary-table');
-  if (!container) return;
+// ============================================================
+// PSI SUMMARY TABLE — 固定 Series 粒度（Chris 2026-06-12）
+//  - 不受上方 国家/渠道/品类/系列/产品 筛选影响
+//  - 仅跟随：周期窗口（决定周列）+ Retailer/FD 模式（决定 SO vs ST，混流会双计）
+//  - 点击系列行 → 展开该系列全部产品子表（列结构与主表一致）
+// ============================================================
+var summaryExpandedSeries = {};
 
-  var grainLabel = getActiveGrainLabel();
-  var volumeMetric = getVolumeMetric();
-  var volumeLabel = state.viewMode === 'fd' ? 'ST' : 'SO';
-  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
-
-  // 每周 SO/ST 明细 + total + latest stock + latest dos
-  var weeklyMap  = metricByGroupAndWeek(volumeMetric);
-  var totalMap   = sumMetricByGroup(volumeMetric);
-  var stockMap   = latestStockByGroup();
-  var dosMap     = latestDosByGroup();
-
-  // 合并所有 group key（series / family / product 由 grain 决定）
-  var groupSet = {};
-  [totalMap, stockMap, dosMap].forEach(function(map) {
-    Object.keys(map).forEach(function(k) { groupSet[k] = true; });
+function getSummaryBaseRows(metric) {
+  // 与 getFilteredRows 的区别：只过滤 metric + 视图模式，无视其余筛选
+  return DB.weeklyPSI.filter(function(r) {
+    return r.Metric === metric && isRetailerInView(r.Retailer);
   });
+}
 
-  var rows = Object.keys(groupSet).map(function(name) {
+// keyFn(row) → 分组键（返回 null = 跳过该行）
+function summaryAggregate(keyFn, volumeMetric, weeks) {
+  var agg = {};
+  function ensure(k) {
+    if (!agg[k]) agg[k] = { weekly: {}, total: 0, stock: 0, dosSum: 0, dosCnt: 0 };
+    return agg[k];
+  }
+  getSummaryBaseRows(volumeMetric).forEach(function(r) {
+    var k = keyFn(r); if (k === null || k === undefined) return;
+    var a = ensure(k);
+    weeks.forEach(function(w) {
+      var val = r[w];
+      if (val !== '' && val !== null && val !== undefined) {
+        a.weekly[w] = (a.weekly[w] || 0) + Number(val);
+        a.total += Number(val);
+      }
+    });
+  });
+  // Latest Stock：每行取窗口内最后一个非空，跨渠道求和
+  getSummaryBaseRows('Stock').forEach(function(r) {
+    var k = keyFn(r); if (k === null || k === undefined) return;
+    var a = ensure(k);
+    for (var i = weeks.length - 1; i >= 0; i--) {
+      var val = r[weeks[i]];
+      if (val !== '' && val !== null && val !== undefined) { a.stock += Number(val); break; }
+    }
+  });
+  // Latest DOS：每行取最后非空，跨渠道平均（天数不能累加）
+  getSummaryBaseRows('DOS').forEach(function(r) {
+    var k = keyFn(r); if (k === null || k === undefined) return;
+    var a = ensure(k);
+    var lastVal = null;
+    for (var j = weeks.length - 1; j >= 0; j--) {
+      var v = r[weeks[j]];
+      if (v !== '' && v !== null && v !== undefined) { lastVal = Number(v); break; }
+    }
+    if (lastVal !== null) { a.dosSum += lastVal; a.dosCnt++; }
+  });
+  return agg;
+}
+
+function summaryRowsFromAgg(agg) {
+  return Object.keys(agg).map(function(name) {
+    var a = agg[name];
     return {
       name: name,
-      weekly: weeklyMap[name] || {},
-      total: totalMap[name] || 0,
-      stock: stockMap[name] || 0,
-      dos: dosMap[name],
+      weekly: a.weekly,
+      total: a.total,
+      stock: a.stock,
+      dos: a.dosCnt > 0 ? a.dosSum / a.dosCnt : null,
     };
   }).filter(function(row) {
     return row.total || row.stock || (row.dos !== undefined && row.dos !== null);
   }).sort(function(a, b) {
     return b.total - a.total || b.stock - a.stock || a.name.localeCompare(b.name);
   });
+}
+
+function summaryCellsHtml(row, weeks, opts) {
+  var bg = opts.summaryBg;
+  var dosStr = (row.dos !== undefined && row.dos !== null && isFinite(row.dos))
+    ? Math.round(row.dos) + 'd' : '-';
+  var html = '';
+  weeks.forEach(function(w) {
+    var val = row.weekly[w];
+    var display = (val === undefined || val === null) ? '<span style="color:#cbd5e1;">-</span>' : formatMetricValue(val);
+    html += '<td style="padding:' + opts.pad + ' 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; font-variant-numeric:tabular-nums;' + (opts.rowBg ? 'background:' + opts.rowBg + ';' : '') + '">' + display + '</td>';
+  });
+  html += '<td style="padding:' + opts.pad + ' 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#111827; font-weight:' + (opts.bold ? '700' : '600') + '; background:' + bg + '; border-left:2px solid #cbd5e1; font-variant-numeric:tabular-nums;">' + formatMetricValue(row.total) + '</td>';
+  html += '<td style="padding:' + opts.pad + ' 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; background:' + bg + '; font-variant-numeric:tabular-nums;">' + formatMetricValue(row.stock) + '</td>';
+  html += '<td style="padding:' + opts.pad + ' 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; background:' + bg + '; font-variant-numeric:tabular-nums;">' + dosStr + '</td>';
+  return html;
+}
+
+function renderPSISummaryTable() {
+  var container = document.getElementById('psi-summary-table');
+  if (!container) return;
+
+  var volumeMetric = getVolumeMetric();
+  var volumeLabel = state.viewMode === 'fd' ? 'ST' : 'SO';
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+
+  // Series 级（固定粒度，无视筛选）
+  var seriesAgg = summaryAggregate(function(r) {
+    return (PRODUCTS_META[r['Product Name']] || {}).series || 'Other';
+  }, volumeMetric, weeks);
+  var seriesRows = summaryRowsFromAgg(seriesAgg);
+
+  // Product 级（一次算全量，展开时按系列取用）
+  var productAgg = summaryAggregate(function(r) { return r['Product Name']; }, volumeMetric, weeks);
+  var productRows = summaryRowsFromAgg(productAgg);
 
   document.getElementById('summary-subtitle').textContent =
-    'Selected period · ' + weeks.map(weekDisplay).join('–') + ' · ' + volumeLabel + ' follows current Retailer/FD mode';
+    'Period ' + weekDisplay(weeks[0]) + '–' + weekDisplay(weeks[weeks.length - 1]) +
+    ' · all countries & retailers (not affected by filters above) · ' + volumeLabel + ' follows Retailer/FD mode · click a series to expand products';
 
-  if (rows.length === 0) {
-    container.innerHTML = '<div style="padding:48px 0; text-align:center; color:#94a3b8; font-size:13px;">No PSI data in selected filters</div>';
+  if (seriesRows.length === 0) {
+    container.innerHTML = '<div style="padding:48px 0; text-align:center; color:#94a3b8; font-size:13px;">No PSI data in this period</div>';
     return;
   }
 
-  // ── thead ──
   var html = '<div style="overflow-x:auto;">';
   html += '<table style="width:100%; border-collapse:separate; border-spacing:0; font-size:12px;">';
   html += '<thead><tr>';
-
-  // 第 1 列：grain（左对齐，sticky-left 不让横滚把它推走）
-  html += '<th style="position:sticky; left:0; top:0; background:#f8fafc; z-index:3; text-align:left; color:#64748b; font-size:11px; text-transform:uppercase; padding:10px 12px; border-bottom:1px solid #e2e8f0; min-width:130px;">' + grainLabel + '</th>';
-
-  // 中间列：每周 SO/ST
+  html += '<th style="position:sticky; left:0; top:0; background:#f8fafc; z-index:3; text-align:left; color:#64748b; font-size:11px; text-transform:uppercase; padding:10px 12px; border-bottom:1px solid #e2e8f0; min-width:150px;">Series</th>';
   weeks.forEach(function(w) {
     html += '<th style="position:sticky; top:0; background:#f8fafc; z-index:2; text-align:right; color:#64748b; font-size:11px; text-transform:uppercase; padding:10px 8px; border-bottom:1px solid #e2e8f0; white-space:nowrap; min-width:52px;">' + weekDisplay(w) + ' ' + volumeLabel + '</th>';
   });
-
-  // Total / Latest Stock / Latest DOS — 灰色背景区分汇总区
   html += '<th style="position:sticky; top:0; background:#eef2f7; z-index:2; text-align:right; color:#475569; font-size:11px; text-transform:uppercase; padding:10px 12px; border-bottom:1px solid #e2e8f0; border-left:2px solid #cbd5e1; white-space:nowrap;">Total ' + volumeLabel + '</th>';
   html += '<th style="position:sticky; top:0; background:#eef2f7; z-index:2; text-align:right; color:#475569; font-size:11px; text-transform:uppercase; padding:10px 12px; border-bottom:1px solid #e2e8f0; white-space:nowrap;">Latest Stock</th>';
   html += '<th style="position:sticky; top:0; background:#eef2f7; z-index:2; text-align:right; color:#475569; font-size:11px; text-transform:uppercase; padding:10px 12px; border-bottom:1px solid #e2e8f0; white-space:nowrap;">Latest DOS</th>';
-
   html += '</tr></thead><tbody>';
 
-  // ── tbody ──
-  rows.forEach(function(row) {
-    var color = getGroupColor(row.name);
-    var dosStr = (row.dos !== undefined && row.dos !== null && isFinite(row.dos))
-      ? Math.round(row.dos) + 'd'
-      : '-';
+  seriesRows.forEach(function(row, idx) {
+    var color = PRESET_GROUP_COLORS[row.name] || GROUP_COLORS[row.name] || '#94a3b8';
+    var expanded = !!summaryExpandedSeries[row.name];
+    var arrow = expanded ? '&#9660;' : '&#9654;';  // ▼ / ▶
 
-    html += '<tr>';
-
-    // 第 1 列：grain 名 — sticky-left
-    html += '<td style="position:sticky; left:0; background:#fff; z-index:1; padding:10px 12px; border-bottom:1px solid #f1f5f9; color:#111827; font-weight:700; white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:8px;"></span>' + row.name + '</td>';
-
-    // 每周 SO/ST
-    weeks.forEach(function(w) {
-      var val = row.weekly[w];
-      var display = (val === undefined || val === null) ? '<span style="color:#cbd5e1;">-</span>' : formatMetricValue(val);
-      html += '<td style="padding:10px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; font-variant-numeric:tabular-nums;">' + display + '</td>';
-    });
-
-    // Total / Stock / DOS — 灰色区
-    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#111827; font-weight:700; background:#f8fafc; border-left:2px solid #cbd5e1; font-variant-numeric:tabular-nums;">' + formatMetricValue(row.total) + '</td>';
-    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; background:#f8fafc; font-variant-numeric:tabular-nums;">' + formatMetricValue(row.stock) + '</td>';
-    html += '<td style="padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; background:#f8fafc; font-variant-numeric:tabular-nums;">' + dosStr + '</td>';
-
+    html += '<tr data-series-toggle="' + idx + '" style="cursor:pointer;" title="Click to ' + (expanded ? 'collapse' : 'expand') + ' products">';
+    html += '<td style="position:sticky; left:0; background:#fff; z-index:1; padding:10px 12px; border-bottom:1px solid #f1f5f9; color:#111827; font-weight:700; white-space:nowrap;">' +
+      '<span style="color:#94a3b8; font-size:9px; margin-right:6px;">' + arrow + '</span>' +
+      '<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:8px;"></span>' + row.name + '</td>';
+    html += summaryCellsHtml(row, weeks, { pad: '10px', bold: true, summaryBg: '#f8fafc' });
     html += '</tr>';
+
+    if (expanded) {
+      var children = productRows.filter(function(p) {
+        return ((PRODUCTS_META[p.name] || {}).series || 'Other') === row.name;
+      });
+      children.forEach(function(p) {
+        var pColor = (PRODUCTS_META[p.name] || { color: '#cbd5e1' }).color || '#cbd5e1';
+        html += '<tr style="background:#fbfcfe;">';
+        html += '<td style="position:sticky; left:0; background:#fbfcfe; z-index:1; padding:7px 12px 7px 34px; border-bottom:1px solid #f1f5f9; color:#475569; font-weight:500; white-space:nowrap;">' +
+          '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + pColor + ';margin-right:8px;"></span>' + p.name + '</td>';
+        html += summaryCellsHtml(p, weeks, { pad: '7px', bold: false, summaryBg: '#f4f7fb', rowBg: '#fbfcfe' });
+        html += '</tr>';
+      });
+      if (children.length === 0) {
+        html += '<tr style="background:#fbfcfe;"><td colspan="' + (weeks.length + 4) + '" style="padding:8px 34px; border-bottom:1px solid #f1f5f9; color:#94a3b8; font-size:11px;">No product data in this period</td></tr>';
+      }
+    }
   });
   html += '</tbody></table></div>';
   container.innerHTML = html;
+
+  // 绑定展开/收起（innerHTML 重建后重新绑定）
+  var toggles = container.querySelectorAll('tr[data-series-toggle]');
+  for (var t = 0; t < toggles.length; t++) {
+    (function(tr) {
+      tr.addEventListener('click', function() {
+        var name = seriesRows[Number(tr.getAttribute('data-series-toggle'))].name;
+        summaryExpandedSeries[name] = !summaryExpandedSeries[name];
+        renderPSISummaryTable();
+      });
+    })(toggles[t]);
+  }
 }
 
 // ============================================================

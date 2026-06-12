@@ -72,6 +72,9 @@ export function DashboardShell({ me, buildId, children }: Props) {
               <Link href="/admin/sku/map" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
                 🧬 SKU Product Map
               </Link>
+              <Link href="/admin/forecast-log" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
+                📋 Forecast Activity
+              </Link>
               {/* TODO: Country 管理 */}
             </>
           )}
