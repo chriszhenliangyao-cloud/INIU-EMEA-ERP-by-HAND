@@ -156,8 +156,12 @@ export function ForecastEditView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allCells, selectedRun.id])
 
+  // sales 在「非 draft」周期一律只读（提交审核后即冻结，只有 admin 仍可改）
   const editLocked = selectedRun.status !== 'draft' && !viewerIsAdmin
+  // published / archived → 对所有人（含 admin）只读
   const editLockedForAll = selectedRun.status === 'published' || selectedRun.status === 'archived'
+  // 输入框 / Save 的统一锁定判据
+  const locked = editLocked || editLockedForAll
 
   // —— 修改单元格 ——
   const updateCell = (sku_id: number, ka_id: number, monthIso: string, value: string) => {
@@ -171,7 +175,7 @@ export function ForecastEditView({
   // —— 保存 ——
   // 把最新的 dirtyKeys / cellQty / saving 通过 ref 暴露给 keydown handler，避免每次重新绑事件
   const stateRef = useRef({ dirtyKeys, cellQty, saving, runId: selectedRun.id, locked: false })
-  stateRef.current = { dirtyKeys, cellQty, saving, runId: selectedRun.id, locked: editLockedForAll }
+  stateRef.current = { dirtyKeys, cellQty, saving, runId: selectedRun.id, locked }
 
   const handleSave = useCallback(async () => {
     const { dirtyKeys: dk, cellQty: cq, saving: sv, runId, locked } = stateRef.current
@@ -365,7 +369,9 @@ export function ForecastEditView({
         <div className="mt-2 text-xs text-gray-500">
           💡 Filling for <span className="text-blue-600 font-medium">{selectedCountry.flag_emoji} {selectedCountry.name_en}</span>
           · <strong>{kas.length}</strong> KAs × <strong>{allSkus.length}</strong> SKUs × <strong>{monthsIso.length}</strong> months
-          {editLockedForAll && <span className="text-red-500 ml-2">⚠️ This cycle is published / archived — editing locked</span>}
+          {editLockedForAll
+            ? <span className="text-red-500 ml-2">⚠️ This cycle is published / archived — editing locked</span>
+            : editLocked && <span className="text-red-500 ml-2">🔒 Submitted for review — editing locked. Contact HQ to make changes.</span>}
         </div>
       </div>
 
@@ -406,7 +412,7 @@ export function ForecastEditView({
 
           <button
             onClick={handleSave}
-            disabled={saving || dirtyKeys.size === 0 || editLockedForAll}
+            disabled={saving || dirtyKeys.size === 0 || locked}
             className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
               dirtyKeys.size > 0
                 ? 'bg-green-600 text-white hover:bg-green-700 shadow'
@@ -521,8 +527,8 @@ export function ForecastEditView({
                               value={value === 0 ? '' : String(value)}
                               onChange={(e) => updateCell(sku.id, ka.id, m, e.target.value)}
                               placeholder="0"
-                              disabled={editLockedForAll}
-                              className={`w-full text-xs text-right tabular-nums bg-transparent focus:bg-white focus:ring-2 focus:ring-blue-300 rounded px-1 py-1 outline-none ${value > 0 ? 'text-gray-900 font-medium' : 'text-gray-300'} ${editLockedForAll ? 'cursor-not-allowed' : ''}`}
+                              disabled={locked}
+                              className={`w-full text-xs text-right tabular-nums bg-transparent focus:bg-white focus:ring-2 focus:ring-blue-300 rounded px-1 py-1 outline-none ${value > 0 ? 'text-gray-900 font-medium' : 'text-gray-300'} ${locked ? 'cursor-not-allowed' : ''}`}
                             />
                           </td>
                         )
