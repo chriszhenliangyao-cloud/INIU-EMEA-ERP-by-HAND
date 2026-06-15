@@ -2234,45 +2234,97 @@ function syncSummaryFilters() {
       renderPSISummaryTable();
     });
     var expBtn = document.getElementById('summary-export-csv');
-    if (expBtn) expBtn.addEventListener('click', exportFullPsiCsv);
+    if (expBtn) expBtn.addEventListener('click', exportFullPsiExcel);
   }
 }
 
 // 全量 PSI 导出：不受任何筛选/模式影响 —— 全部国家、全部渠道（Retailer + FD）、
 // 全部产品、全部周、全部指标（SI/SO/ST/Stock/DOS），long 格式方便 Excel 透视
-function exportFullPsiCsv() {
+// \u5bfc\u51fa\u300c\u5b8c\u6574\u683c\u5f0f\u300dPSI \u660e\u7ec6\u4e3a Excel (.xls)\uff1a
+//   - \u6bcf\u4e2a (\u56fd\u5bb6 \u00d7 \u6e20\u9053 \u00d7 \u4ea7\u54c1) \u7ec4\u5408\u90fd\u8865\u9f50\u6210\u56fa\u5b9a 4 \u884c\u6307\u6807 [SO/ST \u00b7 SI \u00b7 Stock \u00b7 DOS] + \u5168\u90e8\u5468\u5217
+//     \uff08retailer \u7528 SO\uff0cdistributor \u7528 ST\uff1b\u7f3a\u5931\u503c\u7559\u7a7a\u800c\u4e0d\u662f\u6f0f\u884c/\u6f0f\u5217\uff09
+//   - \u9694\u4e00\u4e2a\u4ea7\u54c1\u4ea4\u66ff\u9ad8\u4eae\uff08\u7eff\u5e95\uff09\uff0c\u8868\u5934\u6df1\u84dd\uff0c\u6574\u5f20\u8868\u5e26\u7f51\u683c \u2014\u2014 1:1 \u590d\u523b\u4eba\u5de5\u6a21\u677f
+//   - \u7528 HTML <table> + inline \u6837\u5f0f\u5b58\u6210 .xls\uff1aExcel / Google Sheets \u76f4\u63a5\u6253\u5f00\u5e76\u4fdd\u7559\u989c\u8272
+//   - \u59cb\u7ec8\u5bfc\u51fa\u5168\u91cf\uff08\u5168\u90e8\u56fd\u5bb6/\u6e20\u9053/\u4ea7\u54c1/\u5468/\u6307\u6807\uff09\uff0c\u4e0d\u53d7\u9875\u9762\u7b5b\u9009\u5f71\u54cd
+function exportFullPsiExcel() {
   function esc(v) {
-    var str = (v === null || v === undefined) ? '' : String(v);
-    return (str.indexOf(',') !== -1 || str.indexOf('"') !== -1)
-      ? '"' + str.replace(/"/g, '""') + '"' : str;
+    return (v === null || v === undefined ? '' : String(v))
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
-  var lines = [];
-  var header = ['Series', 'Family', 'Product', 'Country', 'Channel', 'Channel Type', 'Metric'];
-  WEEKS_ALL.forEach(function(w) { header.push(weekDisplay(w)); });
-  lines.push(header.map(esc).join(','));
 
+  // \u2500\u2500 1) \u5efa\u7d22\u5f15\uff1akey = \u56fd\u5bb6|\u6e20\u9053|Model\uff0c\u503c = { meta, byMetric:{ metric: row } } \u2500\u2500
+  var groups = {};
+  var order = [];
   DB.weeklyPSI.forEach(function(r) {
-    var meta = PRODUCTS_META[r['Product Name']] || {};
-    var row = [
-      meta.series || 'Other',
-      meta.family || 'Other',
-      r['Product Name'],
-      r.Country,
-      r.Retailer,
-      DISTRIBUTOR_SET[r.Retailer] ? 'Distributor (FD)' : 'Retailer',
-      r.Metric,
-    ];
-    WEEKS_ALL.forEach(function(w) {
-      var val = r[w];
-      row.push(val === '' || val === null || val === undefined ? '' : val);
-    });
-    lines.push(row.map(esc).join(','));
+    var key = r.Country + '|' + r.Retailer + '|' + r.Model;
+    var g = groups[key];
+    if (!g) {
+      g = groups[key] = {
+        Country: r.Country, Retailer: r.Retailer, Model: r.Model,
+        'Product Name': r['Product Name'], byMetric: {},
+      };
+      order.push(key);
+    }
+    g.byMetric[r.Metric] = r;
   });
 
-  var blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  // \u7ec4\u6392\u5e8f\uff1a\u56fd\u5bb6 \u2192 \u6e20\u9053 \u2192 Model
+  order.sort(function(a, b) {
+    var ga = groups[a], gb = groups[b];
+    return (ga.Country + ga.Retailer + ga.Model).localeCompare(gb.Country + gb.Retailer + gb.Model);
+  });
+
+  // \u2500\u2500 2) \u6837\u5f0f \u2500\u2500
+  var GREEN = '#d9ead3', WHITE = '#ffffff', HEAD = '#1f5fa8';
+  var cellBase = 'border:1px solid #c9d3df;padding:4px 8px;font-family:Arial,sans-serif;font-size:12px;';
+  var txt = cellBase + 'mso-number-format:\\@;'; // \u6587\u672c\u5217\u5f3a\u5236\u6587\u672c\uff0c\u907f\u514d Model \u88ab Excel \u5f53\u516c\u5f0f/\u65e5\u671f
+  var num = cellBase + 'text-align:right;mso-number-format:General;';
+
+  // \u2500\u2500 3) \u8868\u5934 \u2500\u2500
+  var html = '<table border="1" style="border-collapse:collapse;">';
+  var headCell = cellBase + 'background:' + HEAD + ';color:#fff;font-weight:bold;text-align:center;';
+  html += '<tr>';
+  ['Country', 'Retailer', 'Model', 'Product Name', 'Metric'].forEach(function(h) {
+    html += '<th style="' + headCell + 'text-align:left;">' + esc(h) + '</th>';
+  });
+  WEEKS_ALL.forEach(function(w) { html += '<th style="' + headCell + '">' + esc(w) + '</th>'; });
+  html += '</tr>';
+
+  // \u2500\u2500 4) \u6570\u636e\u884c\uff1a\u6bcf\u7ec4\u56fa\u5b9a [volume, SI, Stock, DOS] + \u7ec4\u5185\u989d\u5916\u6307\u6807\u515c\u5e95 \u2500\u2500
+  order.forEach(function(key, gi) {
+    var g = groups[key];
+    var volume = DISTRIBUTOR_SET[g.Retailer] ? 'ST' : 'SO';
+    var metrics = [volume, 'SI', 'Stock', 'DOS'];
+    // \u515c\u5e95\uff1a\u7ec4\u91cc\u82e5\u6709\u4e0d\u5728\u6807\u51c6 4 \u884c\u91cc\u7684\u6307\u6807\uff08\u5982 retailer \u4e5f\u5b58\u4e86 ST\uff09\uff0c\u8ffd\u52a0\uff0c\u7edd\u4e0d\u4e22\u6570\u636e
+    Object.keys(g.byMetric).forEach(function(m) {
+      if (metrics.indexOf(m) === -1) metrics.push(m);
+    });
+    var bg = (gi % 2 === 1) ? GREEN : WHITE; // \u9694\u4ea7\u54c1\u9ad8\u4eae
+    metrics.forEach(function(metric) {
+      var src = g.byMetric[metric] || {};
+      html += '<tr>';
+      html += '<td style="' + txt + 'background:' + bg + ';">' + esc(g.Country) + '</td>';
+      html += '<td style="' + txt + 'background:' + bg + ';">' + esc(g.Retailer) + '</td>';
+      html += '<td style="' + txt + 'background:' + bg + ';">' + esc(g.Model) + '</td>';
+      html += '<td style="' + txt + 'background:' + bg + ';">' + esc(g['Product Name']) + '</td>';
+      html += '<td style="' + txt + 'background:' + bg + ';font-weight:bold;">' + esc(metric) + '</td>';
+      WEEKS_ALL.forEach(function(w) {
+        var val = src[w];
+        var disp = (val === '' || val === null || val === undefined) ? '' : val;
+        html += '<td style="' + num + 'background:' + bg + ';">' + esc(disp) + '</td>';
+      });
+      html += '</tr>';
+    });
+  });
+  html += '</table>';
+
+  // \u2500\u2500 5) \u5305\u6210 .xls\uff08Excel \u517c\u5bb9 HTML\uff09\uff0cUTF-8 BOM \u9632\u4e2d\u6587\u4e71\u7801 \u2500\u2500
+  var doc = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">'
+    + '<head><meta charset="utf-8"></head><body>' + html + '</body></html>';
+  var blob = new Blob(['\ufeff' + doc], { type: 'application/vnd.ms-excel;charset=utf-8' });
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'INIU-PSI-full-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.download = 'INIU-PSI-full-' + new Date().toISOString().slice(0, 10) + '.xls';
   a.click();
 }
 
@@ -2629,8 +2681,8 @@ document.addEventListener('DOMContentLoaded', initApp);
       <div style="display:flex; gap:8px; margin-top:10px;">
         <select id="summary-country-filter" style="padding:6px 10px; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; background:#fff; color:#334155;"></select>
         <select id="summary-retailer-filter" style="padding:6px 10px; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; background:#fff; color:#334155;"></select>
-        <button id="summary-export-csv" title="导出全量 PSI 明细：全部国家/渠道（含 Retailer 与 FD）× 全部产品 × 全部周 × 全部指标，不受任何筛选影响"
-          style="padding:6px 12px; border:none; border-radius:8px; font-size:12px; background:#7c3aed; color:#fff; cursor:pointer;">&#128228; Export CSV</button>
+        <button id="summary-export-csv" title="导出完整格式 Excel：每个 国家×渠道×产品 补齐 SO/SI/Stock/DOS 4 行 + 全部周列，隔产品交替高亮。全量导出，不受任何筛选影响"
+          style="padding:6px 12px; border:none; border-radius:8px; font-size:12px; background:#7c3aed; color:#fff; cursor:pointer;">&#128228; Export Excel</button>
       </div>
     </div>
     <div id="psi-summary-table"></div>
