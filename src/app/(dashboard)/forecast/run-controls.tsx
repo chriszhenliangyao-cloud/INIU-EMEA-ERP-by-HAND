@@ -68,6 +68,7 @@ export function RunControls({
       result = await supabase.rpc('create_forecast_run', {
         p_region: 'EU',
         p_period_start: periodStart,
+        p_month_count: 3,   // 统一 3 个月滚动窗口（显式传参，避免命中旧的 4 月重载）
       })
     }
     if (result.error) {

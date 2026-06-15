@@ -28,8 +28,8 @@
 | `/admin/sku` | SKU 主数据管理（admin only · drawer 编辑 · audit log）| ✅ |
 | `/admin/sales` | Sales Rep 主数据管理（含 super_admin 角色控制 + 国家分配 chips）| ✅ |
 | `/forecast?view=summary` | 4 国 × 动态月数预测 summary（admin 默认 · 含 Total/Stock-FD/Stock-HQ 列）| ✅ |
-| `/forecast?view=edit` | 销售填报 + Σ PO/Σ SO 历史参考 + Manage Channels modal | ✅ |
-| `/psi` | PSI 周度看板（SO / ST / Stock / 派生 DOS · 持久 iframe）| ✅ |
+| `/forecast?view=edit` | 销售填报 + Σ PO/Σ SO 历史参考 + Manage Channels modal（**周期一旦离开 draft，sales 自动锁定只读**）| ✅ |
+| `/psi` | PSI 周度看板（SO / ST / Stock / 派生 DOS · 持久 iframe · **Export Excel 完整格式**）| ✅ |
 
 ---
 
@@ -208,7 +208,7 @@ public/
 
 3. **PSI 宽表 + 兼容 view**: 原 long 格式 4255 行（含已存 DOS），新宽表 2014 行 + view 派生 DOS。5 层交叉验证（MD5 字节级一致）。存储减 53%，DOS 派生消除"漏填"。
 
-4. **Forecast 动态月数**: `forecast_run.month_count` 控制每个 cycle 月数（新建默认 3 个月滚动，历史 4 月 cycle 保持兼容）。前端 KPI / 表格列数 / kpi 标签全部动态。
+4. **Forecast 动态月数 + 统一 3 个月滚动**: `forecast_run.month_count` 控制每个 cycle 月数，前端 KPI / 表格列数 / 标签全部动态。**新建周期固定 3 个月滚动**——前端 `create_forecast_run` 显式传 `p_month_count: 3`，且已删除旧的 4 个月重载 `create_forecast_run(text, date)`（消除 PostgREST 重载歧义）。历史 4 月 cycle 的数据仍按各自 `month_count` 兼容显示。
 
 5. **PO/SO 参考用 view 派生**: `shipment_po_3mo_avg` (按 country × sku) + `rolling_so_by_ka_sku`（按 KA 类型自动选 SO 或 ST）。避免前端复杂聚合，CTE + window function 在 DB 层算完。
 
@@ -219,6 +219,14 @@ public/
 8. **国家启动状态**: `country.is_active` 字段，未启动国家（DE/SE/GB）在所有看板自动隐藏。Admin 仍能通过 `can_access_country()` bypass 看历史散单。
 
 9. **HQ stock schema 先建好**: 总仓库存 `hq_stock` 表 + RLS 就绪，前端正确显示 `-`（数据未导入），等 admin 导数据后自动生效 — 不需要再改前端。
+
+10. **Forecast 提交即冻结**: 周期一旦离开 `draft`（submitted/approved），**sales 的格子 + Save 在前端自动锁定只读**（`editLocked` 判据，admin 仍可改）；published/archived 则对所有人只读。后端工作流 RPC 全部 `is_admin()` + 状态前置校验。⚠️ 已知例外见 `docs/RBAC.md`：`upsert_forecast_cells` 未在 DB 层做 status/country 校验（小体量已接受风险，前端锁定已覆盖正常用户）。
+
+11. **PSI Export = 完整格式 Excel(.xls)**: 不再是"有什么导什么"。每个 `国家 × 渠道 × 产品` 补齐 SO/SI/Stock/DOS 四行 + 全部周列（缺失留空），隔产品交替高亮，表头深蓝。用 HTML 表格存成 `.xls`，Excel/Sheets 直接打开并保留颜色。retailer 用 SO、distributor 用 ST，全量导出不受筛选影响。
+
+12. **导航加载反馈**: 侧栏改用 `NavLink`（`useTransition`）——点击后保持旧页面、被点菜单项转圈直到新页就绪。配合 `getCurrentUser` 的 React `cache()` 去重 + forecast summary 查询并行化降低实际延迟。
+
+13. **个人称号 flair**: `src/lib/user-flair.ts` 按邮箱集中配置称号。当前 Jiwen Wang = 👑 Majesty（侧栏身份标签 + 销售管理表徽章 + DB `display_name` 带皇冠，名字出现处皆带冠）。
 
 ---
 
