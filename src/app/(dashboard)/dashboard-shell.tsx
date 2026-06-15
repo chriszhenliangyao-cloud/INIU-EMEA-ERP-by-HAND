@@ -1,9 +1,9 @@
 'use client'
 
-import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/logout-button'
 import { roleLabelFor } from '@/lib/user-flair'
+import { NavLink } from './nav-link'
 
 type Props = {
   me: {
@@ -49,34 +49,18 @@ export function DashboardShell({ me, buildId, children }: Props) {
 
         <nav className="flex-1 p-3">
           <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2">Sales</div>
-          <Link href="/shipments" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-            📊 Shipments
-          </Link>
-          <Link href="/forecast" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-            📈 Demand Forecast
-          </Link>
-          <Link href="/psi" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-            📦 PSI Dashboard
-          </Link>
+          <NavLink href="/shipments">📊 Shipments</NavLink>
+          <NavLink href="/forecast">📈 Demand Forecast</NavLink>
+          <NavLink href="/psi">📦 PSI Dashboard</NavLink>
 
           {me.isAdmin && (
             <>
               <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2 mt-4">Admin only</div>
-              <Link href="/admin/sku" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-                ⚙️ SKU Master Data
-              </Link>
-              <Link href="/admin/sales" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-                👤 Sales Reps
-              </Link>
-              <Link href="/admin/ka" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-                🗺️ KA Channel Map
-              </Link>
-              <Link href="/admin/sku/map" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-                🧬 SKU Product Map
-              </Link>
-              <Link href="/admin/forecast-log" className="block px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100">
-                📋 Forecast Activity
-              </Link>
+              <NavLink href="/admin/sku">⚙️ SKU Master Data</NavLink>
+              <NavLink href="/admin/sales">👤 Sales Reps</NavLink>
+              <NavLink href="/admin/ka">🗺️ KA Channel Map</NavLink>
+              <NavLink href="/admin/sku/map">🧬 SKU Product Map</NavLink>
+              <NavLink href="/admin/forecast-log">📋 Forecast Activity</NavLink>
               {/* TODO: Country 管理 */}
             </>
           )}

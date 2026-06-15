@@ -55,39 +55,45 @@ export default async function ForecastPage({ searchParams }: { searchParams?: Se
 
 // ============ Summary View（admin 默认 / 显式 view=summary）============
 async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
-  // cells（KA 已聚合到国家级）—— RLS 自动按用户身份过滤
-  const { data: cells } = await supabase
-    .from('forecast_eu_summary')
-    .select('run_id, sku_id, sku_code, sku_name, sku_category, country_id, country_code, country_name, month, qty')
-    .eq('run_id', selectedRun.id)
-
-  const { data: allSkus } = await supabase
-    .from('sku')
-    .select('id, code, name, category, sort_order, lifecycle, region_scope')
-    .eq('is_active', true)
-    .order('sort_order')
-    .order('code')
-
-  const { data: allEuCountries } = await supabase
-    .from('country')
-    .select('id, code, name_en, flag_emoji, region, sort_order')
-    .eq('region', 'EU').eq('is_active', true)
-    .order('sort_order')
-
-  // 🔐 admin 看全部 EU，sales 只看自己负责的国家
-  const countries = (allEuCountries ?? []).filter((c: any) => me.canAccessCountry(c.id))
-
-  // 去年同期数据（hover-peek 备用） — 窗口长度跟随 month_count
+  // 去年同期数据窗口（hover-peek 备用） — 窗口长度跟随 month_count
   const startDate = new Date(selectedRun.period_start)
   const monthCount = (selectedRun as any).month_count ?? 4
   const lyStart = new Date(startDate); lyStart.setFullYear(lyStart.getFullYear() - 1)
   const lyEnd = new Date(lyStart); lyEnd.setMonth(lyEnd.getMonth() + monthCount)
-  const { data: lyData } = await supabase
-    .from('shipment')
-    .select(`qty, effective_date, sku:sku_id ( id, code ), country:country_id ( id, code )`)
-    .eq('source_type', 'channel')
-    .gte('effective_date', lyStart.toISOString().slice(0, 10))
-    .lt('effective_date', lyEnd.toISOString().slice(0, 10))
+
+  // 这 4 个查询互不依赖 → 并行（原本串行 4 个往返，现在 1 个往返延迟）
+  // RLS 自动按用户身份过滤
+  const [
+    { data: cells },          // cells（KA 已聚合到国家级）
+    { data: allSkus },
+    { data: allEuCountries },
+    { data: lyData },         // 去年同期 shipment
+  ] = await Promise.all([
+    supabase
+      .from('forecast_eu_summary')
+      .select('run_id, sku_id, sku_code, sku_name, sku_category, country_id, country_code, country_name, month, qty')
+      .eq('run_id', selectedRun.id),
+    supabase
+      .from('sku')
+      .select('id, code, name, category, sort_order, lifecycle, region_scope')
+      .eq('is_active', true)
+      .order('sort_order')
+      .order('code'),
+    supabase
+      .from('country')
+      .select('id, code, name_en, flag_emoji, region, sort_order')
+      .eq('region', 'EU').eq('is_active', true)
+      .order('sort_order'),
+    supabase
+      .from('shipment')
+      .select(`qty, effective_date, sku:sku_id ( id, code ), country:country_id ( id, code )`)
+      .eq('source_type', 'channel')
+      .gte('effective_date', lyStart.toISOString().slice(0, 10))
+      .lt('effective_date', lyEnd.toISOString().slice(0, 10)),
+  ])
+
+  // 🔐 admin 看全部 EU，sales 只看自己负责的国家
+  const countries = (allEuCountries ?? []).filter((c: any) => me.canAccessCountry(c.id))
 
   const ly: Record<string, Record<string, Record<string, number>>> = {}
   ;(lyData ?? []).forEach((r: any) => {

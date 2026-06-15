@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
@@ -29,7 +30,9 @@ export type CurrentUser = {
   canAccessCountry: (countryId: number) => boolean
 }
 
-export async function getCurrentUser(): Promise<CurrentUser> {
+// 用 React cache() 包一层：同一次请求内多处调用（layout + page）只执行一次，
+// 去掉重复的 3 个串行 Supabase 往返。
+export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
@@ -81,4 +84,4 @@ export async function getCurrentUser(): Promise<CurrentUser> {
     countryIds,
     canAccessCountry: (id: number) => isAdmin || countryIds.includes(id),
   }
-}
+})
