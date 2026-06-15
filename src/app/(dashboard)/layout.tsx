@@ -15,6 +15,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <DashboardShell
       me={{
         displayName: me.displayName,
+        email: me.email,
         isAdmin: me.isAdmin,
         countryIds: me.countryIds,
       }}

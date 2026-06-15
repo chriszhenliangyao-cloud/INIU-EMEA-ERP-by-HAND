@@ -3,10 +3,12 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/logout-button'
+import { roleLabelFor } from '@/lib/user-flair'
 
 type Props = {
   me: {
     displayName: string
+    email: string
     isAdmin: boolean
     countryIds: number[]
   }
@@ -25,7 +27,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
   const isPsiRoute = pathname === '/psi'
 
   const avatarColor = me.isAdmin ? '#7c3aed' : '#3b82f6'
-  const roleLabel = me.isAdmin ? '🌍 Admin (HQ)' : '🧑‍💼 Sales'
+  const roleLabel = roleLabelFor(me.email, me.isAdmin)
   const roleHint = me.isAdmin
     ? 'All countries'
     : me.countryIds.length > 0
