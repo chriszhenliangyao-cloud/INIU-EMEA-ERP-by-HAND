@@ -28,9 +28,11 @@ const cellKey = (sku_id: number, ka_id: number, monthIso: string) => `${sku_id}|
 
 // FD 分组：distributor（有在售子 retailer）渲染成跨列「大表头」，子 retailer 作输入列，FD 本身不输入。
 // 例外（保持扁平、不动现状/不丢数据）：
-//   ① 下列国家整国不启用分组（ES 的 FD 数据结构特殊，按要求维持原样）
+//   ① 下列国家整国不启用分组，维持原来的扁平表头：
+//      - ES：FD 数据结构特殊
+//      - PL：Komsa 有真实的直发(FD 层)数据，硬分组会破坏数据准确性，按要求保持扁平
 //   ② FD 在当前周期已有直接 forecast 数据 → 保持扁平叶子列，避免隐藏已填数据
-const FD_GROUPING_DISABLED_COUNTRIES = new Set(['ES'])
+const FD_GROUPING_DISABLED_COUNTRIES = new Set(['ES', 'PL'])
 type ColGroup = { fd: Ka | null; leaves: Ka[] }
 const byOrder = (a: Ka, b: Ka) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name)
 

@@ -228,6 +228,13 @@ public/
 
 13. **个人称号 flair**: `src/lib/user-flair.ts` 按邮箱集中配置称号。当前 Jiwen Wang = 👑 Majesty（侧栏身份标签 + 销售管理表徽章 + DB `display_name` 带皇冠，名字出现处皆带冠）。
 
+14. **Forecast 编辑页 FD 分组表头**: distributor（有在售子 retailer、且本周期无直接数据）渲染成跨列「大表头」，其子 retailer 为输入列，FD 本身不输入（如 FR 的 Bigben）。逻辑见 `edit-view.tsx` 的 `columnGroups` memo。
+    - `FD_GROUPING_DISABLED_COUNTRIES = {ES, PL}` 整国保持扁平表头：ES 数据结构特殊；**PL 因 Komsa 有真实 FD 直发数据，硬分组会降低准确性，故保持原扁平表头**。
+    - 完整性兜底：父节点是 `group` 类型的 KA（如 iDream 挂在 Eurotel 下）也保证出现在表里，绝不丢列。
+    - 输入列 = `kas`（叶子）；参考列 `Σ SO / Stock-FD` 跨 `allCountryKas` 求和（含被分组的 FD 自身），二者不可混用。
+
+> 预测数据补录：PL 上一周期未填，已用其历史预测（按月对齐）直接写入当前 draft 作为起点；`source`/`updated_by` 留 NULL 表示后端补录。FR/ES 历史数据暂不导入。
+
 ---
 
 ## 下一步规划
