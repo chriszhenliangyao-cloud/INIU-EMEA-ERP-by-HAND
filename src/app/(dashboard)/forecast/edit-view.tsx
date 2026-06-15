@@ -26,6 +26,14 @@ type Cell = { run_id: number; sku_id: number; ka_id: number; month: string; qty:
 type CellKey = string  // `${sku_id}|${ka_id}|${YYYY-MM-01}`
 const cellKey = (sku_id: number, ka_id: number, monthIso: string) => `${sku_id}|${ka_id}|${monthIso}`
 
+// FD 分组：distributor（有在售子 retailer）渲染成跨列「大表头」，子 retailer 作输入列，FD 本身不输入。
+// 例外（保持扁平、不动现状/不丢数据）：
+//   ① 下列国家整国不启用分组（ES 的 FD 数据结构特殊，按要求维持原样）
+//   ② FD 在当前周期已有直接 forecast 数据 → 保持扁平叶子列，避免隐藏已填数据
+const FD_GROUPING_DISABLED_COUNTRIES = new Set(['ES'])
+type ColGroup = { fd: Ka | null; leaves: Ka[] }
+const byOrder = (a: Ka, b: Ka) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name)
+
 export function ForecastEditView({
   runs, selectedRun, allCountries, initialCountryCode,
   allKas, allSkus, allCells,
@@ -65,11 +73,43 @@ export function ForecastEditView({
 
   // —— 按当前国家 + active 派生 kas / cells（in-memory filter，<1ms）——
   //  ⚠️ allKas 现在包含 inactive（给 Manage Channels modal 用），主表格仅展示 active
-  const kas = useMemo(
-    // group 节点（如 Eurotel）是结构层，不是动销终端，不进 forecast 表格
-    () => allKas.filter(k => k.country_id === selectedCountry.id && k.is_active !== false && k.ka_type !== 'group'),
-    [allKas, selectedCountry.id]
-  )
+  //  group 节点（如 Eurotel）是结构层，不是动销终端，不进 forecast 表格
+  //  kas = 实际输入列（叶子）；columnGroups = 表头分组结构（FD 大表头 + 其子列）
+  const { kas, allCountryKas, columnGroups, hasGroups } = useMemo(() => {
+    const countryKas = allKas.filter(
+      k => k.country_id === selectedCountry.id && k.is_active !== false && k.ka_type !== 'group'
+    )
+    // 整国不启用分组（如 ES）→ 完全保持原有扁平顺序与行为
+    if (FD_GROUPING_DISABLED_COUNTRIES.has(selectedCountry.code)) {
+      return {
+        kas: countryKas,
+        allCountryKas: countryKas,
+        columnGroups: countryKas.map(k => ({ fd: null, leaves: [k] })) as ColGroup[],
+        hasGroups: false,
+      }
+    }
+    const directCellKaIds = new Set(allCells.map(c => c.ka_id))  // 本周期已有数据的 KA → 保持扁平
+    const childrenOf = (id: number) => countryKas.filter(k => k.parent_ka_id === id).sort(byOrder)
+    const topLevel = countryKas.filter(k => k.parent_ka_id == null).sort(byOrder)
+
+    const columnGroups: ColGroup[] = []
+    for (const k of topLevel) {
+      const kids = childrenOf(k.id)
+      const isGroupedFd = k.ka_type === 'distributor' && kids.length > 0 && !directCellKaIds.has(k.id)
+      if (isGroupedFd) {
+        columnGroups.push({ fd: k, leaves: kids })  // FD 大表头 + 子 retailer 输入列
+      } else {
+        columnGroups.push({ fd: null, leaves: [k] })          // 叶子（独立 retailer / 无子 FD / 有数据的 FD）
+        for (const c of kids) columnGroups.push({ fd: null, leaves: [c] })  // 罕见：未分组父的子也扁平列出
+      }
+    }
+    return {
+      kas: columnGroups.flatMap(g => g.leaves),
+      allCountryKas: countryKas,
+      columnGroups,
+      hasGroups: columnGroups.some(g => g.fd != null),
+    }
+  }, [allKas, allCells, selectedCountry.id, selectedCountry.code])
   // Modal 用：当前国家所有 KA（含 inactive）
   const allKasInCountry = useMemo(
     () => allKas.filter(k => k.country_id === selectedCountry.id),
@@ -407,7 +447,7 @@ export function ForecastEditView({
           >
             <span>⚙️</span>
             <span>Manage channels</span>
-            <span className="text-xs text-gray-400">({kas.length})</span>
+            <span className="text-xs text-gray-400">({allKasInCountry.filter(k => k.is_active !== false && k.ka_type !== 'group').length})</span>
           </button>
 
           <button
@@ -427,78 +467,167 @@ export function ForecastEditView({
         <div className="overflow-auto max-h-[700px]">
           <table className="text-sm border-collapse" style={{ minWidth: 1400 }}>
             <thead>
-              {/* row 1: 分组表头（KA × N · SUB-TOTAL · TOTAL block）*/}
-              <tr className="bg-gray-50">
-                <th className="sticky left-0 top-0 bg-gray-50 z-30 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r border-gray-200"
-                    rowSpan={2} style={{ minWidth: 90, maxWidth: 90 }}>SKU</th>
-                <th className="sticky top-0 bg-gray-50 z-30 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300"
-                    rowSpan={2}
-                    style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>Product</th>
-                {kas.map(ka => (
-                  <th key={ka.id}
-                      className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-blue-100 text-blue-700"
-                      colSpan={monthsIso.length}>
-                    {ka.name}
-                  </th>
-                ))}
-                <th className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-gray-100 text-gray-700"
-                    colSpan={1 + monthsIso.length}>
-                  Sub-total
-                </th>
-                {/* TOTAL block：Total / Stock-FD 占双行，Stock-HQ 分组下挂 CN / Oversea */}
-                <th className="sticky top-0 z-20 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-amber-800 border-b border-r border-gray-200 bg-amber-100 align-middle" rowSpan={2}>
-                  Total
-                </th>
-                <th className="sticky top-0 z-20 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-amber-800 border-b border-r border-gray-200 bg-amber-100 align-middle" rowSpan={2} title="Stock from FD (channel distributor)">
-                  Stock-FD
-                </th>
-                <th className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b border-r border-gray-300 bg-amber-100 text-amber-800" colSpan={2}>
-                  Stock-HQ
-                </th>
-              </tr>
-              {/* row 2: 子标签 — KA 下"Ref / 月份"，SUB-TOTAL 下"月份"，TOTAL block 下"Total/FD/HQ" */}
-              <tr className="bg-gray-50">
-                {kas.map(ka => (
-                  monthsIso.map((m, i) => (
-                    <th key={`${ka.id}-${m}`}
-                        className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-blue-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
-                        style={{ top: 36 }}>
-                      {monthLabels[i]}
+              {hasGroups ? (
+                <>
+                  {/* === 3 行表头：FD 大表头 / 子 retailer / 月份 === */}
+                  {/* row 1: FD 分组大表头（独立 retailer 跨两行）*/}
+                  <tr className="bg-gray-50">
+                    <th className="sticky left-0 top-0 bg-gray-50 z-30 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r border-gray-200"
+                        rowSpan={3} style={{ minWidth: 90, maxWidth: 90 }}>SKU</th>
+                    <th className="sticky top-0 bg-gray-50 z-30 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300"
+                        rowSpan={3}
+                        style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>Product</th>
+                    {columnGroups.map((g, gi) => g.fd ? (
+                      <th key={`fd-${g.fd.id}`}
+                          className="sticky z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b border-r-2 border-gray-300 bg-blue-100 text-blue-800"
+                          style={{ top: 0 }}
+                          colSpan={g.leaves.length * monthsIso.length}>
+                        {g.fd.name} <span className="text-[9px] font-semibold text-blue-500 align-middle">FD</span>
+                      </th>
+                    ) : (
+                      <th key={`top-${g.leaves[0].id}-${gi}`}
+                          className="sticky z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-blue-100 text-blue-700 align-middle"
+                          style={{ top: 0 }}
+                          rowSpan={2} colSpan={monthsIso.length}>
+                        {g.leaves[0].name}
+                      </th>
+                    ))}
+                    <th className="sticky z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-gray-100 text-gray-700 align-middle"
+                        style={{ top: 0 }} rowSpan={2} colSpan={1 + monthsIso.length}>
+                      Sub-total
                     </th>
-                  ))
-                ))}
-                {/* SUB-TOTAL 区：Σ PO/SO 总览 + 各月 */}
-                <th className="sticky z-20 px-2 py-1.5 text-center text-[10px] font-medium text-gray-500 border-b border-r border-gray-200 bg-slate-50"
-                    style={{ top: 36, minWidth: 56 }}>
-                  <div className="text-violet-600">Σ PO</div>
-                  <div className="text-emerald-600">Σ SO</div>
-                  <div className="text-[9px] text-gray-400 mt-0.5">all KAs</div>
-                </th>
-                {monthsIso.map((m, i) => (
-                  <th key={`subtot-${m}`}
-                      className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-gray-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
-                      style={{ top: 36 }}>
-                    {monthLabels[i]}
-                  </th>
-                ))}
-                {/* Stock-HQ 子列 */}
-                <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }} title="HQ 国内库存 (domestic warehouse)">
-                  CN
-                </th>
-                <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }} title="HQ 海外仓库存 (overseas warehouse)">
-                  Oversea
-                </th>
-              </tr>
+                    <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-amber-800 border-b border-r border-gray-200 bg-amber-100 align-middle" style={{ top: 0 }} rowSpan={3}>
+                      Total
+                    </th>
+                    <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-amber-800 border-b border-r border-gray-200 bg-amber-100 align-middle" style={{ top: 0 }} rowSpan={3} title="Stock from FD (channel distributor)">
+                      Stock-FD
+                    </th>
+                    <th className="sticky z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b border-r border-gray-300 bg-amber-100 text-amber-800 align-middle" style={{ top: 0 }} rowSpan={2} colSpan={2}>
+                      Stock-HQ
+                    </th>
+                  </tr>
+                  {/* row 2: 子 retailer 名（FD 之下）*/}
+                  <tr className="bg-gray-50">
+                    {columnGroups.map(g => g.fd
+                      ? g.leaves.map(leaf => (
+                          <th key={`leaf-${leaf.id}`}
+                              className="sticky z-20 px-3 py-1.5 text-center text-[11px] font-bold uppercase border-b border-r-2 border-gray-300 bg-blue-50 text-blue-700"
+                              style={{ top: 36 }}
+                              colSpan={monthsIso.length}>
+                            {leaf.name}
+                          </th>
+                        ))
+                      : null)}
+                  </tr>
+                  {/* row 3: 月份 + Σ PO/SO + Sub-total 月份 + Stock-HQ 子列 */}
+                  <tr className="bg-gray-50">
+                    {kas.map(ka => (
+                      monthsIso.map((m, i) => (
+                        <th key={`${ka.id}-${m}`}
+                            className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-blue-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
+                            style={{ top: 72 }}>
+                          {monthLabels[i]}
+                        </th>
+                      ))
+                    ))}
+                    <th className="sticky z-20 px-2 py-1.5 text-center text-[10px] font-medium text-gray-500 border-b border-r border-gray-200 bg-slate-50"
+                        style={{ top: 72, minWidth: 56 }}>
+                      <div className="text-violet-600">Σ PO</div>
+                      <div className="text-emerald-600">Σ SO</div>
+                      <div className="text-[9px] text-gray-400 mt-0.5">all KAs</div>
+                    </th>
+                    {monthsIso.map((m, i) => (
+                      <th key={`subtot-${m}`}
+                          className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-gray-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
+                          style={{ top: 72 }}>
+                        {monthLabels[i]}
+                      </th>
+                    ))}
+                    <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 72 }} title="HQ 国内库存 (domestic warehouse)">
+                      CN
+                    </th>
+                    <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 72 }} title="HQ 海外仓库存 (overseas warehouse)">
+                      Oversea
+                    </th>
+                  </tr>
+                </>
+              ) : (
+                <>
+                  {/* row 1: 分组表头（KA × N · SUB-TOTAL · TOTAL block）*/}
+                  <tr className="bg-gray-50">
+                    <th className="sticky left-0 top-0 bg-gray-50 z-30 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r border-gray-200"
+                        rowSpan={2} style={{ minWidth: 90, maxWidth: 90 }}>SKU</th>
+                    <th className="sticky top-0 bg-gray-50 z-30 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300"
+                        rowSpan={2}
+                        style={{ left: 90, minWidth: 200, maxWidth: 200, boxShadow: '6px 0 8px -4px rgba(91, 33, 182, 0.18)' }}>Product</th>
+                    {kas.map(ka => (
+                      <th key={ka.id}
+                          className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-blue-100 text-blue-700"
+                          colSpan={monthsIso.length}>
+                        {ka.name}
+                      </th>
+                    ))}
+                    <th className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b-2 border-r-2 border-gray-300 bg-gray-100 text-gray-700"
+                        colSpan={1 + monthsIso.length}>
+                      Sub-total
+                    </th>
+                    {/* TOTAL block：Total / Stock-FD 占双行，Stock-HQ 分组下挂 CN / Oversea */}
+                    <th className="sticky top-0 z-20 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-amber-800 border-b border-r border-gray-200 bg-amber-100 align-middle" rowSpan={2}>
+                      Total
+                    </th>
+                    <th className="sticky top-0 z-20 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-amber-800 border-b border-r border-gray-200 bg-amber-100 align-middle" rowSpan={2} title="Stock from FD (channel distributor)">
+                      Stock-FD
+                    </th>
+                    <th className="sticky top-0 z-20 px-3 py-2 text-center text-xs font-bold uppercase border-b border-r border-gray-300 bg-amber-100 text-amber-800" colSpan={2}>
+                      Stock-HQ
+                    </th>
+                  </tr>
+                  {/* row 2: 子标签 — KA 下"月份"，SUB-TOTAL 下"月份"，TOTAL block 下"Total/FD/HQ" */}
+                  <tr className="bg-gray-50">
+                    {kas.map(ka => (
+                      monthsIso.map((m, i) => (
+                        <th key={`${ka.id}-${m}`}
+                            className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-blue-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
+                            style={{ top: 36 }}>
+                          {monthLabels[i]}
+                        </th>
+                      ))
+                    ))}
+                    {/* SUB-TOTAL 区：Σ PO/SO 总览 + 各月 */}
+                    <th className="sticky z-20 px-2 py-1.5 text-center text-[10px] font-medium text-gray-500 border-b border-r border-gray-200 bg-slate-50"
+                        style={{ top: 36, minWidth: 56 }}>
+                      <div className="text-violet-600">Σ PO</div>
+                      <div className="text-emerald-600">Σ SO</div>
+                      <div className="text-[9px] text-gray-400 mt-0.5">all KAs</div>
+                    </th>
+                    {monthsIso.map((m, i) => (
+                      <th key={`subtot-${m}`}
+                          className={`sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-gray-600 border-b border-gray-200 bg-gray-50 ${i === monthsIso.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}
+                          style={{ top: 36 }}>
+                        {monthLabels[i]}
+                      </th>
+                    ))}
+                    {/* Stock-HQ 子列 */}
+                    <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }} title="HQ 国内库存 (domestic warehouse)">
+                      CN
+                    </th>
+                    <th className="sticky z-20 px-2 py-1.5 text-center text-[11px] font-medium text-amber-700 border-b border-r border-gray-200 bg-amber-50" style={{ top: 36 }} title="HQ 海外仓库存 (overseas warehouse)">
+                      Oversea
+                    </th>
+                  </tr>
+                </>
+              )}
             </thead>
             <tbody>
               {visibleSkus.map(sku => {
                 const subTotal = rowSubtotal(sku.id)
                 // Σ PO: shipment 出货 — country × sku 级（不细分 KA, 因为出货跨 KA 汇总同义）
                 const poTotal = poByCountrySku[selectedCountry.id]?.[sku.id] ?? 0
-                // Σ SO: 跨所有 KA 求和（每个 KA 按类型已经选 SO 或 ST）
+                // Σ SO / Stock-FD: 跨该国全部 KA 求和（含被分组的 FD 自身的 PSI/库存，
+                // 因此用 allCountryKas 而非仅输入列 kas — 否则 FD 分组后会漏掉分销商自身的量）
                 let soTotal = 0
                 let fdTotal = 0
-                kas.forEach(ka => {
+                allCountryKas.forEach(ka => {
                   soTotal += soByKaSku[ka.id]?.[sku.id] ?? 0
                   fdTotal += fdStockByKaSku[ka.id]?.[sku.id] ?? 0
                 })
@@ -601,7 +730,7 @@ export function ForecastEditView({
                     allSkus.forEach(s => {
                       poGrand += poByCountrySku[selectedCountry.id]?.[s.id] ?? 0
                     })
-                    kas.forEach(ka => allSkus.forEach(s => {
+                    allCountryKas.forEach(ka => allSkus.forEach(s => {
                       soGrand += soByKaSku[ka.id]?.[s.id] ?? 0
                     }))
                     return (
@@ -632,7 +761,7 @@ export function ForecastEditView({
                   <td className="px-2 py-2 text-right text-xs font-bold tabular-nums bg-amber-50 text-gray-700 border-r border-t-2 border-amber-300">
                     {(() => {
                       let total = 0
-                      kas.forEach(ka => allSkus.forEach(s => { total += fdStockByKaSku[ka.id]?.[s.id] ?? 0 }))
+                      allCountryKas.forEach(ka => allSkus.forEach(s => { total += fdStockByKaSku[ka.id]?.[s.id] ?? 0 }))
                       return total > 0 ? fmtNum(total) : '-'
                     })()}
                   </td>
