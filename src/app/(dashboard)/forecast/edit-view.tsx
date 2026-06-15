@@ -103,6 +103,13 @@ export function ForecastEditView({
         for (const c of kids) columnGroups.push({ fd: null, leaves: [c] })  // 罕见：未分组父的子也扁平列出
       }
     }
+    // 兜底完整性：确保每个在售 KA 都出现一次。父节点是 group 类型（如 iDream 挂在 Eurotel 下）
+    // 的 KA 既不是 top-level 也不是某 top-level 的直接子，会从上面漏掉 → 这里补成扁平叶子列，绝不丢列/丢数据。
+    const fdIds = new Set(columnGroups.filter(g => g.fd).map(g => g.fd!.id))
+    const leafIds = new Set(columnGroups.flatMap(g => g.leaves).map(l => l.id))
+    for (const k of countryKas) {
+      if (!leafIds.has(k.id) && !fdIds.has(k.id)) columnGroups.push({ fd: null, leaves: [k] })
+    }
     return {
       kas: columnGroups.flatMap(g => g.leaves),
       allCountryKas: countryKas,
