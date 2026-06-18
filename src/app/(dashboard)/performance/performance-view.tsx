@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { fmtNum } from '@/lib/utils'
+import { QuarterlyReview, type Review } from './quarterly-review'
 
 type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number }
@@ -21,7 +22,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, initialCountryCode, viewerIsAdmin,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, initialCountryCode, viewerIsAdmin,
 }: {
   years: number[]
   selectedYear: number
@@ -31,6 +32,8 @@ export function PerformanceView({
   skus: Sku[]
   forecast: ByCountrySku
   achieve: ByCountrySku
+  channels: { id: number; name: string; country_id: number; sort_order: number }[]
+  reviews: Record<number, Review>
   initialCountryCode: string
   viewerName: string
   viewerIsAdmin: boolean
@@ -38,6 +41,7 @@ export function PerformanceView({
   const router = useRouter()
   const [countryCode, setCountryCode] = useState(initialCountryCode)
   const [hideZero, setHideZero] = useState(true)
+  const [tab, setTab] = useState<'kpi' | 'review'>('kpi')
   const country = useMemo(() => countries.find(c => c.code === countryCode) ?? countries[0], [countries, countryCode])
   const M = monthsIso.length
   const qLabel = `Q${selectedQuarter}`
@@ -127,6 +131,17 @@ export function PerformanceView({
         </label>
       </div>
 
+      {/* Tab 切换 */}
+      <div className="flex gap-2 mb-5 border-b border-gray-200">
+        {([['kpi', '📊 KPI Scorecard'], ['review', '📝 Quarterly Review']] as const).map(([t, label]) => (
+          <button key={t} onClick={() => setTab(t)}
+            className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition ${tab === t ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'kpi' && (<>
       {/* 评分标准（可折叠下拉，默认收起）*/}
       <details className="group bg-white border border-gray-200 rounded-xl mb-5">
         <summary className="list-none cursor-pointer select-none px-4 py-3 text-sm font-medium text-gray-700 flex items-center gap-2 hover:bg-gray-50 rounded-xl [&::-webkit-details-marker]:hidden">
@@ -243,6 +258,18 @@ export function PerformanceView({
       <p className="mt-3 text-xs text-gray-400">
         FCST = average across cycles of each (country × SKU × month) forecast (summed across channels); Achieve = actual channel shipments for the same months; Achieve% = Achieve ÷ FCST; {qLabel} = sum of the three months.
       </p>
+      </>)}
+
+      {tab === 'review' && (
+        <QuarterlyReview
+          key={`${countryCode}-${selectedYear}-Q${selectedQuarter}`}
+          channels={channels.filter(ch => ch.country_id === country?.id)}
+          reviews={reviews}
+          year={selectedYear}
+          quarter={selectedQuarter}
+          countryCode={countryCode}
+        />
+      )}
     </div>
   )
 }
