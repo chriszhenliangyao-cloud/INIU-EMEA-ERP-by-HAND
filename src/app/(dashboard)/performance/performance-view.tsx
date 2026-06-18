@@ -268,6 +268,7 @@ export function PerformanceView({
           year={selectedYear}
           quarter={selectedQuarter}
           countryCode={countryCode}
+          countryId={country?.id}
         />
       )}
     </div>
