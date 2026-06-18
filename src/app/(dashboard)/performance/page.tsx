@@ -61,8 +61,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const channels = (kas ?? [])
     .filter((k: any) => k.ka_type !== 'group')
     .map((k: any) => ({ id: k.id, name: k.name, country_id: k.country_id, sort_order: k.sort_order ?? 0 }))
-  const reviews: Record<number, any> = {}
-  ;(reviewRows ?? []).forEach((r: any) => { reviews[r.ka_id] = r })
+  const reviews = reviewRows ?? []  // 复盘行(country×quarter×channel_name)，view 按选中国家过滤
 
   // FCST：先按 (country,sku,month,run) 跨渠道求和；再对该 (country,sku,month) 跨"有填的周期"求平均
   const perRun: Record<number, Record<number, Array<Map<number, number>>>> = {}

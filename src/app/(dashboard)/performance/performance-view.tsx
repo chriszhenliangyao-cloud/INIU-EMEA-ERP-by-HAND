@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { fmtNum } from '@/lib/utils'
-import { QuarterlyReview, type Review } from './quarterly-review'
+import { QuarterlyReview, type ReviewRow } from './quarterly-review'
 
 type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number }
@@ -33,7 +33,7 @@ export function PerformanceView({
   forecast: ByCountrySku
   achieve: ByCountrySku
   channels: { id: number; name: string; country_id: number; sort_order: number }[]
-  reviews: Record<number, Review>
+  reviews: ReviewRow[]
   initialCountryCode: string
   viewerName: string
   viewerIsAdmin: boolean
@@ -264,7 +264,7 @@ export function PerformanceView({
         <QuarterlyReview
           key={`${countryCode}-${selectedYear}-Q${selectedQuarter}`}
           channels={channels.filter(ch => ch.country_id === country?.id)}
-          reviews={reviews}
+          saved={reviews.filter(r => r.country_id === country?.id)}
           year={selectedYear}
           quarter={selectedQuarter}
           countryCode={countryCode}
