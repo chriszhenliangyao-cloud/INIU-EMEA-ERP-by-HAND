@@ -28,11 +28,12 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     .from('forecast_run').select('id, period_start').eq('region', 'EU').order('period_start', { ascending: false })
 
   // 可选年份：来自所有周期的年份（保证至少有最新周期那年）
+  // 默认 = 当前自然季度（今天所在的季度），不是最新预测周期
+  const now = new Date()
+  const defaultYear = now.getFullYear()
+  const defaultQ = Math.floor(now.getMonth() / 3) + 1
   const runYears = Array.from(new Set((runs ?? []).map((r: any) => Number(String(r.period_start).slice(0, 4)))))
-  const latestRunMonth = runs?.[0]?.period_start ? new Date(runs[0].period_start + 'T00:00:00') : new Date('2026-01-01T00:00:00')
-  const defaultYear = latestRunMonth.getFullYear()
-  const defaultQ = Math.floor(latestRunMonth.getMonth() / 3) + 1
-  const years = (runYears.length ? runYears : [defaultYear]).sort((a, b) => b - a)
+  const years = Array.from(new Set([defaultYear, ...runYears])).sort((a, b) => b - a)
 
   const year = Number(searchParams?.year) || defaultYear
   const q = ([1, 2, 3, 4].includes(Number(searchParams?.q)) ? Number(searchParams?.q) : defaultQ)
