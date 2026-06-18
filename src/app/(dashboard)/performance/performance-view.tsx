@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { fmtNum } from '@/lib/utils'
 
 type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
@@ -77,6 +78,12 @@ export function PerformanceView({
     visible.forEach(r => { for (let i = 0; i < M; i++) { fc[i] += r.fc[i]; ach[i] += r.ach[i] } })
     return { fc, ach, fcTot: fc.reduce((a, b) => a + b, 0), achTot: ach.reduce((a, b) => a + b, 0) }
   }, [visible, M])
+
+  // 折线图数据：每月 TTL 预测 vs 达成（隐藏的空 SKU 全为 0，不影响月合计）
+  const chartData = useMemo(
+    () => monthsIso.map((m, i) => ({ name: monthLabel(m), Forecast: ttl.fc[i] ?? 0, Achieve: ttl.ach[i] ?? 0 })),
+    [monthsIso, ttl],
+  )
 
   const td = 'px-2 py-1.5 text-right text-xs tabular-nums border-b border-gray-100'
   const th = 'px-2 py-1.5 text-center text-[11px] font-bold uppercase border-b border-gray-200'
@@ -214,6 +221,23 @@ export function PerformanceView({
             )}
           </table>
         </div>
+      </div>
+
+      {/* 月度 TTL 折线图：预测 vs 达成 */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 mt-5">
+        <h2 className="text-sm font-semibold text-gray-700">📈 月度 TTL — 预测 vs 达成 · {country?.flag_emoji} {country?.code} · {selectedYear} {qLabel}</h2>
+        <p className="text-xs text-gray-400 mb-3">每月该国全部 SKU 的预测合计与实际出货合计</p>
+        <ResponsiveContainer width="100%" height={320}>
+          <LineChart data={chartData} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} width={56} tickFormatter={(v: number) => fmtNum(v)} />
+            <Tooltip formatter={(v: number) => fmtNum(v)} />
+            <Legend />
+            <Line type="monotone" dataKey="Forecast" name="FCST 预测" stroke="#64748b" strokeWidth={2} dot={{ r: 4 }} />
+            <Line type="monotone" dataKey="Achieve" name="Achieve 达成" stroke="#059669" strokeWidth={2} dot={{ r: 4 }} />
+          </LineChart>
+        </ResponsiveContainer>
       </div>
 
       <p className="mt-3 text-xs text-gray-400">
