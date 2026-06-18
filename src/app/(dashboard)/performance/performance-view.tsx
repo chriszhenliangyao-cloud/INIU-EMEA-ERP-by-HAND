@@ -94,7 +94,7 @@ export function PerformanceView({
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-gray-900">🏆 Performance — Quarterly KPI</h1>
         <p className="text-sm text-gray-500 mt-1">
-          FCST(跨周期平均预测) vs Achieve(sell-in 出货实际) vs 达成% · {viewerIsAdmin ? '全部国家' : 'RLS 仅你的国家'}
+          Forecast (cross-cycle average) vs Achieve (actual sell-in shipments) vs Attainment % · {viewerIsAdmin ? 'all countries' : 'your assigned countries only'}
         </p>
       </div>
 
@@ -155,7 +155,7 @@ export function PerformanceView({
               ))}
             </tbody>
           </table>
-          <p className="mt-2 text-xs text-gray-400">Accuracy = 达成率 = Achieve ÷ FCST。Score 行取该国家整体(TTL)达成率,每月 + 整季各评一档。</p>
+          <p className="mt-2 text-xs text-gray-400">Accuracy = Attainment = Achieve ÷ FCST. The Score row grades the country's overall (TTL) attainment — one grade per month plus the full quarter.</p>
         </div>
       </details>
 
@@ -191,7 +191,7 @@ export function PerformanceView({
                 </tr>
               ))}
               {!visible.length && (
-                <tr><td colSpan={2 + (M + 1) * 3} className="py-16 text-center text-gray-400">{country?.code ?? ''} 在 {selectedYear} {qLabel} 暂无预测/出货数据</td></tr>
+                <tr><td colSpan={2 + (M + 1) * 3} className="py-16 text-center text-gray-400">No forecast / shipment data for {country?.code ?? ''} in {selectedYear} {qLabel}</td></tr>
               )}
             </tbody>
             {visible.length > 0 && (
@@ -209,7 +209,7 @@ export function PerformanceView({
                 {/* SCORE — 按 TTL 达成率分档（每月 + 整季）*/}
                 <tr className="font-bold">
                   <td className="sticky left-0 z-10 bg-amber-50 text-amber-800 px-3 py-2 text-xs uppercase border-t border-r border-amber-200" style={{ minWidth: 90, maxWidth: 90 }}>Score</td>
-                  <td className="sticky z-10 bg-amber-50 text-amber-600 px-3 py-2 text-[11px] border-t border-r-2 border-amber-200" style={{ left: 90, minWidth: 180, maxWidth: 180 }}>按整体达成率评分</td>
+                  <td className="sticky z-10 bg-amber-50 text-amber-600 px-3 py-2 text-[11px] border-t border-r-2 border-amber-200" style={{ left: 90, minWidth: 180, maxWidth: 180 }}>by overall attainment</td>
                   <td colSpan={(M + 1) * 2} className="border-t border-r-2 border-gray-300 bg-gray-50"></td>
                   {[...ttl.fc.map((fc, i) => scoreFor(fc, ttl.ach[i])), scoreFor(ttl.fcTot, ttl.achTot)].map((s, i, arr) => (
                     <td key={`sc${i}`} className={`px-2 py-1.5 text-right text-sm tabular-nums font-bold border-t border-gray-200 bg-amber-100 ${scoreColor(s)} ${i === arr.length - 1 ? 'border-l-2 border-amber-400' : ''}`}>
@@ -225,8 +225,8 @@ export function PerformanceView({
 
       {/* 月度 TTL 折线图：预测 vs 达成 */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 mt-5">
-        <h2 className="text-sm font-semibold text-gray-700">📈 月度 TTL — 预测 vs 达成 · {country?.flag_emoji} {country?.code} · {selectedYear} {qLabel}</h2>
-        <p className="text-xs text-gray-400 mb-3">每月该国全部 SKU 的预测合计与实际出货合计</p>
+        <h2 className="text-sm font-semibold text-gray-700">📈 Monthly TTL — Forecast vs Achieve · {country?.flag_emoji} {country?.code} · {selectedYear} {qLabel}</h2>
+        <p className="text-xs text-gray-400 mb-3">Monthly total across all SKUs — forecast vs actual shipments for this country</p>
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={chartData} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
@@ -234,14 +234,14 @@ export function PerformanceView({
             <YAxis tick={{ fontSize: 12 }} width={56} tickFormatter={(v: number) => fmtNum(v)} />
             <Tooltip formatter={(v: number) => fmtNum(v)} />
             <Legend />
-            <Line type="monotone" dataKey="Forecast" name="FCST 预测" stroke="#64748b" strokeWidth={2} dot={{ r: 4 }} />
-            <Line type="monotone" dataKey="Achieve" name="Achieve 达成" stroke="#059669" strokeWidth={2} dot={{ r: 4 }} />
+            <Line type="monotone" dataKey="Forecast" name="Forecast" stroke="#64748b" strokeWidth={2} dot={{ r: 4 }} />
+            <Line type="monotone" dataKey="Achieve" name="Achieve" stroke="#059669" strokeWidth={2} dot={{ r: 4 }} />
           </LineChart>
         </ResponsiveContainer>
       </div>
 
       <p className="mt-3 text-xs text-gray-400">
-        FCST = 各周期对该 国家×SKU×月 预测的平均(跨渠道求和后取均);Achieve = 同期 channel 出货实际;Achieve% = Achieve ÷ FCST;{qLabel} = 三个月之和。
+        FCST = average across cycles of each (country × SKU × month) forecast (summed across channels); Achieve = actual channel shipments for the same months; Achieve% = Achieve ÷ FCST; {qLabel} = sum of the three months.
       </p>
     </div>
   )
