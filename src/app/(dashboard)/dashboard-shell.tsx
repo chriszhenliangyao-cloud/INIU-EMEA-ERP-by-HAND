@@ -52,6 +52,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
           <NavLink href="/shipments">📊 Shipments</NavLink>
           <NavLink href="/forecast">📈 Demand Forecast</NavLink>
           <NavLink href="/psi">📦 PSI Dashboard</NavLink>
+          <NavLink href="/performance">🏆 Performance</NavLink>
 
           {me.isAdmin && (
             <>
