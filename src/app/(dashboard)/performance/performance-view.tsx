@@ -22,7 +22,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, initialCountryCode, viewerIsAdmin,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin,
 }: {
   years: number[]
   selectedYear: number
@@ -34,6 +34,8 @@ export function PerformanceView({
   achieve: ByCountrySku
   channels: { id: number; name: string; country_id: number; sort_order: number }[]
   reviews: ReviewRow[]
+  prevReviews: { country_id: number; channel_name: string; target: string | null }[]
+  prevQuarterLabel: string
   initialCountryCode: string
   viewerName: string
   viewerIsAdmin: boolean
@@ -265,6 +267,8 @@ export function PerformanceView({
           key={`${countryCode}-${selectedYear}-Q${selectedQuarter}`}
           channels={channels.filter(ch => ch.country_id === country?.id)}
           saved={reviews.filter(r => r.country_id === country?.id)}
+          prevTargets={prevReviews.filter(r => r.country_id === country?.id)}
+          prevQuarterLabel={prevQuarterLabel}
           year={selectedYear}
           quarter={selectedQuarter}
           countryCode={countryCode}

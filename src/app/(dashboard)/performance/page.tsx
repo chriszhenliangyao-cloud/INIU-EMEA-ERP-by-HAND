@@ -44,13 +44,18 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const periodStart = monthsIso[0]
   const endExclusive = addMonths(monthsIso[M - 1], 1)
 
-  const [{ data: kas }, { data: skus }, { data: allCountries }, { data: cells }, { data: ships }, { data: reviewRows }] = await Promise.all([
+  // 上一季度（用于在本季 Progress 前展示"上季 Target"，来自上一季 Action Plan 的 target）
+  const prevQ = q === 1 ? 4 : q - 1
+  const prevY = q === 1 ? year - 1 : year
+
+  const [{ data: kas }, { data: skus }, { data: allCountries }, { data: cells }, { data: ships }, { data: reviewRows }, { data: prevReviewRows }] = await Promise.all([
     supabase.from('ka').select('id, name, country_id, sort_order, ka_type').eq('is_active', true).order('country_id').order('sort_order').order('name'),
     supabase.from('sku').select('id, code, name, category, sort_order').eq('is_active', true).order('sort_order').order('code'),
     supabase.from('country').select('id, code, name_en, flag_emoji, region, sort_order').eq('region', 'EU').eq('is_active', true).order('sort_order'),
     supabase.from('forecast_cell').select('run_id, sku_id, ka_id, month, qty').gte('month', periodStart).lt('month', endExclusive).range(0, 49999),
     supabase.from('shipment').select('sku_id, country_id, effective_date, qty').eq('source_type', 'channel').gte('effective_date', periodStart).lt('effective_date', endExclusive).range(0, 49999),
     supabase.from('channel_quarterly_review').select('*').eq('year', year).eq('quarter', q),
+    supabase.from('channel_quarterly_review').select('country_id, channel_name, target').eq('year', prevY).eq('quarter', prevQ),
   ])
 
   const countries = (allCountries ?? []).filter((c: any) => me.canAccessCountry(c.id))
@@ -62,6 +67,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     .filter((k: any) => k.ka_type !== 'group')
     .map((k: any) => ({ id: k.id, name: k.name, country_id: k.country_id, sort_order: k.sort_order ?? 0 }))
   const reviews = reviewRows ?? []  // 复盘行(country×quarter×channel_name)，view 按选中国家过滤
+  const prevReviews = prevReviewRows ?? []  // 上一季复盘行(只取 target)，用于本季 Progress 前的"上季 Target"列
 
   // FCST：先按 (country,sku,month,run) 跨渠道求和；再对该 (country,sku,month) 跨"有填的周期"求平均
   const perRun: Record<number, Record<number, Array<Map<number, number>>>> = {}
@@ -103,6 +109,8 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       achieve={achieve}
       channels={channels}
       reviews={reviews}
+      prevReviews={prevReviews}
+      prevQuarterLabel={`${prevY} Q${prevQ}`}
       initialCountryCode={initialCountryCode}
       viewerName={me.displayName}
       viewerIsAdmin={me.isAdmin}

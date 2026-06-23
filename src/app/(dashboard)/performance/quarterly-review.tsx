@@ -13,15 +13,21 @@ const FRONT: [Field, string][] = [['progress', 'Progress'], ['win', 'Win'], ['lo
 const BACK: [Field, string][] = [['next_move', 'Next move'], ['target', 'Target'], ['supports_needed', 'Supports / resources needed']]
 
 export function QuarterlyReview({
-  channels, saved, year, quarter, countryCode, countryId,
+  channels, saved, prevTargets = [], prevQuarterLabel, year, quarter, countryCode, countryId,
 }: {
   channels: Channel[]       // 来自 KA map 的渠道，仅作"首次"的起始行(只读引用)
   saved: ReviewRow[]        // 本 country×quarter 已保存的复盘行(销售自有列表)
+  prevTargets?: { channel_name: string; target: string | null }[]  // 上一季 Action Plan 的 target，只读展示
+  prevQuarterLabel?: string // 例 "2026 Q1"
   year: number
   quarter: number
   countryCode: string
   countryId?: number
 }) {
+  // 上季 Target：按 channel_name 建映射（只读）
+  const prevTargetMap = useRef<Record<string, string>>(
+    Object.fromEntries(prevTargets.filter(r => (r.target ?? '').trim()).map(r => [r.channel_name, (r.target ?? '').trim()])),
+  ).current
   const supabase = useRef(createClient()).current
   const [flipped, setFlipped] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -92,6 +98,11 @@ export function QuarterlyReview({
           <thead>
             <tr className="bg-gray-50">
               <th className="sticky left-0 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b border-r border-gray-200" style={{ minWidth: 120 }}>Channel</th>
+              {which === 'front' && (
+                <th className="px-3 py-2 text-left text-xs font-semibold text-indigo-500 uppercase border-b border-r border-gray-200 bg-indigo-50/60" style={{ minWidth: 140 }}>
+                  Last Q Target{prevQuarterLabel ? <span className="ml-1 normal-case font-normal text-indigo-300">({prevQuarterLabel})</span> : null}
+                </th>
+              )}
               {c.map(([, label]) => <th key={label} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b border-r border-gray-200">{label}</th>)}
               <th className="w-8 border-b border-gray-200" />
             </tr>
@@ -102,6 +113,11 @@ export function QuarterlyReview({
                 <td className="sticky left-0 bg-white group-hover:bg-gray-50 px-3 py-2 text-sm font-medium text-gray-800 border-b border-r border-gray-100" style={{ minWidth: 120 }}>
                   {row.name}{row.ka_id == null && <span className="ml-1 text-[10px] text-blue-400" title="复盘自加(不在 KA map)">＋</span>}
                 </td>
+                {which === 'front' && (
+                  <td className="border-b border-r border-gray-100 bg-indigo-50/30 px-2 py-1.5 align-top text-xs text-indigo-900 whitespace-pre-line" style={{ minWidth: 140 }}>
+                    {prevTargetMap[row.name] ?? <span className="text-gray-300">—</span>}
+                  </td>
+                )}
                 {c.map(([f]) => (
                   <td key={f} className="border-b border-r border-gray-100 p-0">
                     <textarea value={data[row.name]?.[f] ?? ''} onChange={e => set(row.name, f, e.target.value)} rows={3}
@@ -115,7 +131,7 @@ export function QuarterlyReview({
               </tr>
             ))}
             <tr>
-              <td colSpan={c.length + 2} className="px-3 py-2 border-t border-gray-200 bg-gray-50/50">
+              <td colSpan={c.length + 2 + (which === 'front' ? 1 : 0)} className="px-3 py-2 border-t border-gray-200 bg-gray-50/50">
                 {adding ? (
                   <div className="flex items-center gap-2">
                     <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
