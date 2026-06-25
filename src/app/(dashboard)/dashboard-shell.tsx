@@ -50,7 +50,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
         <nav className="flex-1 p-3">
           <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2">Sales</div>
           <NavLink href="/shipments">📊 Shipments</NavLink>
-          {me.email === 'chriszhenliang.yao@gmail.com' && <NavLink href="/po">🧾 PO (Orders)</NavLink>}
+          {me.email === 'chris.yao@iniushop.com' && <NavLink href="/po">🧾 PO (Orders)</NavLink>}
           <NavLink href="/forecast">📈 Demand Forecast</NavLink>
           <NavLink href="/psi">📦 PSI Dashboard</NavLink>
           <NavLink href="/performance">🏆 Performance</NavLink>

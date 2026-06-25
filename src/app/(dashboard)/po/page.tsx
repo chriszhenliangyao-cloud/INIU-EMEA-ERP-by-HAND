@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth/current-user'
 import { PoView } from './po-view'
 
 // 临时限制：PO 页仅 Chris 可见（完善后再放开权限）
-const PO_ALLOWED_EMAILS = ['chriszhenliang.yao@gmail.com']
+const PO_ALLOWED_EMAILS = ['chris.yao@iniushop.com']
 
 export default async function PoPage() {
   // Step 1: current user identity (RBAC)
