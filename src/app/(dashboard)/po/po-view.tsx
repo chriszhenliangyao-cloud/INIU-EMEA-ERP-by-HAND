@@ -238,7 +238,9 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
                 <Tooltip formatter={(v: any) => fmtNum(v)} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {monthlyChart.kas.map((ka, i) => (
-                  <Bar key={ka} dataKey={ka} fill={PALETTE[i % PALETTE.length]} radius={[3, 3, 0, 0]} isAnimationActive={false} maxBarSize={26} />
+                  <Bar key={ka} dataKey={ka} fill={PALETTE[i % PALETTE.length]} radius={[3, 3, 0, 0]} isAnimationActive={false} maxBarSize={26}>
+                    <LabelList dataKey={ka} position="top" formatter={(v: any) => (v ? fmtNum(v) : '')} style={{ fontSize: 9, fill: '#374151', fontWeight: 600 }} />
+                  </Bar>
                 ))}
               </>) : (
                 <Bar dataKey="qty" fill={PALETTE[0]} radius={[4, 4, 0, 0]} isAnimationActive={false} maxBarSize={56}>
