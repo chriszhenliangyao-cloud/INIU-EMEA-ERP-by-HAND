@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
+  createSKU,
   updateSKU,
   deactivateSKU,
   reactivateSKU,
@@ -41,23 +42,21 @@ type Props = {
   viewerName: string
 }
 
-// 颜色 → 色点（按 sku.color 字段查，归一化小写匹配；未知颜色用灰点，但仍正常分组）
+// 颜色全称字典（与 code 后缀一致）→ 色点
 const COLOR_DOT: Record<string, string> = {
-  black: '#1f2937', white: '#e5e7eb', orange: '#f97316', blue: '#3b82f6',
-  'light blue': '#7dd3fc', red: '#ef4444', titan: '#9ca3af', titanium: '#9ca3af',
-  'desert titanium': '#d6b88a', 'desert titan': '#d6b88a', green: '#22c55e',
-  pink: '#ec4899', purple: '#a855f7', gold: '#eab308', silver: '#cbd5e1',
+  Black: '#1f2937', White: '#e5e7eb', Orange: '#f97316',
+  Blue: '#3b82f6', Titan: '#9ca3af', DesertTitan: '#d6b88a',
 }
-const colorDot = (name: string | null) => COLOR_DOT[(name ?? '').trim().toLowerCase()] ?? '#d1d5db'
+const COLOR_WORDS = Object.keys(COLOR_DOT)
 
-// 型号基号：有 color 的就把 code 末段(-颜色后缀)去掉聚到同一型号；无 color 用整段 code。
-// 纯数据驱动——任何新颜色只要 sku.color 有值就自动归位，不用维护颜色清单。
-function baseModel(s: { code: string; color: string | null }): string {
-  if (s.color && s.color.trim()) {
-    const idx = s.code.lastIndexOf('-')
-    if (idx > 0) return s.code.slice(0, idx)
+// code = <MODEL>-<颜色全称> → 拆出型号与颜色
+function splitModel(code: string): { model: string; color: string | null } {
+  const idx = code.lastIndexOf('-')
+  if (idx > 0) {
+    const tail = code.slice(idx + 1)
+    if (COLOR_WORDS.includes(tail)) return { model: code.slice(0, idx), color: tail }
   }
-  return s.code
+  return { model: code, color: null }
 }
 
 const CATEGORY_ORDER: Record<string, number> = {
@@ -77,6 +76,7 @@ const LIFECYCLE_STYLE: Record<string, string> = {
 
 export function SkuMapView({ allSkus, viewerName }: Props) {
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; msg: string } | null>(null)
+  const [addingGlobal, setAddingGlobal] = useState(false)
   const flash = (kind: 'success' | 'error', msg: string) => {
     setToast({ kind, msg })
     setTimeout(() => setToast(null), kind === 'error' ? 5000 : 2500)
@@ -92,6 +92,10 @@ export function SkuMapView({ allSkus, viewerName }: Props) {
       <div className="mb-1 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">🧬 SKU Product Map</h1>
         <div className="flex items-center gap-3">
+          <button onClick={() => setAddingGlobal(v => !v)}
+            className="px-3 py-1 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700">
+            ＋ New SKU
+          </button>
           <Link href="/admin/sku" className="text-xs text-blue-600 hover:underline">
             ⚙️ 完整字段编辑（价格/EAN/箱规）→ SKU Master Data
           </Link>
@@ -109,6 +113,18 @@ export function SkuMapView({ allSkus, viewerName }: Props) {
             : 'bg-red-50 text-red-700 border-red-300'
         }`}>
           {toast.kind === 'success' ? '✓ ' : '⚠️ '}{toast.msg}
+        </div>
+      )}
+
+      {addingGlobal && (
+        <div className="mb-5">
+          <AddSkuForm
+            prefill={{}}
+            title="New SKU（任意产品）"
+            onDone={(m) => { flash('success', m); setAddingGlobal(false) }}
+            onError={(m) => flash('error', m)}
+            onCancel={() => setAddingGlobal(false)}
+          />
         </div>
       )}
 
@@ -136,6 +152,7 @@ function CategorySection({ category, skus, onSuccess, onError }: {
   onSuccess: (m: string) => void
   onError: (m: string) => void
 }) {
+  const [adding, setAdding] = useState(false)
   // family 分组（含 series 标注）
   const families = useMemo(() => {
     const m = new Map<string, { series: string | null; skus: Sku[] }>()
@@ -154,9 +171,20 @@ function CategorySection({ category, skus, onSuccess, onError }: {
         <span className="ml-auto text-xs text-gray-500">
           {skus.filter(s => s.is_active).length} active / {skus.length} SKUs
         </span>
+        <button onClick={() => setAdding(v => !v)}
+          className="text-xs text-green-700 hover:bg-green-100 rounded px-2 py-0.5 font-medium">＋ Add product</button>
       </div>
 
       <div className="px-5 py-4 space-y-4">
+        {adding && (
+          <AddSkuForm
+            prefill={{ category: category === '(uncategorized)' ? '' : category }}
+            title={`Add a new product / family under ${category}`}
+            onDone={(m) => { onSuccess(m); setAdding(false) }}
+            onError={onError}
+            onCancel={() => setAdding(false)}
+          />
+        )}
         {families.map(([family, group], fi) => (
           <FamilyBlock
             key={family}
@@ -181,11 +209,12 @@ function FamilyBlock({ family, series, skus, isLast, onSuccess, onError }: {
   onSuccess: (m: string) => void
   onError: (m: string) => void
 }) {
+  const [adding, setAdding] = useState(false)
   // 按型号聚合颜色变体
   const models = useMemo(() => {
     const m = new Map<string, Sku[]>()
     skus.forEach(s => {
-      const model = baseModel(s)
+      const { model } = splitModel(s.code)
       if (!m.has(model)) m.set(model, [])
       m.get(model)!.push(s)
     })
@@ -214,6 +243,18 @@ function FamilyBlock({ family, series, skus, isLast, onSuccess, onError }: {
             onError={onError}
           />
         ))}
+        {adding ? (
+          <AddSkuForm
+            prefill={{ category: skus[0]?.category ?? '', series, family: family === '(no family)' ? '' : family }}
+            title={`Add a new model under ${family}`}
+            onDone={(m) => { onSuccess(m); setAdding(false) }}
+            onError={onError}
+            onCancel={() => setAdding(false)}
+          />
+        ) : (
+          <button onClick={() => setAdding(true)}
+            className="text-xs text-green-700 hover:bg-green-100 rounded px-2 py-0.5 font-medium">＋ Add model</button>
+        )}
       </div>
     </div>
   )
@@ -229,18 +270,10 @@ function ModelCard({ model, variants, onSuccess, onError }: {
   onError: (m: string) => void
 }) {
   const [editingId, setEditingId] = useState<number | null>(null)
-  const multi = variants.length > 1 || !!variants[0].color
-  // 型号显示名：把首个变体名末尾的颜色去掉（兼容 " - 颜色" / "-颜色" / " 颜色"）
-  const baseName = (() => {
-    const v0 = variants[0]
-    if (v0.color) {
-      for (const sep of [' - ', '-', ' ']) {
-        const suffix = sep + v0.color
-        if (v0.name.toLowerCase().endsWith(suffix.toLowerCase())) return v0.name.slice(0, -suffix.length).trim()
-      }
-    }
-    return v0.name.split(' - ')[0]
-  })()
+  const [adding, setAdding] = useState(false)
+  const multi = variants.length > 1 || splitModel(variants[0].code).color !== null
+  // 型号显示名：去掉颜色后缀的公共部分
+  const baseName = variants[0].name.split(' - ')[0]
   const anyActive = variants.some(v => v.is_active)
   const lifecycle = variants[0].lifecycle ?? 'active'
 
@@ -271,13 +304,17 @@ function ModelCard({ model, variants, onSuccess, onError }: {
               Edit
             </button>
           )}
+          <button onClick={() => setAdding(v => !v)} title={`给 ${model} 加一个颜色 / 变体`}
+            className="px-1.5 py-0.5 text-xs text-green-700 hover:bg-green-100 rounded flex-shrink-0 font-medium">
+            ＋ 颜色
+          </button>
         </div>
 
         {/* 颜色变体 chips */}
         {multi && (
           <div className="flex flex-wrap gap-1.5 mt-1.5 ml-4">
             {variants.map(v => {
-              const color = v.color
+              const { color } = splitModel(v.code)
               return (
                 <button
                   key={v.id}
@@ -289,7 +326,7 @@ function ModelCard({ model, variants, onSuccess, onError }: {
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full border border-gray-300 flex-shrink-0"
-                    style={{ background: colorDot(color) }}
+                    style={{ background: color ? COLOR_DOT[color] : '#fff' }}
                   />
                   {color ?? v.code}
                 </button>
@@ -307,6 +344,24 @@ function ModelCard({ model, variants, onSuccess, onError }: {
             onCancel={() => setEditingId(null)}
           />
         )}
+
+        {/* 加颜色 / 变体（预填该型号的基号与家族） */}
+        {adding && (
+          <AddSkuForm
+            prefill={{
+              code: `${model}-`,
+              name: `${baseName} - `,
+              category: variants[0].category,
+              series: variants[0].series,
+              family: variants[0].family,
+              lifecycle: variants[0].lifecycle ?? 'active',
+            }}
+            title={`Add a colour / variant to ${model}`}
+            onDone={(m) => { setAdding(false); onSuccess(m) }}
+            onError={onError}
+            onCancel={() => setAdding(false)}
+          />
+        )}
       </div>
     </div>
   )
@@ -317,6 +372,97 @@ function ModelCard({ model, variants, onSuccess, onError }: {
 // ───────────────────────────────────────
 const CATEGORY_OPTIONS = ['Power bank', 'Charger', 'Wireless charger', 'Cable', 'Bundle']
 const LIFECYCLE_OPTIONS = ['active', 'npi', 'eol', 'discontinued']
+
+// ───────────────────────────────────────
+// 新增 SKU 表单（4 个入口复用；精简字段，按上下文预填）
+// ───────────────────────────────────────
+type AddPrefill = Partial<Pick<Sku, 'code' | 'name' | 'color' | 'category' | 'series' | 'family' | 'lifecycle'>>
+function AddSkuForm({ prefill, title, onDone, onError, onCancel }: {
+  prefill: AddPrefill
+  title: string
+  onDone: (m: string) => void
+  onError: (m: string) => void
+  onCancel: () => void
+}) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [code, setCode] = useState(prefill.code ?? '')
+  const [name, setName] = useState(prefill.name ?? '')
+  const [color, setColor] = useState(prefill.color ?? '')
+  const [category, setCategory] = useState(prefill.category ?? '')
+  const [series, setSeries] = useState(prefill.series ?? '')
+  const [family, setFamily] = useState(prefill.family ?? '')
+  const [lifecycle, setLifecycle] = useState(prefill.lifecycle ?? 'active')
+
+  const submit = () => startTransition(async () => {
+    const r = await createSKU({
+      code, name,
+      color: color || null, category: category || null,
+      series: series || null, family: family || null, lifecycle,
+    })
+    if (!r.ok) { onError(r.error); return }
+    onDone(`${code.trim()} created`)
+    router.refresh()
+  })
+
+  return (
+    <div className="mt-2 border border-green-300 rounded-lg p-3 bg-green-50/50 space-y-2">
+      <div className="text-xs font-semibold text-green-800">➕ {title}</div>
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <label className="text-[10px] text-gray-500 block">Code *</label>
+          <input value={code} onChange={e => setCode(e.target.value)} autoFocus
+            className="w-full px-2 py-1 border border-gray-300 rounded text-sm font-mono" placeholder="e.g. P75-P1-Green" />
+        </div>
+        <div className="col-span-2">
+          <label className="text-[10px] text-gray-500 block">Name *</label>
+          <input value={name} onChange={e => setName(e.target.value)}
+            className="w-full px-2 py-1 border border-gray-300 rounded text-sm" placeholder="e.g. MagPro Slim 5K - Green" />
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-500 block">Color</label>
+          <input value={color} onChange={e => setColor(e.target.value)}
+            className="w-full px-2 py-1 border border-gray-300 rounded text-sm" placeholder="e.g. Green" />
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-500 block">Category</label>
+          <select value={category} onChange={e => setCategory(e.target.value)}
+            className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-white">
+            <option value="">—</option>
+            {CATEGORY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-500 block">Series</label>
+          <input value={series} onChange={e => setSeries(e.target.value)}
+            className="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-500 block">Family</label>
+          <input value={family} onChange={e => setFamily(e.target.value)}
+            className="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-500 block">Lifecycle</label>
+          <select value={lifecycle} onChange={e => setLifecycle(e.target.value)}
+            className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-white">
+            {LIFECYCLE_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-gray-400">价格 / EAN / 箱规等请到 ⚙️ Master Data 补</span>
+        <div className="flex gap-2">
+          <button onClick={onCancel} className="px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-200 rounded">Cancel</button>
+          <button onClick={submit} disabled={isPending || !code.trim() || !name.trim()}
+            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">
+            {isPending ? 'Adding…' : 'Add'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function SkuEditor({ sku, onDone, onError, onCancel }: {
   sku: Sku
