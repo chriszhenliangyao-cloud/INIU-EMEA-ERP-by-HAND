@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import { fmtNum } from '@/lib/utils'
 
 type FlatRow = {
@@ -22,6 +22,15 @@ type FlatRow = {
   ka_name: string | null
 }
 
+// Apple / 周报 配色
+const INK = '#1d1d1f'
+const MUTE = '#86868b'
+const BLUE = '#0071e3'
+const GREEN = '#34c759'
+const PURPLE = '#5e5ce6'
+const ORANGE = '#ff9f0a'
+const RANK_COLORS = [BLUE, GREEN, PURPLE, ORANGE, '#ff375f', '#bf5af2', '#64d2ff', '#ffd60a', '#30d158', '#ac8e68']
+
 export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows: FlatRow[]; viewerIsAdmin: boolean; viewerName: string; marketCount: number }) {
   // ============== 筛选状态 ==============
   const [yearFilter, setYearFilter] = useState<string>(String(new Date().getFullYear()))
@@ -34,55 +43,38 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
   const [sortCol, setSortCol] = useState<string>('month')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
-  // ============== 衍生：除国家外的筛选（国家 pills 数字保持原值） ==============
+  // ============== 衍生筛选 ==============
   const filteredExceptCountry = useMemo(() => {
     return rows.filter(r => {
-      if (yearFilter !== 'ALL') {
-        const year = r.po_date?.slice(0, 4) ?? ''
-        if (year !== yearFilter) return false
-      }
-      const ym = r.po_date?.slice(0, 7) ?? ''
-      if (monthFilter !== 'ALL' && ym !== monthFilter) return false
+      if (yearFilter !== 'ALL' && (r.po_date?.slice(0, 4) ?? '') !== yearFilter) return false
+      if (monthFilter !== 'ALL' && (r.po_date?.slice(0, 7) ?? '') !== monthFilter) return false
       if (skuFilter !== 'ALL' && r.sku_code !== skuFilter) return false
       if (kaFilter !== 'ALL' && r.ka_name !== kaFilter) return false
       if (categoryFilter !== 'ALL' && r.sku_category !== categoryFilter) return false
       if (search) {
         const s = search.toLowerCase()
-        if (
-          !r.sku_code?.toLowerCase().includes(s) &&
-          !r.sku_name?.toLowerCase().includes(s) &&
-          !r.ka_name?.toLowerCase().includes(s) &&
-          !r.po_number?.toLowerCase().includes(s)
-        ) return false
+        if (!r.sku_code?.toLowerCase().includes(s) && !r.sku_name?.toLowerCase().includes(s) &&
+            !r.ka_name?.toLowerCase().includes(s) && !r.po_number?.toLowerCase().includes(s)) return false
       }
       return true
     })
   }, [rows, yearFilter, monthFilter, skuFilter, kaFilter, categoryFilter, search])
 
-  const filtered = useMemo(() => {
-    if (countryFilter === 'ALL') return filteredExceptCountry
-    return filteredExceptCountry.filter(r => r.country_code === countryFilter)
-  }, [filteredExceptCountry, countryFilter])
+  const filtered = useMemo(() => (
+    countryFilter === 'ALL' ? filteredExceptCountry : filteredExceptCountry.filter(r => r.country_code === countryFilter)
+  ), [filteredExceptCountry, countryFilter])
 
-  // 衍生：除 month filter 外其他都应用 —— 让月份 pills 显示"该月独立 qty"
   const filteredExceptMonth = useMemo(() => {
     return rows.filter(r => {
-      if (yearFilter !== 'ALL') {
-        const year = r.po_date?.slice(0, 4) ?? ''
-        if (year !== yearFilter) return false
-      }
+      if (yearFilter !== 'ALL' && (r.po_date?.slice(0, 4) ?? '') !== yearFilter) return false
       if (countryFilter !== 'ALL' && r.country_code !== countryFilter) return false
       if (skuFilter !== 'ALL' && r.sku_code !== skuFilter) return false
       if (kaFilter !== 'ALL' && r.ka_name !== kaFilter) return false
       if (categoryFilter !== 'ALL' && r.sku_category !== categoryFilter) return false
       if (search) {
         const s = search.toLowerCase()
-        if (
-          !r.sku_code?.toLowerCase().includes(s) &&
-          !r.sku_name?.toLowerCase().includes(s) &&
-          !r.ka_name?.toLowerCase().includes(s) &&
-          !r.po_number?.toLowerCase().includes(s)
-        ) return false
+        if (!r.sku_code?.toLowerCase().includes(s) && !r.sku_name?.toLowerCase().includes(s) &&
+            !r.ka_name?.toLowerCase().includes(s) && !r.po_number?.toLowerCase().includes(s)) return false
       }
       return true
     })
@@ -94,29 +86,23 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
     const poCount = new Set(filtered.filter(r => r.po_number).map(r => r.po_number)).size
     const skuCount = new Set(filtered.map(r => r.sku_code)).size
     const kaCount = new Set(filtered.filter(r => r.ka_name).map(r => r.ka_name)).size
-    const countryCount = new Set(filtered.map(r => r.country_code)).size
-    return { totalQty, poCount, skuCount, kaCount, countryCount }
+    return { totalQty, poCount, skuCount, kaCount }
   }, [filtered])
 
   // ============== 筛选选项 ==============
-  const options = useMemo(() => {
-    const months = Array.from(new Set(rows.map(r => r.po_date?.slice(0, 7) ?? ''))).filter(Boolean).sort().reverse()
-    const skus = Array.from(new Set(rows.map(r => r.sku_code))).sort()
-    const kas = Array.from(new Set(rows.filter(r => r.ka_name).map(r => r.ka_name as string))).sort()
-    const cats = Array.from(new Set(rows.map(r => r.sku_category).filter(Boolean) as string[])).sort()
-    const years = Array.from(new Set(rows.map(r => r.po_date?.slice(0, 4) ?? ''))).filter(Boolean).sort().reverse()
-    return { months, skus, kas, cats, years }
-  }, [rows])
+  const options = useMemo(() => ({
+    months: Array.from(new Set(rows.map(r => r.po_date?.slice(0, 7) ?? ''))).filter(Boolean).sort().reverse(),
+    skus: Array.from(new Set(rows.map(r => r.sku_code))).sort(),
+    kas: Array.from(new Set(rows.filter(r => r.ka_name).map(r => r.ka_name as string))).sort(),
+    cats: Array.from(new Set(rows.map(r => r.sku_category).filter(Boolean) as string[])).sort(),
+    years: Array.from(new Set(rows.map(r => r.po_date?.slice(0, 4) ?? ''))).filter(Boolean).sort().reverse(),
+  }), [rows])
 
-  // ============== 国家 pills ==============
+  // ============== 国家 ==============
   const countryMeta = useMemo(() => {
     const map: Record<string, { flag: string; name: string; qty: number }> = {}
-    rows.forEach(r => {
-      if (!map[r.country_code]) map[r.country_code] = { flag: r.country_flag, name: r.country_name, qty: 0 }
-    })
-    filteredExceptCountry.forEach(r => {
-      if (map[r.country_code]) map[r.country_code].qty += r.qty
-    })
+    rows.forEach(r => { if (!map[r.country_code]) map[r.country_code] = { flag: r.country_flag, name: r.country_name, qty: 0 } })
+    filteredExceptCountry.forEach(r => { if (map[r.country_code]) map[r.country_code].qty += r.qty })
     return map
   }, [rows, filteredExceptCountry])
 
@@ -125,41 +111,29 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
     if (countryFilter !== 'ALL') return countryMeta[countryFilter]?.name ?? countryFilter
     if (viewerIsAdmin) return 'EU'
     if (countryCodes.length === 1) return Object.values(countryMeta)[0]?.name ?? countryCodes[0]
-    return Object.entries(countryMeta)
-      .sort((a, b) => b[1].qty - a[1].qty)
-      .map(([_, m]) => m.name)
-      .join(' + ')
+    return Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty).map(([_, m]) => m.name).join(' + ')
   })()
 
-  // ============== 月度趋势 + Top KA ==============
+  // ============== 图表数据 ==============
   const monthlyTrend = useMemo(() => {
     const m: Record<string, number> = {}
-    filtered.forEach(r => {
-      const ym = r.po_date?.slice(0, 7) ?? ''
-      if (ym) m[ym] = (m[ym] ?? 0) + r.qty
-    })
+    filtered.forEach(r => { const ym = r.po_date?.slice(0, 7) ?? ''; if (ym) m[ym] = (m[ym] ?? 0) + r.qty })
     return Object.entries(m).sort().map(([month, qty]) => ({ month, qty }))
   }, [filtered])
 
   const topKas = useMemo(() => {
     const m: Record<string, number> = {}
-    filtered.forEach(r => {
-      const name = r.ka_name ?? 'Unspecified'
-      m[name] = (m[name] ?? 0) + r.qty
-    })
-    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, qty]) => ({ name, qty }))
+    filtered.forEach(r => { const name = r.ka_name ?? 'Unspecified'; m[name] = (m[name] ?? 0) + r.qty })
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, qty]) => ({ name, qty }))
   }, [filtered])
 
-  // ============== SKU 趋势（柱形图）==============
   const skuTrend = useMemo(() => {
     const m: Record<string, number> = {}
-    filtered.forEach(r => {
-      m[r.sku_code] = (m[r.sku_code] ?? 0) + r.qty
-    })
+    filtered.forEach(r => { m[r.sku_code] = (m[r.sku_code] ?? 0) + r.qty })
     return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([sku, qty]) => ({ sku, qty }))
   }, [filtered])
 
-  // ============== 聚合表（月 × SKU × KA × 国家） ==============
+  // ============== 聚合表 ==============
   type AggRow = { month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_name: string; country_flag: string; category: string | null; qty: number; count: number }
   const aggRows = useMemo<AggRow[]>(() => {
     const map = new Map<string, AggRow>()
@@ -167,24 +141,9 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
       const ym = r.po_date?.slice(0, 7) ?? ''
       const ka = r.ka_name ?? '-'
       const key = `${ym}|${r.sku_code}|${ka}|${r.country_code}`
-      const existing = map.get(key)
-      if (existing) {
-        existing.qty += r.qty
-        existing.count += 1
-      } else {
-        map.set(key, {
-          month: ym,
-          sku_code: r.sku_code,
-          sku_name: r.sku_name,
-          ka_name: ka,
-          country_code: r.country_code,
-          country_name: r.country_name,
-          country_flag: r.country_flag,
-          category: r.sku_category,
-          qty: r.qty,
-          count: 1,
-        })
-      }
+      const ex = map.get(key)
+      if (ex) { ex.qty += r.qty; ex.count += 1 }
+      else map.set(key, { month: ym, sku_code: r.sku_code, sku_name: r.sku_name, ka_name: ka, country_code: r.country_code, country_name: r.country_name, country_flag: r.country_flag, category: r.sku_category, qty: r.qty, count: 1 })
     })
     return Array.from(map.values())
   }, [filtered])
@@ -195,228 +154,170 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
       const va = a[sortCol]; const vb = b[sortCol]
       if (typeof va === 'number' && typeof vb === 'number') {
         const cmp = sortDir === 'asc' ? va - vb : vb - va
-        if (cmp !== 0) return cmp
-        return b.qty - a.qty
+        return cmp !== 0 ? cmp : b.qty - a.qty
       }
-      const cmp = sortDir === 'asc'
-        ? String(va ?? '').localeCompare(String(vb ?? ''))
-        : String(vb ?? '').localeCompare(String(va ?? ''))
-      if (cmp !== 0) return cmp
-      return b.qty - a.qty
+      const cmp = sortDir === 'asc' ? String(va ?? '').localeCompare(String(vb ?? '')) : String(vb ?? '').localeCompare(String(va ?? ''))
+      return cmp !== 0 ? cmp : b.qty - a.qty
     })
     return arr
   }, [aggRows, sortCol, sortDir])
 
   const aggTotal = sortedAgg.reduce((s, r) => s + r.qty, 0)
+  const rankTotal = topKas.reduce((s, r) => s + r.qty, 0) || 1
 
   const resetFilters = () => {
     setYearFilter(String(new Date().getFullYear()))
     setCountryFilter('ALL'); setMonthFilter('ALL'); setSkuFilter('ALL')
     setKaFilter('ALL'); setCategoryFilter('ALL'); setSearch('')
   }
-
   const toggleSort = (col: string) => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortCol(col); setSortDir(col === 'month' ? 'asc' : 'desc') }
   }
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
-      {/* Header + identity */}
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold text-gray-900">🧾 PO (Customer Orders)</h1>
-        <p className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-          {viewerIsAdmin ? (
-            <span>Signed in as <span className="text-purple-600 font-medium">🌍 Admin ({viewerName})</span> · viewing all countries · order intake (PO) by PO date</span>
-          ) : (
-            <>
-              <span>Signed in as <span className="text-blue-600 font-medium">🧑‍💼 Sales ({viewerName})</span></span>
-              {Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty).map(([code, m]) => (
-                <span key={code} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700">
-                  <span>{m.flag}</span>
-                  <span className="font-medium">{m.name}</span>
-                  <span className="text-xs text-gray-500">·</span>
-                  <strong className="tabular-nums">{fmtNum(m.qty)}</strong>
-                  <span className="text-xs text-gray-500">units</span>
-                </span>
-              ))}
-            </>
-          )}
-        </p>
-      </div>
+    <div className="min-h-full bg-[#f5f5f7] py-8 px-4" style={{ fontFamily: 'Arial, sans-serif', color: INK }}>
+      <div className="mx-auto max-w-[1000px] bg-white shadow-sm">
 
-      {/* 5 KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-        <KpiCard label="Total Ordered" value={fmtNum(stats.totalQty)} hint="units (Qty Ordered)" />
-        <KpiCard label="PO Lines" value={fmtNum(filtered.length)} hint={`${fmtNum(stats.poCount)} distinct POs`} color="blue" />
-        <KpiCard label="SKUs" value={fmtNum(stats.skuCount)} hint="distinct product codes" color="purple" />
-        <KpiCard label="Key Accounts" value={fmtNum(stats.kaCount)} hint="ordering KAs" color="amber" />
-        <KpiCard label="Markets" value={fmtNum(marketCount)} hint="active countries" color="green" />
-      </div>
-
-      {/* Top two charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-sm font-semibold text-gray-700 mb-3">📈 Monthly order volume (by PO date)</div>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={monthlyTrend} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => fmtNum(v)} />
-              <Bar dataKey="qty" fill="#3b82f6" radius={[6, 6, 0, 0]} isAnimationActive={false}>
-                <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 11, fill: '#374151' }} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-sm font-semibold text-gray-700 mb-3">🏢 Top 10 key accounts by order volume</div>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={topKas} layout="vertical" margin={{ top: 5, right: 60, left: 60, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-              <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => fmtNum(v)} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
-              <Bar dataKey="qty" fill="#10b981" radius={[0, 6, 6, 0]} isAnimationActive={false}>
-                <LabelList dataKey="qty" position="right" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 11, fill: '#374151' }} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Business metrics block (placeholder cards + pills + SKU trend) */}
-      <div className="mb-5">
-        <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
-          <span className="text-base font-semibold text-gray-700">
-            📈 {currentCountryLabel} business metrics
-          </span>
-          {viewerIsAdmin && <span className="text-xs text-gray-400">Each market operates independently · switch country to view per-market metrics</span>}
-        </div>
-
-        {(viewerIsAdmin || Object.keys(countryMeta).length > 1) && (
-          <div className="flex gap-2 flex-wrap mb-3">
-            {viewerIsAdmin && (
-              <PillButton color="purple" active={countryFilter === 'ALL'} onClick={() => setCountryFilter('ALL')}>
-                🌍 All EU <Badge>{fmtNum(filteredExceptCountry.reduce((s, r) => s + r.qty, 0))}</Badge>
-              </PillButton>
-            )}
-            {Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty).map(([code, m]) => (
-              <PillButton key={code} color="purple" active={countryFilter === code} onClick={() => setCountryFilter(code)}>
-                <span>{m.flag}</span><span>{code}</span><Badge>{fmtNum(m.qty)}</Badge>
-              </PillButton>
-            ))}
-          </div>
-        )}
-
-        {/* Month pills */}
-        <div className="flex gap-2 flex-wrap mb-4">
-          <PillButton color="amber" active={monthFilter === 'ALL'} onClick={() => setMonthFilter('ALL')}>
-            📅 All months <Badge>{fmtNum(filteredExceptMonth.reduce((s, r) => s + r.qty, 0))}</Badge>
-          </PillButton>
-          {options.months
-            .filter(m => yearFilter === 'ALL' ? true : m.startsWith(yearFilter))
-            .map(m => {
-              const qty = filteredExceptMonth.filter(r => r.po_date?.startsWith(m)).reduce((s, r) => s + r.qty, 0)
-              return (
-                <PillButton key={m} color="amber" active={monthFilter === m} onClick={() => setMonthFilter(m)}>
-                  {m} <Badge>{fmtNum(qty)}</Badge>
-                </PillButton>
-              )
-            })}
-        </div>
-
-        {/* 3 placeholder cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <PlaceholderCard icon="💶" title="Revenue" desc="Monthly / KA / SKU revenue" hint={`Pending data entry (${currentCountryLabel})`} />
-          <PlaceholderCard icon="🏷️" title="Unit Price" desc="SKU unit price / price trend" hint={`Pending data entry (${currentCountryLabel})`} />
-          <PlaceholderCard icon="🎯" title="Target" desc="Monthly / quarterly target & attainment" hint={`Pending data entry (${currentCountryLabel})`} />
-        </div>
-
-        {/* SKU trend bar chart */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-semibold text-gray-700">
-              📊 SKU order volume trend
-              <span className="ml-2 text-xs text-gray-400">· {currentCountryLabel} · {monthFilter === 'ALL' ? 'All months' : monthFilter}</span>
+        {/* ===== 深色头部 ===== */}
+        <div className="bg-[#1d1d1f] px-10 py-9 flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[11px] font-semibold tracking-[1.6px] uppercase text-[#86868b]">PO · 客户订单 (Customer Orders)</div>
+            <div className="mt-3 text-[21px] font-semibold text-white leading-snug">{currentCountryLabel} · {monthFilter === 'ALL' ? '全部月份' : monthFilter}{yearFilter !== 'ALL' ? ` · ${yearFilter}` : ''}</div>
+            <div className="mt-2 text-[11px] text-[#86868b]">
+              {viewerIsAdmin ? `🌍 Admin (${viewerName}) · 全部国家` : `🧑‍💼 Sales (${viewerName})`} · 按 PO Date 统计 Qty Ordered
             </div>
-            <div className="text-xs text-gray-400">{skuTrend.length} SKUs</div>
           </div>
-          <ResponsiveContainer width="100%" height={380}>
-            <BarChart data={skuTrend} margin={{ top: 25, right: 10, left: 0, bottom: 70 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-              <XAxis dataKey="sku" tick={{ fontSize: 10 }} angle={-50} textAnchor="end" interval={0} height={90} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => fmtNum(v)} />
-              <Bar dataKey="qty" radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                {skuTrend.map((entry, i) => (
-                  <Cell key={i} fill={`hsl(${Math.round((i * 360) / Math.max(skuTrend.length, 1))}, 65%, 55%)`} />
-                ))}
-                <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 10, fill: '#374151' }} />
+          <div className="text-right shrink-0">
+            <div className="text-[34px] font-semibold text-white leading-none tabular-nums">{fmtNum(stats.totalQty)}</div>
+            <div className="mt-2 text-[11px] text-[#86868b]">订单数量 (件 · Qty Ordered)</div>
+          </div>
+        </div>
+
+        {/* ===== KPI 条 ===== */}
+        <div className="grid grid-cols-2 md:grid-cols-4 border-b border-[#e8e8ed]">
+          <KpiCell value={fmtNum(filtered.length)} label="PO 明细行" hint={`${fmtNum(stats.poCount)} 个 PO`} />
+          <KpiCell value={fmtNum(stats.skuCount)} label="SKU 数" hint="distinct product codes" />
+          <KpiCell value={fmtNum(stats.kaCount)} label="下单渠道" hint="ordering KAs" />
+          <KpiCell value={fmtNum(marketCount)} label="覆盖市场" hint="active countries" last />
+        </div>
+
+        <div className="px-10 py-8">
+          {/* ===== 筛选区 ===== */}
+          {(viewerIsAdmin || Object.keys(countryMeta).length > 1) && (
+            <div className="flex gap-2 flex-wrap mb-3">
+              {viewerIsAdmin && (
+                <Pill active={countryFilter === 'ALL'} onClick={() => setCountryFilter('ALL')}>
+                  🌍 All EU <B>{fmtNum(filteredExceptCountry.reduce((s, r) => s + r.qty, 0))}</B>
+                </Pill>
+              )}
+              {Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty).map(([code, m]) => (
+                <Pill key={code} active={countryFilter === code} onClick={() => setCountryFilter(code)}>
+                  <span>{m.flag}</span><span>{code}</span><B>{fmtNum(m.qty)}</B>
+                </Pill>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 flex-wrap">
+            <Pill active={monthFilter === 'ALL'} onClick={() => setMonthFilter('ALL')}>
+              📅 全部月份 <B>{fmtNum(filteredExceptMonth.reduce((s, r) => s + r.qty, 0))}</B>
+            </Pill>
+            {options.months.filter(m => yearFilter === 'ALL' ? true : m.startsWith(yearFilter)).map(m => {
+              const qty = filteredExceptMonth.filter(r => r.po_date?.startsWith(m)).reduce((s, r) => s + r.qty, 0)
+              return <Pill key={m} active={monthFilter === m} onClick={() => setMonthFilter(m)}>{m} <B>{fmtNum(qty)}</B></Pill>
+            })}
+          </div>
+
+          {/* ===== 月度订单量 ===== */}
+          <SectionHead title="月度订单量 · 按 PO Date" hint="柱头标注件数" />
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={monthlyTrend} margin={{ top: 22, right: 10, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f3" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: MUTE }} axisLine={{ stroke: '#d2d2d7' }} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: MUTE }} tickFormatter={(v) => fmtNum(v)} axisLine={false} tickLine={false} />
+              <Bar dataKey="qty" fill={BLUE} radius={[4, 4, 0, 0]} isAnimationActive={false} maxBarSize={46}>
+                <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 11, fill: INK, fontWeight: 600 }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-        </div>
-      </div>
 
-      {/* Month × SKU × KA aggregation table */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="text-base font-semibold text-gray-900 mb-3">📋 Month × SKU × KA aggregation</div>
-
-        <div className="flex gap-2 flex-wrap items-center mb-3">
-          <FilterSelect label="Year" value={yearFilter} onChange={setYearFilter} options={options.years} />
-          <FilterSelect label="Month" value={monthFilter} onChange={setMonthFilter} options={options.months} />
-          <FilterSelect label="SKU" value={skuFilter} onChange={setSkuFilter} options={options.skus} />
-          <FilterSelect label="KA" value={kaFilter} onChange={setKaFilter} options={options.kas} />
-          <FilterSelect label="Category" value={categoryFilter} onChange={setCategoryFilter} options={options.cats} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search SKU / product / account / PO..."
-            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-60"
-          />
-          <button onClick={resetFilters} className="ml-auto px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">
-            Reset
-          </button>
-        </div>
-
-        <div className="text-xs text-gray-500 mb-2">
-          Showing <strong className="text-gray-900">{sortedAgg.length}</strong> rows · Total <strong className="text-gray-900">{fmtNum(aggTotal)}</strong> units ·
-          <span className="text-purple-600 ml-1">Unit Price / Revenue / Target — pending data entry</span>
-        </div>
-
-        <div className="overflow-x-auto max-h-[700px] overflow-y-auto border border-gray-200 rounded-lg">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b sticky top-0 z-10">
-              <tr>
-                <SortableHeader col="month" label="Month" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="sku_code" label="SKU" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="sku_name" label="Product" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="ka_name" label="KA" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="country_code" label="Country" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="category" label="Category" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} />
-                <SortableHeader col="qty" label="Qty Ordered" currentCol={sortCol} currentDir={sortDir} onClick={toggleSort} align="right" />
-                <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">Unit Price</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">Revenue</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-purple-500 uppercase">Target</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {sortedAgg.map((r, i) => (
-                <tr key={i} className="hover:bg-gray-50">
-                  <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">{r.month}</span></td>
-                  <td className="px-4 py-2 font-mono text-xs text-gray-700">{r.sku_code}</td>
-                  <td className="px-4 py-2 text-gray-600 truncate max-w-xs">{r.sku_name || '-'}</td>
-                  <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">{r.ka_name}</span></td>
-                  <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_name}</span></td>
-                  <td className="px-4 py-2"><CategoryBadge cat={r.category} /></td>
-                  <td className="px-4 py-2 text-right font-medium tabular-nums">{fmtNum(r.qty)}</td>
-                  <td className="px-4 py-2 text-right text-purple-300 italic text-xs">pending</td>
-                  <td className="px-4 py-2 text-right text-purple-300 italic text-xs">pending</td>
-                  <td className="px-4 py-2 text-right text-purple-300 italic text-xs">pending</td>
+          {/* ===== 客户订单排名 ===== */}
+          <SectionHead title="客户订单排名" hint={`${currentCountryLabel} · ${monthFilter === 'ALL' ? '全部月份' : monthFilter}`} />
+          <table className="w-full border-collapse">
+            <tbody>
+              {topKas.map((k, i) => (
+                <tr key={k.name}>
+                  <td className="w-6 py-3 text-[12px] font-semibold text-[#c7c7cc] font-mono border-b border-[#f0f0f3]">{i + 1}</td>
+                  <td className="py-3 border-b border-[#f0f0f3]">
+                    <span className="inline-block w-2.5 h-2.5 rounded-sm mr-2 align-middle" style={{ background: RANK_COLORS[i % RANK_COLORS.length] }} />
+                    <span className="text-[13px] font-medium">{k.name}</span>
+                  </td>
+                  <td className="w-20 py-3 text-right text-[13px] font-semibold font-mono border-b border-[#f0f0f3] tabular-nums">{fmtNum(k.qty)}</td>
+                  <td className="w-14 py-3 text-right text-[11px] text-[#86868b] border-b border-[#f0f0f3]">{((k.qty / rankTotal) * 100).toFixed(1)}%</td>
                 </tr>
               ))}
-              {!sortedAgg.length && <tr><td colSpan={10} className="py-12 text-center text-gray-400">No matching records</td></tr>}
+              {!topKas.length && <tr><td className="py-8 text-center text-[#c7c7cc] text-sm" colSpan={4}>无数据</td></tr>}
             </tbody>
           </table>
+
+          {/* ===== SKU 订单量 ===== */}
+          <SectionHead title="SKU 订单量趋势" hint={`${skuTrend.length} SKUs · ${monthFilter === 'ALL' ? '全部月份' : monthFilter}`} />
+          <ResponsiveContainer width="100%" height={360}>
+            <BarChart data={skuTrend} margin={{ top: 22, right: 10, left: 0, bottom: 70 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f3" vertical={false} />
+              <XAxis dataKey="sku" tick={{ fontSize: 10, fill: MUTE }} angle={-50} textAnchor="end" interval={0} height={90} axisLine={{ stroke: '#d2d2d7' }} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: MUTE }} tickFormatter={(v) => fmtNum(v)} axisLine={false} tickLine={false} />
+              <Bar dataKey="qty" radius={[3, 3, 0, 0]} isAnimationActive={false} maxBarSize={34}>
+                {skuTrend.map((_, i) => <Cell key={i} fill={RANK_COLORS[i % RANK_COLORS.length]} />)}
+                <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 9, fill: INK }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+
+          {/* ===== 聚合明细 ===== */}
+          <SectionHead title="订单聚合明细" hint={`月 × SKU × 渠道 · ${sortedAgg.length} 行`} />
+          <div className="flex gap-2 flex-wrap items-center mb-3">
+            <Sel label="年" value={yearFilter} onChange={setYearFilter} options={options.years} />
+            <Sel label="月" value={monthFilter} onChange={setMonthFilter} options={options.months} />
+            <Sel label="SKU" value={skuFilter} onChange={setSkuFilter} options={options.skus} />
+            <Sel label="渠道" value={kaFilter} onChange={setKaFilter} options={options.kas} />
+            <Sel label="类目" value={categoryFilter} onChange={setCategoryFilter} options={options.cats} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索 SKU / 产品 / 渠道 / PO…"
+              className="px-3 py-1.5 border border-[#d2d2d7] rounded-md text-sm w-56 bg-white" />
+            <button onClick={resetFilters} className="ml-auto px-3 py-1.5 text-sm text-[#6e6e73] border border-[#d2d2d7] rounded-md hover:bg-[#f5f5f7]">重置</button>
+          </div>
+          <div className="text-xs text-[#86868b] mb-2">共 <strong className="text-[#1d1d1f]">{sortedAgg.length}</strong> 行 · 合计 <strong className="text-[#1d1d1f]">{fmtNum(aggTotal)}</strong> 件</div>
+          <div className="overflow-x-auto max-h-[640px] overflow-y-auto">
+            <table className="w-full" style={{ font: '400 12px Arial, sans-serif' }}>
+              <thead className="sticky top-0 z-10 bg-white">
+                <tr>
+                  <Th col="month" label="月份" sc={sortCol} sd={sortDir} on={toggleSort} />
+                  <Th col="sku_code" label="SKU" sc={sortCol} sd={sortDir} on={toggleSort} />
+                  <Th col="sku_name" label="产品" sc={sortCol} sd={sortDir} on={toggleSort} />
+                  <Th col="ka_name" label="渠道" sc={sortCol} sd={sortDir} on={toggleSort} />
+                  <Th col="country_code" label="国家" sc={sortCol} sd={sortDir} on={toggleSort} />
+                  <Th col="category" label="类目" sc={sortCol} sd={sortDir} on={toggleSort} />
+                  <Th col="qty" label="数量" sc={sortCol} sd={sortDir} on={toggleSort} align="right" />
+                  <th className="px-3 py-3 text-right text-[11px] font-semibold text-[#86868b] uppercase border-b-2 border-[#1d1d1f]">次数</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedAgg.map((r, i) => (
+                  <tr key={i} className="hover:bg-[#f5f5f7]">
+                    <td className="px-3 py-2.5 font-semibold text-[11px] border-b border-[#f0f0f3] whitespace-nowrap">{r.month}</td>
+                    <td className="px-3 py-2.5 font-mono text-[11px] border-b border-[#f0f0f3]">{r.sku_code}</td>
+                    <td className="px-3 py-2.5 text-[#6e6e73] border-b border-[#f0f0f3] truncate max-w-[200px]">{r.sku_name || '-'}</td>
+                    <td className="px-3 py-2.5 border-b border-[#f0f0f3]">{r.ka_name}</td>
+                    <td className="px-3 py-2.5 border-b border-[#f0f0f3] whitespace-nowrap">{r.country_flag} {r.country_code}</td>
+                    <td className="px-3 py-2.5 border-b border-[#f0f0f3]">{r.category ? <span className="inline-block px-2 py-0.5 rounded text-[11px] bg-[#f0f0f3] text-[#6e6e73]">{r.category}</span> : <span className="text-[#c7c7cc]">-</span>}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold font-mono border-b border-[#f0f0f3] tabular-nums">{fmtNum(r.qty)}</td>
+                    <td className="px-3 py-2.5 text-right text-[#86868b] border-b border-[#f0f0f3]">{r.count}</td>
+                  </tr>
+                ))}
+                {!sortedAgg.length && <tr><td colSpan={8} className="py-12 text-center text-[#c7c7cc]">无匹配记录</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -425,74 +326,58 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
 
 // ============== 子组件 ==============
 
-function KpiCard({ label, value, hint, color }: { label: string; value: string; hint?: string; color?: string }) {
-  const cMap: Record<string, string> = { blue: 'text-blue-600', amber: 'text-amber-600', purple: 'text-purple-600', green: 'text-green-600' }
+function KpiCell({ value, label, hint, last }: { value: string; label: string; hint?: string; last?: boolean }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
-      <div className={`text-2xl font-bold mt-1 ${color ? cMap[color] : 'text-gray-900'} tabular-nums`}>{value}</div>
-      {hint && <div className="text-xs text-gray-400 mt-1">{hint}</div>}
+    <div className={`px-5 py-5 border-t border-[#e8e8ed] ${last ? '' : 'md:border-r'} border-r border-[#e8e8ed]`}>
+      <div className="text-[22px] font-semibold leading-none tabular-nums text-[#1d1d1f]">{value}</div>
+      <div className="text-[11px] font-medium text-[#86868b] mt-2">{label}</div>
+      {hint && <div className="text-[10px] text-[#c7c7cc] mt-1.5 leading-tight">{hint}</div>}
     </div>
   )
 }
 
-function PillButton({ children, active, onClick, color }: { children: React.ReactNode; active: boolean; onClick: () => void; color: 'purple' | 'amber' }) {
-  const activeStyle = color === 'purple' ? 'bg-purple-600 text-white border-purple-600 shadow' : 'bg-amber-500 text-white border-amber-500 shadow'
-  const hoverStyle = color === 'purple' ? 'hover:border-purple-400' : 'hover:border-amber-400'
+function SectionHead({ title, hint }: { title: string; hint?: string }) {
   return (
-    <button
-      onClick={onClick}
+    <div className="flex items-end justify-between border-b-2 border-[#1d1d1f] pb-3.5 mt-10 mb-6">
+      <span className="text-[13px] font-semibold tracking-[.2px] text-[#1d1d1f]">{title}</span>
+      {hint && <span className="text-[11px] text-[#86868b]">{hint}</span>}
+    </div>
+  )
+}
+
+function Pill({ children, active, onClick }: { children: React.ReactNode; active: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick}
       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition border ${
-        active ? activeStyle : `bg-white text-gray-700 border-gray-300 ${hoverStyle}`
-      }`}
-    >
+        active ? 'bg-[#1d1d1f] text-white border-[#1d1d1f] shadow' : 'bg-white text-[#1d1d1f] border-[#d2d2d7] hover:border-[#86868b]'
+      }`}>
       {children}
     </button>
   )
 }
 
-function Badge({ children }: { children: React.ReactNode }) {
-  return <span className="ml-1 px-1.5 rounded bg-black/10 text-xs">{children}</span>
+function B({ children }: { children: React.ReactNode }) {
+  return <span className="ml-1 px-1.5 rounded bg-black/10 text-xs font-mono">{children}</span>
 }
 
-function PlaceholderCard({ icon, title, desc, hint }: { icon: string; title: string; desc: string; hint: string }) {
-  return (
-    <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-5 text-center hover:border-purple-400 transition">
-      <div className="text-3xl mb-2">{icon}</div>
-      <div className="text-base font-semibold text-gray-700 mb-1">{title}</div>
-      <div className="text-xs text-gray-500 mb-3">{desc}</div>
-      <div className="inline-block px-3 py-1 rounded-full bg-gray-100 text-xs text-gray-500">{hint}</div>
-    </div>
-  )
-}
-
-function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
+function Sel({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
   return (
     <label className="flex items-center gap-1.5 text-sm">
-      <span className="text-gray-600 text-xs">{label}:</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="px-2 py-1 border border-gray-300 rounded-md text-sm">
-        <option value="ALL">All</option>
+      <span className="text-[#86868b] text-xs">{label}:</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="px-2 py-1 border border-[#d2d2d7] rounded-md text-sm bg-white">
+        <option value="ALL">全部</option>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     </label>
   )
 }
 
-function SortableHeader({ col, label, currentCol, currentDir, onClick, align }:
-  { col: string; label: string; currentCol: string; currentDir: 'asc' | 'desc'; onClick: (c: string) => void; align?: 'right' }) {
-  const active = col === currentCol
+function Th({ col, label, sc, sd, on, align }: { col: string; label: string; sc: string; sd: 'asc' | 'desc'; on: (c: string) => void; align?: 'right' }) {
+  const active = col === sc
   return (
-    <th
-      onClick={() => onClick(col)}
-      className={`px-4 py-3 text-xs font-semibold text-gray-600 uppercase cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap ${align === 'right' ? 'text-right' : 'text-left'}`}
-    >
-      {label}
-      {active && <span className="ml-1 text-purple-600">{currentDir === 'asc' ? '▲' : '▼'}</span>}
+    <th onClick={() => on(col)}
+      className={`px-3 py-3 text-[11px] font-semibold text-[#86868b] uppercase cursor-pointer hover:text-[#1d1d1f] select-none whitespace-nowrap border-b-2 border-[#1d1d1f] ${align === 'right' ? 'text-right' : 'text-left'}`}>
+      {label}{active && <span className="ml-1 text-[#0071e3]">{sd === 'asc' ? '▲' : '▼'}</span>}
     </th>
   )
-}
-
-function CategoryBadge({ cat }: { cat: string | null }) {
-  if (!cat) return <span className="text-gray-300">-</span>
-  return <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">{cat}</span>
 }
