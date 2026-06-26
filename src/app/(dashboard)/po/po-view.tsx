@@ -1,14 +1,17 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import { fmtNum } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
 
 type FlatRow = {
   id: number
   po_date: string
   qty: number
   po_number: string | null
+  ship_date: string | null
+  notes: string | null
   sku_id: number
   sku_code: string
   sku_name: string
@@ -121,6 +124,10 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
   }, [dashFiltered])
   const rankTotal = topKas.reduce((s, r) => s + r.qty, 0) || 1
 
+  // 未发货 PO（无 ship_date）— 独立于上方筛选，列出全部待跟进
+  const unshipped = useMemo(() => rows.filter(r => !r.ship_date)
+    .sort((a, b) => (b.po_date ?? '').localeCompare(a.po_date ?? '')), [rows])
+
   const skuTrend = useMemo(() => {
     const m: Record<string, { name: string; qty: number }> = {}
     dashFiltered.forEach(r => { const e = (m[r.sku_code] ??= { name: r.sku_name || r.sku_code, qty: 0 }); e.qty += r.qty })
@@ -143,7 +150,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
     return true
   }), [rows, tYear, tCountry, tMonth, tSku, tKa, tCat, tSearch])
 
-  type AggRow = { month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_flag: string; category: string | null; qty: number; count: number }
+  type AggRow = { month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_flag: string; category: string | null; qty: number; count: number; shipped: number }
   const aggRows = useMemo<AggRow[]>(() => {
     const map = new Map<string, AggRow>()
     tableFiltered.forEach(r => {
@@ -151,8 +158,8 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
       const ka = r.ka_name ?? '-'
       const key = `${ym}|${r.sku_code}|${ka}|${r.country_code}`
       const ex = map.get(key)
-      if (ex) { ex.qty += r.qty; ex.count += 1 }
-      else map.set(key, { month: ym, sku_code: r.sku_code, sku_name: r.sku_name, ka_name: ka, country_code: r.country_code, country_flag: r.country_flag, category: r.sku_category, qty: r.qty, count: 1 })
+      if (ex) { ex.qty += r.qty; ex.count += 1; if (r.ship_date) ex.shipped += 1 }
+      else map.set(key, { month: ym, sku_code: r.sku_code, sku_name: r.sku_name, ka_name: ka, country_code: r.country_code, country_flag: r.country_flag, category: r.sku_category, qty: r.qty, count: 1, shipped: r.ship_date ? 1 : 0 })
     })
     return Array.from(map.values())
   }, [tableFiltered])
@@ -283,6 +290,9 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
         </ResponsiveContainer>
       </div>
 
+      {/* Unshipped POs (no ship date) — editable notes */}
+      <UnshippedTable rows={unshipped} />
+
       {/* Aggregation detail (independent filters) */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="text-base font-semibold text-gray-900 mb-1">📋 Order aggregation — Month × SKU × KA</div>
@@ -310,6 +320,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
                 <Th col="country_code" label="Country" sc={sortCol} sd={sortDir} on={toggleSort} />
                 <Th col="category" label="Category" sc={sortCol} sd={sortDir} on={toggleSort} />
                 <Th col="qty" label="Qty" sc={sortCol} sd={sortDir} on={toggleSort} align="right" />
+                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Shipped</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Count</th>
               </tr>
             </thead>
@@ -325,11 +336,12 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
                     <td className="px-4 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_code}</span></td>
                     <td className="px-4 py-2">{r.category ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">{r.category}</span> : <span className="text-gray-300">-</span>}</td>
                     <td className="px-4 py-2 text-right font-medium tabular-nums">{fmtNum(r.qty)}</td>
+                    <td className="px-4 py-2 text-center"><ShippedBadge shipped={r.shipped} total={r.count} /></td>
                     <td className="px-4 py-2 text-right text-gray-400">{r.count}</td>
                   </tr>
                 )
               })}
-              {!sortedAgg.length && <tr><td colSpan={8} className="py-12 text-center text-gray-400">No matching records</td></tr>}
+              {!sortedAgg.length && <tr><td colSpan={9} className="py-12 text-center text-gray-400">No matching records</td></tr>}
             </tbody>
           </table>
         </div>
@@ -339,6 +351,89 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
 }
 
 // ===== sub-components =====
+
+// 聚合行的发货状态徽章：全发 Yes / 全未发 No / 部分 Partial
+function ShippedBadge({ shipped, total }: { shipped: number; total: number }) {
+  if (total > 0 && shipped === total) return <span className="inline-block px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">Yes</span>
+  if (shipped === 0) return <span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">No</span>
+  return <span className="inline-block px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700" title={`${shipped}/${total} lines shipped`}>Partial {shipped}/{total}</span>
+}
+
+type UnRow = {
+  id: number; po_date: string; po_number: string | null; notes: string | null
+  sku_code: string; sku_name: string; country_code: string; country_flag: string; ka_name: string | null; qty: number
+}
+
+// 未发货 PO 表 —— notes 可编辑并写回 channel_po
+function UnshippedTable({ rows }: { rows: UnRow[] }) {
+  const supabase = useRef(createClient()).current
+  const [draft, setDraft] = useState<Record<number, string>>(() => Object.fromEntries(rows.map(r => [r.id, r.notes ?? ''])))
+  const [savingId, setSavingId] = useState<number | null>(null)
+  const [savedId, setSavedId] = useState<number | null>(null)
+
+  const save = async (id: number) => {
+    setSavingId(id); setSavedId(null)
+    const { error } = await supabase.from('channel_po').update({ notes: (draft[id] ?? '').trim() || null }).eq('id', id)
+    setSavingId(null)
+    if (!error) { setSavedId(id); setTimeout(() => setSavedId(s => s === id ? null : s), 2000) }
+    else alert(`Save failed: ${error.message}`)
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-amber-200 p-4 mb-5">
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-base font-semibold text-gray-900">🚚 Unshipped POs <span className="ml-2 text-xs font-normal text-amber-600">no ship date — needs follow-up</span></div>
+        <div className="text-xs text-gray-400">{rows.length} lines</div>
+      </div>
+      <div className="text-xs text-gray-400 mb-3">POs with an empty Ship Date are treated as not yet shipped. Add a note to record why.</div>
+      <div className="overflow-x-auto max-h-[420px] overflow-y-auto border border-gray-200 rounded-lg">
+        <table className="w-full text-sm">
+          <thead className="bg-amber-50 border-b sticky top-0 z-10">
+            <tr>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">Country</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">KA</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">PO Date</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">PO #</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">SKU</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">Product</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase" style={{ minWidth: 280 }}>Notes — why not shipped?</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.map(r => {
+              const dirty = (draft[r.id] ?? '') !== (r.notes ?? '')
+              return (
+                <tr key={r.id} className="hover:bg-amber-50/40 align-top">
+                  <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_code}</span></td>
+                  <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">{r.ka_name ?? '-'}</span></td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-600 whitespace-nowrap">{r.po_date}</td>
+                  <td className="px-3 py-2 font-mono text-[11px] text-gray-500 whitespace-nowrap">{r.po_number ?? '-'}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{r.sku_code}</td>
+                  <td className="px-3 py-2 text-gray-600">{r.sku_name || '-'}</td>
+                  <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtNum(r.qty)}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-start gap-2">
+                      <textarea value={draft[r.id] ?? ''} onChange={e => setDraft(p => ({ ...p, [r.id]: e.target.value }))} rows={2}
+                        placeholder="e.g. awaiting stock / customer postponed / partial backorder…"
+                        className="flex-1 min-w-0 resize-y rounded-md border border-gray-300 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-amber-400" />
+                      <button onClick={() => save(r.id)} disabled={!dirty || savingId === r.id}
+                        className={`shrink-0 px-2.5 py-1 text-xs rounded-md transition ${dirty ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-gray-100 text-gray-400'}`}>
+                        {savingId === r.id ? '…' : savedId === r.id ? '✓' : 'Save'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+            {!rows.length && <tr><td colSpan={8} className="py-10 text-center text-gray-400">All POs have a ship date 🎉</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function KpiCard({ label, value, hint, color }: { label: string; value: string; hint?: string; color?: string }) {
   const cMap: Record<string, string> = { blue: 'text-blue-600', amber: 'text-amber-600', purple: 'text-purple-600', green: 'text-green-600' }
   return (

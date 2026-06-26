@@ -26,7 +26,7 @@ export default async function PoPage() {
   const { data: pos, error } = await supabase
     .from('channel_po')
     .select(`
-      id, po_number, po_date, qty_ordered,
+      id, po_number, po_date, qty_ordered, ship_date, notes,
       sku:sku_id ( id, code, name, category ),
       country:country_id ( id, code, name_en, flag_emoji, region ),
       ka:ka_id ( id, name )
@@ -44,7 +44,7 @@ export default async function PoPage() {
   }
 
   type FlatRow = {
-    id: number; po_date: string; qty: number; po_number: string | null
+    id: number; po_date: string; qty: number; po_number: string | null; ship_date: string | null; notes: string | null
     sku_id: number; sku_code: string; sku_name: string; sku_category: string | null
     country_id: number; country_code: string; country_name: string; country_flag: string; country_region: string
     ka_id: number | null; ka_name: string | null
@@ -55,6 +55,8 @@ export default async function PoPage() {
     po_date: r.po_date,
     qty: r.qty_ordered,
     po_number: r.po_number,
+    ship_date: r.ship_date,
+    notes: r.notes,
     sku_id: r.sku?.id,
     sku_code: r.sku?.code,
     sku_name: r.sku?.name,
