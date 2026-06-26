@@ -36,6 +36,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
   // ===== top dashboard filters (drive KPI / charts / pills) =====
   const [dYear, setDYear] = useState<string>(thisYear)
   const [dCountry, setDCountry] = useState<string>('ALL')
+  const [dKa, setDKa] = useState<string>('ALL')
   const [dMonth, setDMonth] = useState<string>('ALL')
 
   // ===== aggregation table filters (independent — only control the detail table) =====
@@ -52,8 +53,9 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
   const dashExceptCountry = useMemo(() => rows.filter(r => {
     if (dYear !== 'ALL' && (r.po_date?.slice(0, 4) ?? '') !== dYear) return false
     if (dMonth !== 'ALL' && (r.po_date?.slice(0, 7) ?? '') !== dMonth) return false
+    if (dKa !== 'ALL' && r.ka_name !== dKa) return false
     return true
-  }), [rows, dYear, dMonth])
+  }), [rows, dYear, dMonth, dKa])
 
   const dashFiltered = useMemo(() => (
     dCountry === 'ALL' ? dashExceptCountry : dashExceptCountry.filter(r => r.country_code === dCountry)
@@ -62,8 +64,14 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
   const dashExceptMonth = useMemo(() => rows.filter(r => {
     if (dYear !== 'ALL' && (r.po_date?.slice(0, 4) ?? '') !== dYear) return false
     if (dCountry !== 'ALL' && r.country_code !== dCountry) return false
+    if (dKa !== 'ALL' && r.ka_name !== dKa) return false
     return true
-  }), [rows, dYear, dCountry])
+  }), [rows, dYear, dCountry, dKa])
+
+  // 顶部 KA 下拉选项：随所选国家收窄
+  const kaOptionsTop = useMemo(() => Array.from(new Set(
+    rows.filter(r => (dCountry === 'ALL' || r.country_code === dCountry) && r.ka_name).map(r => r.ka_name as string)
+  )).sort(), [rows, dCountry])
 
   // ===== KPI =====
   const kaNames = useMemo(() => Array.from(new Set(dashFiltered.filter(r => r.ka_name).map(r => r.ka_name as string))).sort(), [dashFiltered])
@@ -199,21 +207,13 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
         <KpiCard label="Markets" value={fmtNum(marketCount)} hint="active countries" color="green" />
       </div>
 
-      {/* Filters */}
+      {/* Filters (dashboard — drive charts/KPI) */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5">
-        <div className="flex gap-2 flex-wrap items-center mb-3">
-          <span className="text-xs text-gray-500 font-medium">Year</span>
-          <select value={dYear} onChange={e => setDYear(e.target.value)} className="px-2 py-1 border border-gray-300 rounded-md text-sm">
-            <option value="ALL">All</option>
-            {options.years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-          {(viewerIsAdmin || Object.keys(countryMeta).length > 1) && (<>
-            <span className="mx-1 text-gray-300">|</span>
-            {viewerIsAdmin && <Pill active={dCountry === 'ALL'} onClick={() => setDCountry('ALL')}>🌍 All EU <B>{fmtNum(dashExceptCountry.reduce((s, r) => s + r.qty, 0))}</B></Pill>}
-            {Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty).map(([code, m]) => (
-              <Pill key={code} active={dCountry === code} onClick={() => setDCountry(code)}><span>{m.flag}</span><span>{code}</span><B>{fmtNum(m.qty)}</B></Pill>
-            ))}
-          </>)}
+        <div className="flex gap-4 flex-wrap items-center mb-3">
+          <Sel label="Year" value={dYear} onChange={setDYear} options={options.years} />
+          <Sel label="Country" value={dCountry} onChange={v => { setDCountry(v); setDKa('ALL') }} options={countryCodes} allLabel={viewerIsAdmin ? 'All EU' : 'All'} />
+          <Sel label="KA" value={dKa} onChange={setDKa} options={kaOptionsTop} allLabel="All KAs" />
+          <span className="ml-auto text-sm text-gray-500">Total <strong className="text-gray-900 tabular-nums">{fmtNum(stats.totalQty)}</strong> units · {fmtNum(stats.poCount)} POs</span>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Pill active={dMonth === 'ALL'} onClick={() => setDMonth('ALL')} amber>📅 All months <B>{fmtNum(dashExceptMonth.reduce((s, r) => s + r.qty, 0))}</B></Pill>
@@ -297,15 +297,11 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="text-base font-semibold text-gray-900 mb-1">📋 Order aggregation — Month × SKU × KA</div>
         <div className="text-xs text-gray-400 mb-3">Filters below are independent — they only affect this table, not the charts above.</div>
-        <div className="flex gap-2 flex-wrap items-center mb-3">
+        <div className="flex gap-3 flex-wrap items-center mb-3">
           <Sel label="Year" value={tYear} onChange={setTYear} options={options.years} />
-          <Sel label="Month" value={tMonth} onChange={setTMonth} options={options.months} />
-          <Sel label="Country" value={tCountry} onChange={setTCountry} options={options.countries} />
-          <Sel label="SKU" value={tSku} onChange={setTSku} options={options.skus} />
-          <Sel label="KA" value={tKa} onChange={setTKa} options={options.kas} />
-          <Sel label="Category" value={tCat} onChange={setTCat} options={options.cats} />
           <input value={tSearch} onChange={(e) => setTSearch(e.target.value)} placeholder="Search SKU / product / KA / PO..."
-            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-56" />
+            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-64" />
+          <span className="text-xs text-gray-400">↓ pick filters directly in the column headers</span>
           <button onClick={resetTable} className="ml-auto px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">Reset</button>
         </div>
         <div className="text-xs text-gray-500 mb-2">Showing <strong className="text-gray-900">{sortedAgg.length}</strong> rows · Total <strong className="text-gray-900">{fmtNum(aggTotal)}</strong> units</div>
@@ -313,15 +309,15 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b sticky top-0 z-10">
               <tr>
-                <Th col="month" label="Month" sc={sortCol} sd={sortDir} on={toggleSort} />
-                <Th col="sku_code" label="SKU" sc={sortCol} sd={sortDir} on={toggleSort} />
-                <Th col="sku_name" label="Product" sc={sortCol} sd={sortDir} on={toggleSort} />
-                <Th col="ka_name" label="KA" sc={sortCol} sd={sortDir} on={toggleSort} />
-                <Th col="country_code" label="Country" sc={sortCol} sd={sortDir} on={toggleSort} />
-                <Th col="category" label="Category" sc={sortCol} sd={sortDir} on={toggleSort} />
-                <Th col="qty" label="Qty" sc={sortCol} sd={sortDir} on={toggleSort} align="right" />
-                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Shipped</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Count</th>
+                <FilterTh col="month" label="Month" sc={sortCol} sd={sortDir} on={toggleSort} value={tMonth} onPick={setTMonth} options={options.months} />
+                <FilterTh col="sku_code" label="SKU" sc={sortCol} sd={sortDir} on={toggleSort} value={tSku} onPick={setTSku} options={options.skus} />
+                <FilterTh col="sku_name" label="Product" sc={sortCol} sd={sortDir} on={toggleSort} />
+                <FilterTh col="ka_name" label="KA" sc={sortCol} sd={sortDir} on={toggleSort} value={tKa} onPick={setTKa} options={options.kas} />
+                <FilterTh col="country_code" label="Country" sc={sortCol} sd={sortDir} on={toggleSort} value={tCountry} onPick={setTCountry} options={options.countries} />
+                <FilterTh col="category" label="Category" sc={sortCol} sd={sortDir} on={toggleSort} value={tCat} onPick={setTCat} options={options.cats} />
+                <FilterTh col="qty" label="Qty" sc={sortCol} sd={sortDir} on={toggleSort} align="right" />
+                <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600 uppercase">Shipped</th>
+                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase">Count</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -460,24 +456,34 @@ function B({ children }: { children: React.ReactNode }) {
   return <span className="ml-1 px-1.5 rounded bg-black/10 text-xs font-mono">{children}</span>
 }
 
-function Sel({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
+function Sel({ label, value, onChange, options, allLabel }: { label: string; value: string; onChange: (v: string) => void; options: string[]; allLabel?: string }) {
   return (
     <label className="flex items-center gap-1.5 text-sm">
       <span className="text-gray-600 text-xs">{label}:</span>
       <select value={value} onChange={(e) => onChange(e.target.value)} className="px-2 py-1 border border-gray-300 rounded-md text-sm">
-        <option value="ALL">All</option>
+        <option value="ALL">{allLabel ?? 'All'}</option>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     </label>
   )
 }
 
-function Th({ col, label, sc, sd, on, align }: { col: string; label: string; sc: string; sd: 'asc' | 'desc'; on: (c: string) => void; align?: 'right' }) {
+// 表头单元：上排标题(点击排序)+ 下排筛选下拉(传 options 时才有)
+function FilterTh({ col, label, sc, sd, on, align, value, onPick, options }:
+  { col: string; label: string; sc: string; sd: 'asc' | 'desc'; on: (c: string) => void; align?: 'right'; value?: string; onPick?: (v: string) => void; options?: string[] }) {
   const active = col === sc
   return (
-    <th onClick={() => on(col)}
-      className={`px-4 py-3 text-xs font-semibold text-gray-600 uppercase cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap ${align === 'right' ? 'text-right' : 'text-left'}`}>
-      {label}{active && <span className="ml-1 text-blue-600">{sd === 'asc' ? '▲' : '▼'}</span>}
+    <th className={`px-3 py-2 align-top whitespace-nowrap ${align === 'right' ? 'text-right' : 'text-left'}`}>
+      <div onClick={() => on(col)} className="text-xs font-semibold text-gray-600 uppercase cursor-pointer hover:text-gray-900 select-none">
+        {label}{active && <span className="ml-1 text-blue-600">{sd === 'asc' ? '▲' : '▼'}</span>}
+      </div>
+      {options && onPick && (
+        <select value={value} onChange={e => onPick(e.target.value)}
+          className={`mt-1.5 w-full max-w-[140px] px-1.5 py-1 border rounded text-xs font-normal normal-case ${value && value !== 'ALL' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600'}`}>
+          <option value="ALL">All</option>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      )}
     </th>
   )
 }

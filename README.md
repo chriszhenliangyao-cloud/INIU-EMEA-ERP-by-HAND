@@ -2,7 +2,7 @@
 
 欧洲市场销售运营系统 — Next.js 14 + Supabase。
 
-支持 7 国（FR / PL / ES / NL 已启动 · DE / SE / GB 预留未启动）5 大业务板块：发货登记 · 滚动需求预测 · PSI 看板 · 渠道自助管理 · 主数据管理（SKU / Sales Rep）。
+支持 7 国（FR / PL / ES / NL / SE 已启动 · DE / GB 预留未启动）业务板块：发货登记 · 客户订单(PO)看板 · 滚动需求预测 · PSI 看板 · 季度 KPI 记分卡 + 季度复盘 · 渠道自助管理 · 主数据管理（SKU / Sales Rep）。
 
 ---
 
@@ -30,6 +30,10 @@
 | `/forecast?view=summary` | 4 国 × 动态月数预测 summary（admin 默认 · 含 Total/Stock-FD/Stock-HQ 列）| ✅ |
 | `/forecast?view=edit` | 销售填报 + Σ PO/Σ SO 历史参考 + Manage Channels modal（**周期一旦离开 draft，sales 自动锁定只读**）| ✅ |
 | `/psi` | PSI 周度看板（SO / ST / Stock / 派生 DOS · 持久 iframe · **Export Excel 完整格式**）| ✅ |
+| `/performance` | 季度 KPI 记分卡（FCST vs Achieve vs Attainment% + Score）· 季度复盘翻卡（含上季 Target 列）| ✅ |
+| `/po` | 客户订单(PO)看板（按 PO Date × Qty Ordered · 未发货清单可填 notes · 表头内筛选）**暂仅 Chris 可见** | 🔒 |
+
+> **业务口径：Shipment（发货）vs PO（订单）** —— 两者来自同一份"线下零售渠道发货记录表"的不同子表。`/shipments` = 仓库实际发货（按发货日），`/po` = 客户下的订单（按 PO Date，含金额/未发货跟踪）。**Performance 的 Achieve 用 PO（`channel_po.qty_ordered`）对标销售业绩**；`shipment` 仅作履约视角。两者按自然年/月统计会有时间差（下单 vs 发货滞后），属正常。
 
 ---
 
@@ -74,7 +78,9 @@
 ### 业务数据
 | 表 | 用途 |
 |---|---|
-| `shipment` | 发货明细（按 country_id + sku_id + ka_id + source_type）|
+| `shipment` | 发货明细（按 country_id + sku_id + ka_id + source_type）· 仓库实际出货，按发货日 |
+| `channel_po` | 客户订单明细（po_number + po_date + sku_id + ka_id + country_id + qty_ordered + ship_date + notes）· **Performance Achieve 的数据源**，来自"线下零售渠道发货记录表"的 PO Details 子表 |
+| `channel_quarterly_review` | 季度复盘（正面=本季进展，背面=下季 Action Plan 的 target/next_move/supports）· 渠道列表复盘自有，不动 KA map |
 | `import_batch` | Excel 批次记录（支持整批回滚）|
 | `forecast_run` | 预测周期（`month_count` 字段：新 cycle=3 / 历史=4）|
 | `forecast_cell` | 每个 SKU × KA × 月的预测填报 |

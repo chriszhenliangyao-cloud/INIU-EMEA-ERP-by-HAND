@@ -9,10 +9,10 @@ import { PerformanceView } from './performance-view'
  *  1. 产品          = sku 主数据（code + name）
  *  2. FCST(预测)    = 跨周期平均：对每个目标月，取「所有预测过该 国家×SKU×月 的周期」各自
  *                     （跨该国渠道求和后的）预测值，再求平均。Q = 三个月之和。
- *  3. Achieve(达成) = shipment(source_type='channel') 实际出货，按 国家×SKU×月。Q = 三个月之和。
- *  4. Achieve %     = 实际出货 ÷ 预测 × 100%（每月 + 整季 Q）。
+ *  3. Achieve(达成) = channel_po 客户订单(Qty Ordered)，按 国家×SKU×月(PO Date)。Q = 三个月之和。
+ *  4. Achieve %     = 订单量 ÷ 预测 × 100%（每月 + 整季 Q）。
  *  5. Score         = ⏳ 待业务公式（前端先占位）。
- * RLS：forecast_cell / shipment 按 can_access_country 自动过滤（销售只看自己国家）。
+ * RLS：forecast_cell / channel_po 按 can_access_country 自动过滤（销售只看自己国家）。
  * 备注：FCST 当前纳入「所有周期(含 draft)」；正式考核如只认 published，把下方 cells 查询加 run 状态过滤即可。
  */
 type SearchParams = { year?: string; q?: string; country?: string }
@@ -48,12 +48,12 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const prevQ = q === 1 ? 4 : q - 1
   const prevY = q === 1 ? year - 1 : year
 
-  const [{ data: kas }, { data: skus }, { data: allCountries }, { data: cells }, { data: ships }, { data: reviewRows }, { data: prevReviewRows }] = await Promise.all([
+  const [{ data: kas }, { data: skus }, { data: allCountries }, { data: cells }, { data: pos }, { data: reviewRows }, { data: prevReviewRows }] = await Promise.all([
     supabase.from('ka').select('id, name, country_id, sort_order, ka_type').eq('is_active', true).order('country_id').order('sort_order').order('name'),
     supabase.from('sku').select('id, code, name, category, sort_order').eq('is_active', true).order('sort_order').order('code'),
     supabase.from('country').select('id, code, name_en, flag_emoji, region, sort_order').eq('region', 'EU').eq('is_active', true).order('sort_order'),
     supabase.from('forecast_cell').select('run_id, sku_id, ka_id, month, qty').gte('month', periodStart).lt('month', endExclusive).range(0, 49999),
-    supabase.from('shipment').select('sku_id, country_id, effective_date, qty').eq('source_type', 'channel').gte('effective_date', periodStart).lt('effective_date', endExclusive).range(0, 49999),
+    supabase.from('channel_po').select('sku_id, country_id, po_date, qty_ordered').gte('po_date', periodStart).lt('po_date', endExclusive).range(0, 49999),
     supabase.from('channel_quarterly_review').select('*').eq('year', year).eq('quarter', q),
     supabase.from('channel_quarterly_review').select('country_id, channel_name, target').eq('year', prevY).eq('quarter', prevQ),
   ])
@@ -87,11 +87,11 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     }
   }
 
-  // Achieve：shipment 实际出货
+  // Achieve：channel_po 客户订单(Qty Ordered)，按 PO Date 月归集
   const achieve: Record<number, Record<number, number[]>> = {}
-  ;(ships ?? []).forEach((s: any) => {
-    const mi = monthIndex[String(s.effective_date).slice(0, 7)]; if (mi == null) return
-    ;((achieve[s.country_id] ??= {})[s.sku_id] ??= Array(M).fill(0))[mi] += Number(s.qty) || 0
+  ;(pos ?? []).forEach((p: any) => {
+    const mi = monthIndex[String(p.po_date).slice(0, 7)]; if (mi == null) return
+    ;((achieve[p.country_id] ??= {})[p.sku_id] ??= Array(M).fill(0))[mi] += Number(p.qty_ordered) || 0
   })
 
   const initialCountryCode = (searchParams?.country && countries.some((c: any) => c.code === searchParams.country))

@@ -100,7 +100,7 @@ export function PerformanceView({
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-gray-900">🏆 Performance — Quarterly KPI</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Forecast (cross-cycle average) vs Achieve (actual sell-in shipments) vs Attainment % · {viewerIsAdmin ? 'all countries' : 'your assigned countries only'}
+          Forecast (cross-cycle average) vs Achieve (customer PO — Qty Ordered) vs Attainment % · {viewerIsAdmin ? 'all countries' : 'your assigned countries only'}
         </p>
       </div>
 
@@ -243,7 +243,7 @@ export function PerformanceView({
       {/* 月度 TTL 折线图：预测 vs 达成 */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 mt-5">
         <h2 className="text-sm font-semibold text-gray-700">📈 Monthly TTL — Forecast vs Achieve · {country?.flag_emoji} {country?.code} · {selectedYear} {qLabel}</h2>
-        <p className="text-xs text-gray-400 mb-3">Monthly total across all SKUs — forecast vs actual shipments for this country</p>
+        <p className="text-xs text-gray-400 mb-3">Monthly total across all SKUs — forecast vs customer PO (Qty Ordered) for this country</p>
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={chartData} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
@@ -258,7 +258,7 @@ export function PerformanceView({
       </div>
 
       <p className="mt-3 text-xs text-gray-400">
-        FCST = average across cycles of each (country × SKU × month) forecast (summed across channels); Achieve = actual channel shipments for the same months; Achieve% = Achieve ÷ FCST; {qLabel} = sum of the three months.
+        FCST = average across cycles of each (country × SKU × month) forecast (summed across channels); Achieve = customer PO (Qty Ordered) by PO date for the same months; Achieve% = Achieve ÷ FCST; {qLabel} = sum of the three months.
       </p>
       </>)}
 
