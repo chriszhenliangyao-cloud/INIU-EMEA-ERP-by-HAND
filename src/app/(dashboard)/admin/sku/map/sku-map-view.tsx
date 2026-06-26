@@ -42,12 +42,15 @@ type Props = {
   viewerName: string
 }
 
-// 颜色全称字典（与 code 后缀一致）→ 色点
+// 颜色全称字典（与 code 后缀一致）→ 色点。新增颜色在此补一行即可归卡。
 const COLOR_DOT: Record<string, string> = {
   Black: '#1f2937', White: '#e5e7eb', Orange: '#f97316',
   Blue: '#3b82f6', Titan: '#9ca3af', DesertTitan: '#d6b88a',
+  Red: '#ef4444', LB: '#7dd3fc',
 }
 const COLOR_WORDS = Object.keys(COLOR_DOT)
+// chip 显示名（缩写后缀 → 全称），缺省用后缀本身
+const COLOR_LABEL: Record<string, string> = { LB: 'Light Blue' }
 
 // code = <MODEL>-<颜色全称> → 拆出型号与颜色
 function splitModel(code: string): { model: string; color: string | null } {
@@ -328,7 +331,7 @@ function ModelCard({ model, variants, onSuccess, onError }: {
                     className="w-2.5 h-2.5 rounded-full border border-gray-300 flex-shrink-0"
                     style={{ background: color ? COLOR_DOT[color] : '#fff' }}
                   />
-                  {color ?? v.code}
+                  {color ? (COLOR_LABEL[color] ?? color) : v.code}
                 </button>
               )
             })}
@@ -393,14 +396,16 @@ function AddSkuForm({ prefill, title, onDone, onError, onCancel }: {
   const [series, setSeries] = useState(prefill.series ?? '')
   const [family, setFamily] = useState(prefill.family ?? '')
   const [lifecycle, setLifecycle] = useState(prefill.lifecycle ?? 'active')
+  const [err, setErr] = useState<string | null>(null)
 
   const submit = () => startTransition(async () => {
+    setErr(null)
     const r = await createSKU({
       code, name,
       color: color || null, category: category || null,
       series: series || null, family: family || null, lifecycle,
     })
-    if (!r.ok) { onError(r.error); return }
+    if (!r.ok) { setErr(r.error); onError(r.error); return }
     onDone(`${code.trim()} created`)
     router.refresh()
   })
@@ -450,6 +455,9 @@ function AddSkuForm({ prefill, title, onDone, onError, onCancel }: {
           </select>
         </div>
       </div>
+      {err && (
+        <div className="px-2 py-1.5 rounded bg-red-50 border border-red-300 text-xs text-red-700">⚠️ {err}</div>
+      )}
       <div className="flex items-center justify-between">
         <span className="text-[10px] text-gray-400">价格 / EAN / 箱规等请到 ⚙️ Master Data 补</span>
         <div className="flex gap-2">
