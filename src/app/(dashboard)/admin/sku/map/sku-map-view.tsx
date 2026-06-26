@@ -21,6 +21,7 @@ import {
   deleteSKUPermanently,
   getSKUReferenceCount,
 } from '../_actions/manage-sku'
+import { LifecycleGantt } from './lifecycle-gantt'
 
 type Sku = {
   id: number
@@ -274,6 +275,7 @@ function ModelCard({ model, variants, onSuccess, onError }: {
 }) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [adding, setAdding] = useState(false)
+  const [showLife, setShowLife] = useState(false)
   const multi = variants.length > 1 || splitModel(variants[0].code).color !== null
   // 型号显示名：去掉颜色后缀的公共部分
   const baseName = variants[0].name.split(' - ')[0]
@@ -310,6 +312,10 @@ function ModelCard({ model, variants, onSuccess, onError }: {
           <button onClick={() => setAdding(v => !v)} title={`给 ${model} 加一个颜色 / 变体`}
             className="px-1.5 py-0.5 text-xs text-green-700 hover:bg-green-100 rounded flex-shrink-0 font-medium">
             ＋ 颜色
+          </button>
+          <button onClick={() => setShowLife(v => !v)} title={`查看 ${model} 生命周期`}
+            className={`px-1.5 py-0.5 text-xs rounded flex-shrink-0 font-medium transition ${showLife ? 'bg-indigo-600 text-white' : 'text-indigo-700 hover:bg-indigo-100'}`}>
+            📅 生命周期 <span className="text-[9px]">{showLife ? '▲' : '▼'}</span>
           </button>
         </div>
 
@@ -364,6 +370,13 @@ function ModelCard({ model, variants, onSuccess, onError }: {
             onError={onError}
             onCancel={() => setAdding(false)}
           />
+        )}
+
+        {/* 生命周期甘特图（下拉展开） */}
+        {showLife && (
+          <LifecycleGantt modelCode={model} modelName={baseName}
+            subtitle={[variants[0].category, variants[0].series, variants[0].family].filter(Boolean).join(' / ')}
+            currentLifecycle={lifecycle} />
         )}
       </div>
     </div>
