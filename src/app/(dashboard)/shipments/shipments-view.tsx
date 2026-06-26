@@ -4,6 +4,9 @@ import { useMemo, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import { fmtNum } from '@/lib/utils'
 
+// 低饱和度调色板（与 PO 页一致）
+const PALETTE = ['#5b8def', '#52b788', '#9b8cce', '#e0a458', '#d98594', '#6cc3d5', '#c9a227', '#7aa095', '#b58db6', '#8a9bb0']
+
 type FlatRow = {
   id: number
   effective_date: string
@@ -169,11 +172,12 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName, marketCount }: 
 
   // ============== SKU 趋势（柱形图）==============
   const skuTrend = useMemo(() => {
-    const m: Record<string, number> = {}
+    const m: Record<string, { name: string; qty: number }> = {}
     filtered.forEach(r => {
-      m[r.sku_code] = (m[r.sku_code] ?? 0) + r.qty
+      const e = (m[r.sku_code] ??= { name: r.sku_name || r.sku_code, qty: 0 })
+      e.qty += r.qty
     })
-    return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([sku, qty]) => ({ sku, qty }))
+    return Object.entries(m).sort((a, b) => b[1].qty - a[1].qty).map(([sku, v]) => ({ sku, name: v.name, qty: v.qty }))
   }, [filtered])
 
   // ============== 聚合表数据（月 × SKU × KA × 国家 × 类目） ==============
@@ -366,14 +370,14 @@ export function ShipmentsView({ rows, viewerIsAdmin, viewerName, marketCount }: 
             </div>
             <div className="text-xs text-gray-400">{skuTrend.length} SKUs</div>
           </div>
-          <ResponsiveContainer width="100%" height={380}>
-            <BarChart data={skuTrend} margin={{ top: 25, right: 10, left: 0, bottom: 70 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-              <XAxis dataKey="sku" tick={{ fontSize: 10 }} angle={-50} textAnchor="end" interval={0} height={90} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => fmtNum(v)} />
-              <Bar dataKey="qty" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart data={skuTrend} margin={{ top: 25, right: 10, left: 0, bottom: 120 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6b7280' }} angle={-50} textAnchor="end" interval={0} height={140} />
+              <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => fmtNum(v)} />
+              <Bar dataKey="qty" radius={[4, 4, 0, 0]} isAnimationActive={false} maxBarSize={40}>
                 {skuTrend.map((entry, i) => (
-                  <Cell key={i} fill={`hsl(${Math.round((i * 360) / Math.max(skuTrend.length, 1))}, 65%, 55%)`} />
+                  <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
                 ))}
                 <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 10, fill: '#374151' }} />
               </Bar>
