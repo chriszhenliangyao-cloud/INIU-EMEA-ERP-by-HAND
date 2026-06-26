@@ -41,21 +41,23 @@ type Props = {
   viewerName: string
 }
 
-// 颜色全称字典（与 code 后缀一致）→ 色点
+// 颜色 → 色点（按 sku.color 字段查，归一化小写匹配；未知颜色用灰点，但仍正常分组）
 const COLOR_DOT: Record<string, string> = {
-  Black: '#1f2937', White: '#e5e7eb', Orange: '#f97316',
-  Blue: '#3b82f6', Titan: '#9ca3af', DesertTitan: '#d6b88a',
+  black: '#1f2937', white: '#e5e7eb', orange: '#f97316', blue: '#3b82f6',
+  'light blue': '#7dd3fc', red: '#ef4444', titan: '#9ca3af', titanium: '#9ca3af',
+  'desert titanium': '#d6b88a', 'desert titan': '#d6b88a', green: '#22c55e',
+  pink: '#ec4899', purple: '#a855f7', gold: '#eab308', silver: '#cbd5e1',
 }
-const COLOR_WORDS = Object.keys(COLOR_DOT)
+const colorDot = (name: string | null) => COLOR_DOT[(name ?? '').trim().toLowerCase()] ?? '#d1d5db'
 
-// code = <MODEL>-<颜色全称> → 拆出型号与颜色
-function splitModel(code: string): { model: string; color: string | null } {
-  const idx = code.lastIndexOf('-')
-  if (idx > 0) {
-    const tail = code.slice(idx + 1)
-    if (COLOR_WORDS.includes(tail)) return { model: code.slice(0, idx), color: tail }
+// 型号基号：有 color 的就把 code 末段(-颜色后缀)去掉聚到同一型号；无 color 用整段 code。
+// 纯数据驱动——任何新颜色只要 sku.color 有值就自动归位，不用维护颜色清单。
+function baseModel(s: { code: string; color: string | null }): string {
+  if (s.color && s.color.trim()) {
+    const idx = s.code.lastIndexOf('-')
+    if (idx > 0) return s.code.slice(0, idx)
   }
-  return { model: code, color: null }
+  return s.code
 }
 
 const CATEGORY_ORDER: Record<string, number> = {
@@ -183,7 +185,7 @@ function FamilyBlock({ family, series, skus, isLast, onSuccess, onError }: {
   const models = useMemo(() => {
     const m = new Map<string, Sku[]>()
     skus.forEach(s => {
-      const { model } = splitModel(s.code)
+      const model = baseModel(s)
       if (!m.has(model)) m.set(model, [])
       m.get(model)!.push(s)
     })
@@ -227,9 +229,18 @@ function ModelCard({ model, variants, onSuccess, onError }: {
   onError: (m: string) => void
 }) {
   const [editingId, setEditingId] = useState<number | null>(null)
-  const multi = variants.length > 1 || splitModel(variants[0].code).color !== null
-  // 型号显示名：去掉颜色后缀的公共部分
-  const baseName = variants[0].name.split(' - ')[0]
+  const multi = variants.length > 1 || !!variants[0].color
+  // 型号显示名：把首个变体名末尾的颜色去掉（兼容 " - 颜色" / "-颜色" / " 颜色"）
+  const baseName = (() => {
+    const v0 = variants[0]
+    if (v0.color) {
+      for (const sep of [' - ', '-', ' ']) {
+        const suffix = sep + v0.color
+        if (v0.name.toLowerCase().endsWith(suffix.toLowerCase())) return v0.name.slice(0, -suffix.length).trim()
+      }
+    }
+    return v0.name.split(' - ')[0]
+  })()
   const anyActive = variants.some(v => v.is_active)
   const lifecycle = variants[0].lifecycle ?? 'active'
 
@@ -266,7 +277,7 @@ function ModelCard({ model, variants, onSuccess, onError }: {
         {multi && (
           <div className="flex flex-wrap gap-1.5 mt-1.5 ml-4">
             {variants.map(v => {
-              const { color } = splitModel(v.code)
+              const color = v.color
               return (
                 <button
                   key={v.id}
@@ -278,7 +289,7 @@ function ModelCard({ model, variants, onSuccess, onError }: {
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full border border-gray-300 flex-shrink-0"
-                    style={{ background: color ? COLOR_DOT[color] : '#fff' }}
+                    style={{ background: colorDot(color) }}
                   />
                   {color ?? v.code}
                 </button>
