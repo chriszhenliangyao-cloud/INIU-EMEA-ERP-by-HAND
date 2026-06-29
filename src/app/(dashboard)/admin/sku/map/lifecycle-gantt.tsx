@@ -32,6 +32,27 @@ const addDays = (iso: string, n: number) => new Date(new Date(iso).getTime() + n
 const fmtM = (d: string) => { const x = new Date(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') }
 const todayISO = () => new Date().toISOString().slice(0, 10)
 
+const EASE = 'cubic-bezier(.22,.61,.36,1)'
+const GANTT_CSS = `
+.lcg .lc-bar{cursor:grab;transition:left .22s ${EASE},width .22s ${EASE},box-shadow .2s ease,transform .2s ${EASE};will-change:left,width}
+.lcg .lc-bar:hover{filter:brightness(1.06)}
+.lcg .lc-bar.lift{cursor:grabbing;transition:none;transform:scale(1.025);box-shadow:0 9px 24px rgba(0,0,0,.24);z-index:8}
+.lcg .lc-bar:active{cursor:grabbing}
+.lcg .lc-h{opacity:0;transition:opacity .15s ease}
+.lcg .lc-bar:hover .lc-h{opacity:1}
+.lcg .lc-track{transition:background .15s ease}
+.lcg .lc-track:hover{background:rgba(0,0,0,.018)}
+.lcg .lc-empty{transition:border-color .15s ease,color .15s ease,background .15s ease}
+.lcg .lc-track:hover .lc-empty{border-color:#bcbcc2;color:#8e8e93;background:rgba(0,0,0,.012)}
+.lcg .lc-px{transition:left .22s ${EASE},width .22s ${EASE}}
+.lcg .lc-kf{transform:translateX(-50%);cursor:grab;transition:left .22s ${EASE},transform .15s ease,box-shadow .15s ease}
+.lcg .lc-kf:hover{transform:translateX(-50%) scale(1.22);box-shadow:0 3px 10px rgba(0,0,0,.34);z-index:9}
+.lcg .lc-kf.lift{cursor:grabbing;transition:none;transform:translateX(-50%) scale(1.26);z-index:10;box-shadow:0 7px 16px rgba(0,0,0,.3)}
+.lc-bubble{position:fixed;pointer-events:none;background:rgba(28,28,30,.9);color:#fff;font-size:11px;font-weight:600;letter-spacing:.2px;padding:4px 9px;border-radius:8px;transform:translate(-50%,-160%);white-space:nowrap;z-index:90;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 6px 18px rgba(0,0,0,.28)}
+@keyframes lcPop{from{opacity:0;transform:scale(.95) translateY(6px)}to{opacity:1;transform:none}}
+.lc-pop{animation:lcPop .2s ${EASE};transform-origin:top center}
+`
+
 export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycle }: {
   modelCode: string; modelName: string; subtitle: string; currentLifecycle: string
 }) {
@@ -80,7 +101,17 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
   const pct = (d: string | Date) => ((+new Date(d) - +T0) / span * 100)
   const isoAt = (p: number) => new Date(+T0 + span * p / 100).toISOString().slice(0, 10)
   const trackW = () => ganttRef.current?.querySelector('.lc-track')?.getBoundingClientRect().width ?? 600
-  const pxToDays = (dx: number, w: number) => Math.round(dx / w * (span / DAY))
+  const dayPx = () => trackW() / (span / DAY)            // 一天 = 多少像素（用于吸附到整天）
+  const clamp = (v: number) => Math.max(0, Math.min(100, v))
+  const fmtD = (d: string) => d                          // ISO YYYY-MM-DD（气泡用）
+
+  // 跟手日期气泡（Apple Calendar 风格）
+  const bubbleRef = useRef<HTMLDivElement>(null)
+  const showBubble = (text: string, x: number, y: number) => {
+    const b = bubbleRef.current; if (!b) return
+    b.textContent = text; b.style.left = x + 'px'; b.style.top = y + 'px'; b.style.display = 'block'
+  }
+  const hideBubble = () => { if (bubbleRef.current) bubbleRef.current.style.display = 'none' }
 
   const touch = () => setDirty(true)
 
@@ -95,63 +126,92 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
     return pts.map((p, i) => ({ start: p.date, end: i + 1 < pts.length ? pts[i + 1].date : end, price: p.price }))
   }
 
-  // ---- drag bars ----
-  const startBarDrag = (e: React.MouseEvent, key: string, mode: 'move' | 'l' | 'r') => {
+  // ---- drag bars (rAF + 直接改 DOM，松手才 commit；60fps 不卡) ----
+  const startBarDrag = (e: React.PointerEvent, key: string, mode: 'move' | 'l' | 'r') => {
     e.preventDefault(); e.stopPropagation()
+    const el = e.currentTarget as HTMLElement
     const idx = phases.findIndex(p => p.key === key)
-    const snap = phases.map(p => ({ start: p.start, end: p.end }))
-    const ax = e.clientX, w = trackW(); let moved = false
-    const mv = (ev: MouseEvent) => {
-      moved = true; const dd = pxToDays(ev.clientX - ax, w)
+    const s0 = phases[idx].start!, e0 = phases[idx].end!
+    const ax = e.clientX, dpx = dayPx()
+    let moved = false, dd = 0, raf = 0, cx = ax, cy = e.clientY
+    const calc = () => {
+      let ns = s0, ne = e0
+      if (mode === 'move') { ns = addDays(s0, dd); ne = addDays(e0, dd) }
+      else if (mode === 'r') { ne = addDays(e0, dd); if (new Date(ne) <= new Date(s0)) ne = addDays(s0, 1) }
+      else { ns = addDays(s0, dd); if (new Date(ns) >= new Date(e0)) ns = addDays(e0, -1) }
+      return { ns, ne }
+    }
+    const paint = () => {
+      raf = 0; const { ns, ne } = calc()
+      el.style.left = pct(ns) + '%'; el.style.width = (pct(ne) - pct(ns)) + '%'
+      showBubble(mode === 'move' ? `${fmtD(ns)} → ${fmtD(ne)}` : mode === 'r' ? fmtD(ne) : fmtD(ns), cx, cy)
+    }
+    const mv = (ev: PointerEvent) => {
+      const dx = ev.clientX - ax; if (!moved && Math.abs(dx) < 4) return
+      if (!moved) { moved = true; el.classList.add('lift') }
+      dd = Math.round(dx / dpx); cx = ev.clientX; cy = ev.clientY
+      if (!raf) raf = requestAnimationFrame(paint)
+    }
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up)
+      if (raf) cancelAnimationFrame(raf); hideBubble(); el.classList.remove('lift')
+      if (!moved) { setPop({ kind: 'phase', key, x: ev.clientX, y: ev.clientY }); return }   // 单击 → 日期弹窗
+      const { ns, ne } = calc()
       setPhases(prev => prev.map((p, j) => {
-        if (j === idx) {
-          if (mode === 'move') return { ...p, start: addDays(snap[idx].start!, dd), end: addDays(snap[idx].end!, dd) }
-          if (mode === 'r') { let ne = addDays(snap[idx].end!, dd); if (new Date(ne) <= new Date(p.start!)) ne = addDays(p.start!, 1); return { ...p, end: ne } }
-          let ns = addDays(snap[idx].start!, dd); if (new Date(ns) >= new Date(p.end!)) ns = addDays(p.end!, -1); return { ...p, start: ns }
-        }
-        if (cascade && (mode === 'move' || mode === 'r') && j > idx && snap[j].start) return { ...p, start: addDays(snap[j].start!, dd), end: addDays(snap[j].end!, dd) }
+        if (j === idx) return { ...p, start: ns, end: ne }
+        if (cascade && (mode === 'move' || mode === 'r') && j > idx && p.start) return { ...p, start: addDays(p.start, dd), end: addDays(p.end!, dd) }
         return p
       }))
+      touch()
     }
-    const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); if (moved) touch() }
-    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up)
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up)
   }
 
   // ---- track empty: unscheduled -> draw, else new keyframe ----
-  const onTrackDown = (e: React.MouseEvent, key: string) => {
+  const onTrackDown = (e: React.PointerEvent, key: string) => {
     const t = e.target as HTMLElement
     if (t.closest('.lc-bar') || t.closest('.lc-kf')) return
     const tr = e.currentTarget as HTMLElement, rect = tr.getBoundingClientRect(), ax = e.clientX
-    const startP = Math.max(0, Math.min(100, (ax - rect.left) / rect.width * 100))
+    const startP = clamp((ax - rect.left) / rect.width * 100)
     const p = phases.find(x => x.key === key)!
     if (!p.start) {
-      const s = isoAt(startP); let moved = false
+      const s = isoAt(startP); let moved = false, raf = 0, ne = addDays(s, 1), cx = ax, cy = e.clientY
       setPhases(prev => prev.map(x => x.key === key ? { ...x, start: s, end: addDays(s, 1) } : x))
-      const mv = (ev: MouseEvent) => {
-        moved = true; let pp = Math.max(0, Math.min(100, (ev.clientX - rect.left) / rect.width * 100)); let ne = isoAt(pp); if (new Date(ne) <= new Date(s)) ne = addDays(s, 1)
-        setPhases(prev => prev.map(x => x.key === key ? { ...x, end: ne } : x))
+      const paint = () => { raf = 0; setPhases(prev => prev.map(x => x.key === key ? { ...x, end: ne } : x)); showBubble(`${fmtD(s)} → ${fmtD(ne)}`, cx, cy) }
+      const mv = (ev: PointerEvent) => {
+        const dx = ev.clientX - ax; if (!moved && Math.abs(dx) < 4) return; moved = true
+        const pp = clamp((ev.clientX - rect.left) / rect.width * 100); ne = isoAt(pp); if (new Date(ne) <= new Date(s)) ne = addDays(s, 1)
+        cx = ev.clientX; cy = ev.clientY; if (!raf) raf = requestAnimationFrame(paint)
       }
-      const up = (ev: MouseEvent) => {
-        document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); touch()
+      const up = (ev: PointerEvent) => {
+        window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (raf) cancelAnimationFrame(raf); hideBubble(); touch()
         if (!moved) { setPhases(prev => prev.map(x => x.key === key ? { ...x, end: addDays(s, 30) } : x)); setPop({ kind: 'phase', key, x: ev.clientX, y: ev.clientY }) }
       }
-      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up)
+      window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up)
     } else {
-      const up = (ev: MouseEvent) => { document.removeEventListener('mouseup', up); if (Math.abs(ev.clientX - ax) < 4) setPop({ kind: 'kfnew', phase: key, date: isoAt(startP), x: ev.clientX, y: ev.clientY }) }
-      document.addEventListener('mouseup', up)
+      const up = (ev: PointerEvent) => { window.removeEventListener('pointerup', up); if (Math.abs(ev.clientX - ax) < 4) setPop({ kind: 'kfnew', phase: key, date: isoAt(startP), x: ev.clientX, y: ev.clientY }) }
+      window.addEventListener('pointerup', up)
     }
   }
 
-  const startKfDrag = (e: React.MouseEvent, id: number) => {
+  const startKfDrag = (e: React.PointerEvent, id: number) => {
     e.preventDefault(); e.stopPropagation()
-    const tr = (e.currentTarget as HTMLElement).closest('.lc-track') as HTMLElement, rect = tr.getBoundingClientRect(), ax = e.clientX; let moved = false
-    const mv = (ev: MouseEvent) => {
-      if (!moved && Math.abs(ev.clientX - ax) < 4) return; moved = true
-      const pp = Math.max(0, Math.min(100, (ev.clientX - rect.left) / rect.width * 100))
-      setKfs(prev => prev.map(k => k.id === id ? { ...k, date: isoAt(pp) } : k))
+    const el = e.currentTarget as HTMLElement
+    const tr = el.closest('.lc-track') as HTMLElement, rect = tr.getBoundingClientRect(), ax = e.clientX
+    let moved = false, raf = 0, date = '', cx = ax, cy = e.clientY
+    const paint = () => { raf = 0; el.style.left = pct(date) + '%'; showBubble(fmtD(date), cx, cy) }
+    const mv = (ev: PointerEvent) => {
+      const dx = ev.clientX - ax; if (!moved && Math.abs(dx) < 4) return
+      if (!moved) { moved = true; el.classList.add('lift') }
+      date = isoAt(clamp((ev.clientX - rect.left) / rect.width * 100)); cx = ev.clientX; cy = ev.clientY
+      if (!raf) raf = requestAnimationFrame(paint)
     }
-    const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); if (moved) touch(); else { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setPop({ kind: 'kf', id, x: r.left, y: r.bottom }) } }
-    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up)
+    const up = () => {
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (raf) cancelAnimationFrame(raf); hideBubble(); el.classList.remove('lift')
+      if (moved) { setKfs(prev => prev.map(k => k.id === id ? { ...k, date } : k)); touch() }
+      else { const r = el.getBoundingClientRect(); setPop({ kind: 'kf', id, x: r.left, y: r.bottom }) }
+    }
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up)
   }
 
   // ---- save ----
@@ -181,7 +241,9 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
   while (d <= T1) { if (d.getMonth() % 3 === 0) ticks.push({ x: pct(d), label: `${d.getFullYear()} Q${Math.floor(d.getMonth() / 3) + 1}` }); d = new Date(d.getFullYear(), d.getMonth() + 1, 1) }
 
   return (
-    <div className="mt-2 border border-indigo-200 rounded-lg bg-white p-3" style={{ fontFamily: 'Arial, sans-serif' }}>
+    <div className="lcg mt-2 border border-indigo-200 rounded-lg bg-white p-3" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif' }}>
+      <style dangerouslySetInnerHTML={{ __html: GANTT_CSS }} />
+      <div ref={bubbleRef} className="lc-bubble" style={{ display: 'none', left: 0, top: 0 }} />
       {/* toolbar */}
       <div className="flex items-center gap-3 flex-wrap mb-2">
         <span className="text-xs font-semibold text-gray-800">📅 {modelCode} · {modelName}</span>
@@ -222,29 +284,33 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
               <div className="flex-none border-r border-gray-200 flex items-center gap-2" style={{ width: 180, padding: '6px 12px', fontSize: 11.5 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: p.color, flex: '0 0 auto' }} /><span>{p.name}</span>
               </div>
-              <div className="lc-track relative flex-1" style={{ height: hasPx ? 54 : 44, cursor: 'copy' }} onMouseDown={e => onTrackDown(e, p.key)}>
+              <div className="lc-track relative flex-1" style={{ height: hasPx ? 54 : 44, cursor: 'copy', touchAction: 'none' }} onPointerDown={e => onTrackDown(e, p.key)}>
                 {/* bar / emptyhint */}
                 {p.start && p.end ? (
-                  <div className="lc-bar" onMouseDown={e => startBarDrag(e, p.key, (e.target as HTMLElement).dataset.h as any || 'move')}
-                    style={{ position: 'absolute', top: 16, left: pct(p.start) + '%', width: (pct(p.end) - pct(p.start)) + '%', height: 16, borderRadius: 6, background: p.color, color: '#fff', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', cursor: 'grab', whiteSpace: 'nowrap' }}>
-                    <span data-h="l" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 9, cursor: 'ew-resize' }} />
+                  <div className="lc-bar" onPointerDown={e => startBarDrag(e, p.key, (e.target as HTMLElement).dataset.h as any || 'move')}
+                    style={{ position: 'absolute', top: 16, left: pct(p.start) + '%', width: (pct(p.end) - pct(p.start)) + '%', height: 16, borderRadius: 7, background: p.color, color: '#fff', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', whiteSpace: 'nowrap', touchAction: 'none' }}>
+                    <span className="lc-h" data-h="l" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 11, cursor: 'ew-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <i style={{ width: 3, height: 8, borderRadius: 2, background: 'rgba(255,255,255,.75)', pointerEvents: 'none' }} />
+                    </span>
                     {fmtM(p.start)} → {fmtM(p.end)}
-                    <span data-h="r" style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 9, cursor: 'ew-resize' }} />
+                    <span className="lc-h" data-h="r" style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 11, cursor: 'ew-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <i style={{ width: 3, height: 8, borderRadius: 2, background: 'rgba(255,255,255,.75)', pointerEvents: 'none' }} />
+                    </span>
                   </div>
                 ) : (
-                  <div style={{ position: 'absolute', left: 8, right: 8, top: 16, height: 16, border: '1px dashed #e2e2e6', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#bfbfc4', pointerEvents: 'none' }}>＋ 拖拽创建 / 单击设日期</div>
+                  <div className="lc-empty" style={{ position: 'absolute', left: 8, right: 8, top: 16, height: 16, border: '1px dashed #e2e2e6', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#cdcdd2', pointerEvents: 'none' }}>＋ 拖拽创建 / 单击设日期</div>
                 )}
                 {/* price inline */}
                 {hasPx && PSEGS.map((sg, i) => {
                   const s = sg.start > p.start! ? sg.start : p.start!, e = sg.end < p.end! ? sg.end : p.end!
                   if (new Date(s) >= new Date(e)) return null
-                  return <div key={i} style={{ position: 'absolute', top: 36, left: pct(s) + '%', width: (pct(e) - pct(s)) + '%', height: 11, borderRadius: 4, background: '#eef5ef', border: '1px solid #cfe3d4', color: '#3f8a5c', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>€{sg.price}</div>
+                  return <div key={i} className="lc-px" style={{ position: 'absolute', top: 36, left: pct(s) + '%', width: (pct(e) - pct(s)) + '%', height: 11, borderRadius: 4, background: '#eef5ef', border: '1px solid #cfe3d4', color: '#3f8a5c', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>€{sg.price}</div>
                 })}
                 {/* keyframes */}
                 {rowKfs.map(k => {
                   const t = TYPES[k.type] ?? TYPES.win
-                  return <div key={k.id} className="lc-kf" title={`${t.icon} ${k.title}`} onMouseDown={e => startKfDrag(e, k.id)}
-                    style={{ position: 'absolute', top: 1, left: pct(k.date) + '%', width: 16, height: 16, borderRadius: '50%', background: t.color, color: '#fff', border: '1.5px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8.5, transform: 'translateX(-50%)', cursor: 'grab', zIndex: 6 }}>{t.icon}</div>
+                  return <div key={k.id} className="lc-kf" title={`${t.icon} ${k.title}`} onPointerDown={e => startKfDrag(e, k.id)}
+                    style={{ position: 'absolute', top: 1, left: pct(k.date) + '%', width: 16, height: 16, borderRadius: '50%', background: t.color, color: '#fff', border: '1.5px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8.5, zIndex: 6, touchAction: 'none' }}>{t.icon}</div>
                 })}
                 <div style={{ position: 'absolute', left: tx + '%', top: 0, bottom: 0, width: 2, background: '#f0617c', zIndex: 5 }} />
               </div>
@@ -283,6 +349,13 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
 }
 
 // ---- popups ----
+function useEsc(onClose: () => void) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', h)
+    return () => document.removeEventListener('keydown', h)
+  }, [onClose])
+}
 function panelStyle(x: number, y: number): React.CSSProperties {
   const w = 270, h = 250
   let left = Math.min(window.innerWidth - w - 10, Math.max(10, x - 100))
@@ -294,10 +367,11 @@ const inp = 'w-full border border-gray-300 rounded-md px-2 py-1 text-xs'
 
 function PhasePopup({ p, x, y, cascade, onSave, onClose }: { p: Phase; x: number; y: number; cascade: boolean; onSave: (s: string, e: string, casc: boolean) => void; onClose: () => void }) {
   const [s, setS] = useState(p.start ?? ''); const [e, setE] = useState(p.end ?? ''); const [c, setC] = useState(cascade)
+  useEsc(onClose)
   return (
     <>
       <div className="fixed inset-0 z-50" onMouseDown={onClose} />
-      <div style={panelStyle(x, y)}>
+      <div className="lc-pop" style={panelStyle(x, y)}>
         <h4 className="text-[13px] font-semibold mb-1">📐 {p.name}</h4>
         <label className={lbl}>开始日期</label><input type="date" className={inp} value={s} onChange={ev => setS(ev.target.value)} />
         <label className={lbl}>结束日期</label><input type="date" className={inp} value={e} onChange={ev => setE(ev.target.value)} />
@@ -318,10 +392,11 @@ function KfPopup({ k, x, y, isNew, initialPrice, onSave, onDelete, onClose, onSe
   const [type, setType] = useState(k.type); const [title, setTitle] = useState(k.title); const [date, setDate] = useState(k.date)
   const [note, setNote] = useState(k.note); const [price, setPrice] = useState<string>(k.price != null ? String(k.price) : '')
   const [ip, setIp] = useState<string>(initialPrice != null ? String(initialPrice) : '')
+  useEsc(onClose)
   return (
     <>
       <div className="fixed inset-0 z-50" onMouseDown={onClose} />
-      <div style={panelStyle(x, y)}>
+      <div className="lc-pop" style={panelStyle(x, y)}>
         <h4 className="text-[13px] font-semibold mb-1">{isNew ? '＋ 新建关键帧' : `${TYPES[type]?.icon} 关键帧`}</h4>
         <label className={lbl}>类型</label>
         <select className={inp} value={type} onChange={e => setType(e.target.value)}>
