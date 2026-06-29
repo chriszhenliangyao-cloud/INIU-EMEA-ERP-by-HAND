@@ -1893,6 +1893,23 @@ function heatColor(value, maxValue) {
   return 'rgba(37,99,235,' + alpha.toFixed(3) + ')';
 }
 
+// 两个 heatmap 共用的行排序：以 sell-through 总量为主、最新库存为次。
+// 让 Sell-Through 与 Inventory 两张热力图左侧 Series/产品顺序一致，便于逐行对比。
+function sharedHeatmapRank() {
+  var so = getProductSO(), stock = getProductStock();
+  var soTot = {}, stTot = {};
+  Object.keys(so).forEach(function(n) { soTot[n] = (so[n] || []).reduce(function(a, b) { return a + (b || 0); }, 0); });
+  Object.keys(stock).forEach(function(n) {
+    var v = stock[n] || [], last = 0;
+    for (var i = v.length - 1; i >= 0; i--) { if (v[i] !== null && v[i] !== undefined) { last = v[i] || 0; break; } }
+    stTot[n] = last;
+  });
+  return function(a, b) {
+    var an = a.name, bn = b.name;
+    return (soTot[bn] || 0) - (soTot[an] || 0) || (stTot[bn] || 0) - (stTot[an] || 0) || an.localeCompare(bn);
+  };
+}
+
 function getSOHeatmapData() {
   var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
   var productSO = getProductSO();
@@ -1905,9 +1922,7 @@ function getSOHeatmapData() {
     };
   }).filter(function(row) {
     return row.total > 0 && !hiddenProducts[row.name];
-  }).sort(function(a, b) {
-    return b.total - a.total;
-  });
+  }).sort(sharedHeatmapRank());
 
   var maxValue = 0;
   rows.forEach(function(row) {
@@ -2039,9 +2054,7 @@ function getStockHeatmapData() {
     };
   }).filter(function(row) {
     return row.values.some(function(v) { return (v || 0) > 0; }) && !hiddenProducts[row.name];
-  }).sort(function(a, b) {
-    return b.total - a.total;
-  });
+  }).sort(sharedHeatmapRank());
 
   var maxValue = 0;
   rows.forEach(function(row) {
