@@ -206,6 +206,26 @@
     padding-right: 10px;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* ── 渠道流向翻转卡 ── */
+  .cf-flip { position: relative; perspective: 2200px; margin-bottom: 16px; }
+  .cf-inner { position: relative; transition: transform 0.6s cubic-bezier(.22,.61,.36,1); transform-style: preserve-3d; }
+  .cf-flip.flipped .cf-inner { transform: rotateY(180deg); }
+  .cf-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+  .cf-back { position: absolute; inset: 0; transform: rotateY(180deg); }
+  .cf-flipbtn {
+    position: absolute; top: 14px; right: 16px; z-index: 20;
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid #e2e8f0; background: #fff; color: #334155;
+    border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600;
+    cursor: pointer; box-shadow: 0 1px 2px rgba(15,23,42,.05); transition: all .16s ease;
+  }
+  .cf-flipbtn:hover { border-color: #cbd5e1; color: #111827; }
+  .cf-flipbtn:disabled { opacity: .4; cursor: not-allowed; }
+  .cf-flipbtn svg { transition: transform .5s cubic-bezier(.22,.61,.36,1); }
+  .cf-flip.flipped .cf-flipbtn svg { transform: rotate(180deg); }
+  .cf-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; }
+  .cf-legend span { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #475569; }
+  .cf-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: 0 0 auto; }
 </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -1215,6 +1235,137 @@ function renderAll() {
   renderStockPie();
   renderPieLegend();
   renderPSISummaryTable();
+  updateChannelFlipBtn();
+  if (channelFlipped) renderChannelFlow();
+}
+
+// ════════════ 渠道流向翻转卡（FD sell-through 按下游 retailer × 产品拆分）════════════
+var channelChart = null;
+var channelFlipped = false;
+function getDistDisplay(name) { return name === 'MEX' ? 'Media Expert' : name; }
+
+function channelFlowAvailable() {
+  if (state.viewMode !== 'fd') return false;
+  if (!DB.channelFlow || !DB.channelFlow.length) return false;
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  return DB.channelFlow.some(function(r) {
+    return weeks.indexOf(r.week_label) >= 0 && r.st > 0 &&
+      (summaryCountry === 'All' || r.Country === summaryCountry) &&
+      (summaryRetailer === 'All' || r.Distributor === summaryRetailer);
+  });
+}
+
+function updateChannelFlipBtn() {
+  var btn = document.getElementById('cf-flipbtn'); if (!btn) return;
+  var ok = channelFlowAvailable();
+  btn.disabled = !ok;
+  if (!ok && channelFlipped) {
+    var wrap = document.getElementById('cf-flip'); if (wrap) wrap.classList.remove('flipped');
+    channelFlipped = false;
+    var lab0 = document.getElementById('cf-flipbtn-label'); if (lab0) lab0.textContent = 'Channel flow';
+  }
+}
+
+function toggleChannelFlip() {
+  if (!channelFlipped && !channelFlowAvailable()) return;
+  channelFlipped = !channelFlipped;
+  var wrap = document.getElementById('cf-flip'); if (wrap) wrap.classList.toggle('flipped', channelFlipped);
+  var lab = document.getElementById('cf-flipbtn-label'); if (lab) lab.textContent = channelFlipped ? 'Product share' : 'Channel flow';
+  if (channelFlipped) renderChannelFlow();
+}
+
+function renderChannelFlow() {
+  var canvas = document.getElementById('cf-canvas'); if (!canvas) return;
+  var emptyEl = document.getElementById('cf-empty');
+  var legendEl = document.getElementById('cf-legend');
+  var nameEl = document.getElementById('cf-dist-name');
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
+  var dist = summaryRetailer, country = summaryCountry;
+  if (nameEl) nameEl.textContent = (state.viewMode === 'fd')
+    ? '— ' + (dist !== 'All' ? getDistDisplay(dist) : 'All Distributors') : '';
+
+  var rows = (DB.channelFlow || []).filter(function(r) {
+    return weeks.indexOf(r.week_label) >= 0 && r.st > 0 &&
+      (country === 'All' || r.Country === country) &&
+      (dist === 'All' || r.Distributor === dist);
+  });
+
+  if (channelChart) { channelChart.destroy(); channelChart = null; }
+  if (!rows.length) {
+    canvas.style.display = 'none';
+    if (legendEl) legendEl.innerHTML = '';
+    if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.textContent = '当前筛选下没有渠道明细（需 FD 模式 + 有下游拆分的分销商，如 Komsa）。'; }
+    return;
+  }
+  canvas.style.display = 'block';
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  var retTot = {}; rows.forEach(function(r) { retTot[r.Retailer] = (retTot[r.Retailer] || 0) + r.st; });
+  var retailers = Object.keys(retTot).sort(function(a, b) { return retTot[b] - retTot[a]; });
+  var prodTot = {}; rows.forEach(function(r) { prodTot[r['Product Name']] = (prodTot[r['Product Name']] || 0) + r.st; });
+  var products = Object.keys(prodTot).sort(function(a, b) { return prodTot[b] - prodTot[a]; });
+
+  var stMap = {}; rows.forEach(function(r) { stMap[r.week_label + '|' + r.Retailer + '|' + r['Product Name']] = r.st; });
+  var stockByWeek = {};
+  (DB.weeklyPSI || []).forEach(function(r) {
+    if (r.Metric !== 'Stock') return;
+    if (!DISTRIBUTOR_SET[r.Retailer]) return;
+    if (country !== 'All' && r.Country !== country) return;
+    if (dist !== 'All' && r.Retailer !== dist) return;
+    weeks.forEach(function(w) { var v = Number(r[w]); if (v) stockByWeek[w] = (stockByWeek[w] || 0) + v; });
+  });
+
+  var cats = [];
+  weeks.forEach(function(w) {
+    retailers.forEach(function(ret) {
+      var ph = products.filter(function(p) { return stMap[w + '|' + ret + '|' + p]; });
+      ph.forEach(function(p, i) { cats.push({ w: w, ret: ret, prod: p, first: i === 0 }); });
+    });
+    cats.push({ w: w, stock: true });
+  });
+
+  var labels = cats.map(function(c) { return c.stock ? ['Stock', weekDisplay(c.w)] : (c.first ? [getDistDisplay(c.ret)] : ['']); });
+  var stData = cats.map(function(c) { return c.stock ? null : (stMap[c.w + '|' + c.ret + '|' + c.prod] || null); });
+  var stColors = cats.map(function(c) { return c.stock ? 'rgba(0,0,0,0)' : getGroupColor(c.prod); });
+  var stockData = cats.map(function(c) { return c.stock ? (stockByWeek[c.w] || 0) : null; });
+
+  channelChart = new Chart(canvas, {
+    type: 'bar',
+    data: { labels: labels, datasets: [
+      { label: 'Sell-Through', data: stData, backgroundColor: stColors, yAxisID: 'y', categoryPercentage: 0.94, barPercentage: 0.98, order: 2 },
+      { label: 'Stock', data: stockData, backgroundColor: '#cbd5e1', borderColor: '#94a3b8', borderWidth: 1, yAxisID: 'yStock', categoryPercentage: 0.94, barPercentage: 0.55, order: 1 }
+    ] },
+    options: {
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } },
+      scales: {
+        x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 0, minRotation: 0, font: { size: 10, weight: '600' }, color: '#475569' } },
+        y: { beginAtZero: true, title: { display: true, text: 'Sell-Through', font: { size: 10 }, color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.15)' }, ticks: { font: { size: 10 }, color: '#94a3b8' } },
+        yStock: { beginAtZero: true, position: 'right', title: { display: true, text: 'Stock', font: { size: 10 }, color: '#94a3b8' }, grid: { drawOnChartArea: false }, ticks: { font: { size: 10 }, color: '#cbd5e1' } }
+      },
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          display: function(ctx) { var v = ctx.dataset.data[ctx.dataIndex]; return v != null && v > 0; },
+          anchor: 'end', align: 'end', clamp: true, font: { size: 9, weight: '700' },
+          color: function(ctx) { return ctx.datasetIndex === 1 ? '#64748b' : '#334155'; },
+          formatter: function(v) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v; }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(15,23,42,0.92)', cornerRadius: 8, padding: 10,
+          callbacks: {
+            title: function(items) { var c = cats[items[0].dataIndex]; return c.stock ? weekDisplay(c.w) + ' · Stock' : weekDisplay(c.w) + ' · ' + getDistDisplay(c.ret); },
+            label: function(item) { var c = cats[item.dataIndex]; return (c.stock ? 'Stock' : c.prod) + ': ' + item.parsed.y; }
+          }
+        }
+      }
+    }
+  });
+
+  if (legendEl) {
+    var html = products.map(function(p) { return '<span><i style="background:' + getGroupColor(p) + '"></i>' + p + '</span>'; }).join('');
+    html += '<span><i style="background:#cbd5e1"></i>Stock（右轴）</span>';
+    legendEl.innerHTML = html;
+  }
 }
 
 function setSOViewMode(mode) {
@@ -2187,10 +2338,29 @@ function latestDosByGroup() {
 //  - 点击系列行 → 展开该系列全部产品子表（列结构与主表一致）
 // ============================================================
 var summaryExpandedSeries = {};
+var summaryExpandedProducts = {};   // 产品 → 展开其 sell-through-by-retailer 子行
 // 本表专属筛选（与页面顶部筛选完全独立）
 var summaryCountry = 'All';
 var summaryRetailer = 'All';
 var summaryFiltersBound = false;
+
+// 下游 retailer 固定色点（表内 + 备用）
+var RETAILER_COLORS = { 'MEX': '#6366f1', 'Eurotel': '#0d9488', 'Euro': '#d97706', 'x-kom': '#e11d48', 'Komputronik': '#7c3aed' };
+function retailerColor(name) { return RETAILER_COLORS[name] || '#94a3b8'; }
+
+// 渠道子行单元格：周 ST + Total ST，后面 Latest Stock / Latest DOS 两列留空
+function summaryChannelCellsHtml(row, weeks, opts) {
+  var html = '';
+  weeks.forEach(function(w) {
+    var val = row.weekly[w];
+    var display = (val === undefined || val === null) ? '<span style="color:#cbd5e1;">-</span>' : formatMetricValue(val);
+    html += '<td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#64748b; font-variant-numeric:tabular-nums;' + (opts.rowBg ? 'background:' + opts.rowBg + ';' : '') + '">' + display + '</td>';
+  });
+  html += '<td style="padding:6px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; font-weight:600; background:' + opts.summaryBg + '; border-left:2px solid #cbd5e1; font-variant-numeric:tabular-nums;">' + formatMetricValue(row.total) + '</td>';
+  html += '<td style="border-bottom:1px solid #f1f5f9; background:' + opts.summaryBg + ';"></td>';
+  html += '<td style="border-bottom:1px solid #f1f5f9; background:' + opts.summaryBg + ';"></td>';
+  return html;
+}
 
 function syncSummaryFilters() {
   var cSel = document.getElementById('summary-country-filter');
@@ -2433,11 +2603,26 @@ function renderPSISummaryTable() {
   var productAgg = summaryAggregate(function(r) { return r['Product Name']; }, volumeMetric, weeks);
   var productRows = summaryRowsFromAgg(productAgg);
 
+  // 渠道明细：FD 模式下按产品聚合 sell-through-by-retailer（用本表的国家/distributor + 顶部周范围）
+  var channelByProduct = {};
+  if (state.viewMode === 'fd') {
+    (DB.channelFlow || []).forEach(function(r) {
+      if (weeks.indexOf(r.week_label) < 0 || !r.st) return;
+      if (summaryCountry !== 'All' && r.Country !== summaryCountry) return;
+      if (summaryRetailer !== 'All' && r.Distributor !== summaryRetailer) return;
+      var byP = channelByProduct[r['Product Name']] || (channelByProduct[r['Product Name']] = {});
+      var rt = byP[r.Retailer] || (byP[r.Retailer] = { retailer: r.Retailer, weekly: {}, total: 0 });
+      rt.weekly[r.week_label] = (rt.weekly[r.week_label] || 0) + r.st;
+      rt.total += r.st;
+    });
+  }
+  function productHasChannel(name) { return channelByProduct[name] && Object.keys(channelByProduct[name]).length > 0; }
+
   document.getElementById('summary-subtitle').textContent =
     'Period ' + weekDisplay(weeks[0]) + '\u2013' + weekDisplay(weeks[weeks.length - 1]) +
     ' \u00b7 ' + (summaryCountry === 'All' ? 'all countries' : summaryCountry) +
     ' \u00b7 ' + (summaryRetailer === 'All' ? (state.viewMode === 'fd' ? 'all distributors' : 'all retailers') : summaryRetailer) +
-    ' \u00b7 independent of filters above \u00b7 click a series to expand products';
+    ' \u00b7 independent of filters above \u00b7 \u5c55\u5f00\u7cfb\u5217\u2192\u4ea7\u54c1\uff1b\u5e26 \u25b8 \u7684\u4ea7\u54c1\u53ef\u518d\u5c55\u5f00\u5230\u4e0b\u6e38\u6e20\u9053';
 
   if (seriesRows.length === 0) {
     container.innerHTML = '<div style="padding:48px 0; text-align:center; color:#94a3b8; font-size:13px;">No PSI data in this period</div>';
@@ -2474,11 +2659,28 @@ function renderPSISummaryTable() {
       });
       children.forEach(function(p) {
         var pColor = (PRODUCTS_META[p.name] || { color: '#cbd5e1' }).color || '#cbd5e1';
-        html += '<tr style="background:#fbfcfe;">';
-        html += '<td style="position:sticky; left:0; background:#fbfcfe; z-index:1; padding:7px 12px 7px 34px; border-bottom:1px solid #f1f5f9; color:#475569; font-weight:500; white-space:nowrap;">' +
+        var pExp = productHasChannel(p.name);
+        var pOpen = pExp && !!summaryExpandedProducts[p.name];
+        var pArrow = pExp
+          ? '<span style="color:#94a3b8; font-size:8px; margin-right:5px;">' + (pOpen ? '&#9660;' : '&#9654;') + '</span>'
+          : '<span style="display:inline-block; width:13px;"></span>';
+        html += '<tr ' + (pExp ? 'data-product-toggle="' + p.name.replace(/"/g, '&quot;') + '" style="background:#fbfcfe; cursor:pointer;" title="Click to ' + (pOpen ? 'collapse' : 'expand') + ' retailers"' : 'style="background:#fbfcfe;"') + '>';
+        html += '<td style="position:sticky; left:0; background:#fbfcfe; z-index:1; padding:7px 12px 7px 30px; border-bottom:1px solid #f1f5f9; color:#475569; font-weight:500; white-space:nowrap;">' +
+          pArrow +
           '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + pColor + ';margin-right:8px;"></span>' + p.name + '</td>';
         html += summaryCellsHtml(p, weeks, { pad: '7px', bold: false, summaryBg: '#f4f7fb', rowBg: '#fbfcfe' });
         html += '</tr>';
+        if (pOpen) {
+          var rets = Object.keys(channelByProduct[p.name]).map(function(k) { return channelByProduct[p.name][k]; })
+            .sort(function(a, b) { return b.total - a.total; });
+          rets.forEach(function(rt) {
+            html += '<tr style="background:#f5f8fe;">';
+            html += '<td style="position:sticky; left:0; background:#f5f8fe; z-index:1; padding:5px 12px 5px 52px; border-bottom:1px solid #f1f5f9; color:#64748b; font-weight:500; white-space:nowrap;">' +
+              '<span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:' + retailerColor(rt.retailer) + ';margin-right:8px;"></span>' + getDistDisplay(rt.retailer) + '</td>';
+            html += summaryChannelCellsHtml(rt, weeks, { summaryBg: '#eef3fb', rowBg: '#f5f8fe' });
+            html += '</tr>';
+          });
+        }
       });
       if (children.length === 0) {
         html += '<tr style="background:#fbfcfe;"><td colspan="' + (weeks.length + 4) + '" style="padding:8px 34px; border-bottom:1px solid #f1f5f9; color:#94a3b8; font-size:11px;">No product data in this period</td></tr>';
@@ -2499,6 +2701,23 @@ function renderPSISummaryTable() {
       });
     })(toggles[t]);
   }
+
+  // 产品 → retailer 展开（仅有渠道数据的产品有 data-product-toggle）
+  var ptoggles = container.querySelectorAll('tr[data-product-toggle]');
+  for (var pt = 0; pt < ptoggles.length; pt++) {
+    (function(tr) {
+      tr.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var n = tr.getAttribute('data-product-toggle');
+        summaryExpandedProducts[n] = !summaryExpandedProducts[n];
+        renderPSISummaryTable();
+      });
+    })(ptoggles[pt]);
+  }
+
+  // 同步翻转按钮可用性 + 背面渠道图（summary 自己的筛选变化也会触发本函数）
+  updateChannelFlipBtn();
+  if (channelFlipped) renderChannelFlow();
 }
 
 // ============================================================
@@ -2673,8 +2892,15 @@ document.addEventListener('DOMContentLoaded', initApp);
     </div>
   </div>
 
-  <!-- PSI Summary Table -->
-  <div style="background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px;">
+  <!-- PSI Summary Table (flippable → Channel Flow) -->
+  <div class="cf-flip" id="cf-flip">
+    <button type="button" class="cf-flipbtn" id="cf-flipbtn" onclick="toggleChannelFlip()" title="翻转查看渠道流向 / Flip to channel flow">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 3 21 8 16 8"/><path d="M21 8a9 9 0 0 0-9-5 9 9 0 0 0-8 5"/><polyline points="3 21 3 16 8 16"/><path d="M3 16a9 9 0 0 0 9 5 9 9 0 0 0 8-5"/></svg>
+      <span id="cf-flipbtn-label">Channel flow</span>
+    </button>
+    <div class="cf-inner">
+    <div class="cf-face cf-front">
+    <div style="background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px;">
     <div style="margin-bottom:12px;">
       <h2 id="lbl-summary-title" style="font-size:14px; font-weight:700;">PSI Summary by Series</h2>
       <p id="summary-subtitle" style="font-size:12px; color:#9ca3af;">Selected period PSI metrics</p>
@@ -2686,7 +2912,21 @@ document.addEventListener('DOMContentLoaded', initApp);
       </div>
     </div>
     <div id="psi-summary-table"></div>
-  </div>
+    </div>
+    </div><!-- /cf-front -->
+    <div class="cf-face cf-back">
+      <div style="background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px; height:100%; display:flex; flex-direction:column;">
+        <div style="margin-bottom:8px;">
+          <h2 style="font-size:14px; font-weight:700;">Channel Sell-Through <span id="cf-dist-name" style="color:#9ca3af; font-weight:600; font-size:12px;"></span></h2>
+          <p style="font-size:12px; color:#9ca3af;">每周 · 各下游渠道 × 各产品的 sell-through（左轴）+ 当周库存（右轴灰柱）</p>
+        </div>
+        <div style="flex:1; min-height:280px; position:relative;"><canvas id="cf-canvas"></canvas></div>
+        <div id="cf-legend" class="cf-legend"></div>
+        <div id="cf-empty" style="display:none; text-align:center; color:#9ca3af; font-size:13px; padding:60px 0;"></div>
+      </div>
+    </div>
+    </div><!-- /cf-inner -->
+  </div><!-- /cf-flip -->
 
 </div>
 

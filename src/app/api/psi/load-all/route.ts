@@ -23,6 +23,7 @@ export async function GET() {
       { data: dbKas },
       { data: dbCountries },
       { data: psiRaw },
+      { data: throughRaw },
     ] = await Promise.all([
       supabase.from('sku')
         .select('code, name, category, series, family')
@@ -40,12 +41,19 @@ export async function GET() {
         .select('country_id, ka_id, sku_id, iso_year, iso_week, week_label, metric, qty')
         .order('week_label')
         .range(0, 49999),
+      // Sell-through 渠道明细：FD 的 ST 拆到下游 retailer（through_ka_id 非空的行）。
+      // compat 视图刻意排除了这些行，所以单独拉，喂给「渠道流向」翻转卡。RLS 同样按 country 隔离。
+      supabase.from('weekly_psi_v2')
+        .select('country_id, ka_id, through_ka_id, sku_id, week_label, st_qty')
+        .not('through_ka_id', 'is', null)
+        .order('week_label')
+        .range(0, 49999),
     ])
 
     if (!dbSkus || !dbKas || !dbCountries || !psiRaw) {
       return NextResponse.json({
         backendError: 'Failed to load master data',
-        products: [], productsFamily: [], retailers: [], weeklyPSI: [], weeks: [], config: {}, userCountries: [],
+        products: [], productsFamily: [], retailers: [], weeklyPSI: [], channelFlow: [], weeks: [], config: {}, userCountries: [],
       })
     }
 
@@ -143,11 +151,33 @@ export async function GET() {
         Family: s.family,
       }))
 
+    // ─── channelFlow：FD sell-through 拆到下游 retailer 的明细（翻转卡多柱图用）──
+    // 一行 = 某 distributor 某周某 SKU 卖给某下游 retailer 的 ST。Stock 复用 weeklyPSI 里 distributor 的 Stock metric。
+    const channelFlow = (throughRaw ?? []).map((r: any) => {
+      const dist = kaById[r.ka_id]
+      const ret = kaById[r.through_ka_id]
+      const sku = skuById[r.sku_id]
+      if (!dist || !ret || !sku) return null
+      return {
+        Country: countryById[r.country_id] ?? '',
+        Distributor: dist.name,
+        Retailer: ret.name,
+        Model: sku.code,
+        'Product Name': sku.name,
+        Category: sku.category,
+        Series: sku.series,
+        Family: sku.family,
+        week_label: r.week_label,
+        st: Number(r.st_qty) || 0,
+      }
+    }).filter(Boolean)
+
     return NextResponse.json({
       products,
       productsFamily,
       retailers,
       weeklyPSI,
+      channelFlow,
       weeks,
       config: {},
       userCountries: me.isAdmin
