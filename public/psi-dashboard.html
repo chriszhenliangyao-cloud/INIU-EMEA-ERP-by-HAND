@@ -226,6 +226,11 @@
   .cf-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; }
   .cf-legend span { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #475569; }
   .cf-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: 0 0 auto; }
+  .cf-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .cf-pill { border: 1px solid #e2e8f0; background: #fff; color: #475569; border-radius: 999px; padding: 4px 12px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all .15s ease; display: inline-flex; align-items: center; gap: 6px; }
+  .cf-pill:hover { border-color: #cbd5e1; color: #111827; }
+  .cf-pill.active { background: #111827; border-color: #111827; color: #fff; }
+  .cf-pill i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -1274,10 +1279,14 @@ function toggleChannelFlip() {
   if (channelFlipped) renderChannelFlow();
 }
 
+var channelSelectedRetailer = null;
+function selectChannelRetailer(name) { channelSelectedRetailer = name; renderChannelFlow(); }
+
 function renderChannelFlow() {
   var canvas = document.getElementById('cf-canvas'); if (!canvas) return;
   var emptyEl = document.getElementById('cf-empty');
   var legendEl = document.getElementById('cf-legend');
+  var pillsEl = document.getElementById('cf-pills');
   var nameEl = document.getElementById('cf-dist-name');
   var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
   var dist = summaryRetailer, country = summaryCountry;
@@ -1293,6 +1302,7 @@ function renderChannelFlow() {
   if (channelChart) { channelChart.destroy(); channelChart = null; }
   if (!rows.length) {
     canvas.style.display = 'none';
+    if (pillsEl) pillsEl.innerHTML = '';
     if (legendEl) legendEl.innerHTML = '';
     if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.textContent = '当前筛选下没有渠道明细（需 FD 模式 + 有下游拆分的分销商，如 Komsa）。'; }
     return;
@@ -1300,12 +1310,25 @@ function renderChannelFlow() {
   canvas.style.display = 'block';
   if (emptyEl) emptyEl.style.display = 'none';
 
+  // 渠道 pills（按总量降序），默认选最大的
   var retTot = {}; rows.forEach(function(r) { retTot[r.Retailer] = (retTot[r.Retailer] || 0) + r.st; });
   var retailers = Object.keys(retTot).sort(function(a, b) { return retTot[b] - retTot[a]; });
-  var prodTot = {}; rows.forEach(function(r) { prodTot[r['Product Name']] = (prodTot[r['Product Name']] || 0) + r.st; });
-  var products = Object.keys(prodTot).sort(function(a, b) { return prodTot[b] - prodTot[a]; });
+  if (retailers.indexOf(channelSelectedRetailer) < 0) channelSelectedRetailer = retailers[0];
+  if (pillsEl) {
+    pillsEl.innerHTML = retailers.map(function(ret) {
+      var on = ret === channelSelectedRetailer;
+      return '<button type="button" class="cf-pill' + (on ? ' active' : '') + '" onclick="selectChannelRetailer(\'' + ret.replace(/'/g, "\\'") + '\')">' +
+        '<i style="background:' + retailerColor(ret) + '"></i>' + getDistDisplay(ret) +
+        ' <span style="opacity:.55; font-weight:500;">' + formatMetricValue(retTot[ret]) + '</span></button>';
+    }).join('');
+  }
 
-  var stMap = {}; rows.forEach(function(r) { stMap[r.week_label + '|' + r.Retailer + '|' + r['Product Name']] = r.st; });
+  // 只看选中渠道：x=周，各产品一根（同产品跨周同色）+ 总库存右轴
+  var rrows = rows.filter(function(r) { return r.Retailer === channelSelectedRetailer; });
+  var prodTot = {}; rrows.forEach(function(r) { prodTot[r['Product Name']] = (prodTot[r['Product Name']] || 0) + r.st; });
+  var products = Object.keys(prodTot).sort(function(a, b) { return prodTot[b] - prodTot[a]; });
+  var stMap = {}; rrows.forEach(function(r) { stMap[r.week_label + '|' + r['Product Name']] = r.st; });
+
   var stockByWeek = {};
   (DB.weeklyPSI || []).forEach(function(r) {
     if (r.Metric !== 'Stock') return;
@@ -1315,30 +1338,21 @@ function renderChannelFlow() {
     weeks.forEach(function(w) { var v = Number(r[w]); if (v) stockByWeek[w] = (stockByWeek[w] || 0) + v; });
   });
 
-  var cats = [];
-  weeks.forEach(function(w) {
-    retailers.forEach(function(ret) {
-      var ph = products.filter(function(p) { return stMap[w + '|' + ret + '|' + p]; });
-      ph.forEach(function(p, i) { cats.push({ w: w, ret: ret, prod: p, first: i === 0 }); });
-    });
-    cats.push({ w: w, stock: true });
+  var datasets = products.map(function(p) {
+    return { label: p, backgroundColor: getGroupColor(p), yAxisID: 'y',
+      data: weeks.map(function(w) { return stMap[w + '|' + p] || null; }),
+      categoryPercentage: 0.8, barPercentage: 0.9, order: 2 };
   });
-
-  var labels = cats.map(function(c) { return c.stock ? ['Stock', weekDisplay(c.w)] : (c.first ? [getDistDisplay(c.ret)] : ['']); });
-  var stData = cats.map(function(c) { return c.stock ? null : (stMap[c.w + '|' + c.ret + '|' + c.prod] || null); });
-  var stColors = cats.map(function(c) { return c.stock ? 'rgba(0,0,0,0)' : getGroupColor(c.prod); });
-  var stockData = cats.map(function(c) { return c.stock ? (stockByWeek[c.w] || 0) : null; });
+  datasets.push({ label: 'Stock', backgroundColor: 'rgba(203,213,225,0.5)', borderColor: '#94a3b8', borderWidth: 1, yAxisID: 'yStock',
+    data: weeks.map(function(w) { return stockByWeek[w] || null; }), categoryPercentage: 0.8, barPercentage: 0.5, order: 1 });
 
   channelChart = new Chart(canvas, {
     type: 'bar',
-    data: { labels: labels, datasets: [
-      { label: 'Sell-Through', data: stData, backgroundColor: stColors, yAxisID: 'y', categoryPercentage: 0.94, barPercentage: 0.98, order: 2 },
-      { label: 'Stock', data: stockData, backgroundColor: '#cbd5e1', borderColor: '#94a3b8', borderWidth: 1, yAxisID: 'yStock', categoryPercentage: 0.94, barPercentage: 0.55, order: 1 }
-    ] },
+    data: { labels: weeks.map(function(w) { return weekDisplay(w); }), datasets: datasets },
     options: {
       responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } },
       scales: {
-        x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 0, minRotation: 0, font: { size: 10, weight: '600' }, color: '#475569' } },
+        x: { grid: { display: false }, ticks: { font: { size: 12, weight: '700' }, color: '#334155' } },
         y: { beginAtZero: true, title: { display: true, text: 'Sell-Through', font: { size: 10 }, color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.15)' }, ticks: { font: { size: 10 }, color: '#94a3b8' } },
         yStock: { beginAtZero: true, position: 'right', title: { display: true, text: 'Stock', font: { size: 10 }, color: '#94a3b8' }, grid: { drawOnChartArea: false }, ticks: { font: { size: 10 }, color: '#cbd5e1' } }
       },
@@ -1347,24 +1361,21 @@ function renderChannelFlow() {
         datalabels: {
           display: function(ctx) { var v = ctx.dataset.data[ctx.dataIndex]; return v != null && v > 0; },
           anchor: 'end', align: 'end', clamp: true, font: { size: 9, weight: '700' },
-          color: function(ctx) { return ctx.datasetIndex === 1 ? '#64748b' : '#334155'; },
+          color: function(ctx) { return ctx.dataset.label === 'Stock' ? '#94a3b8' : '#334155'; },
           formatter: function(v) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v; }
         },
         tooltip: {
           backgroundColor: 'rgba(15,23,42,0.92)', cornerRadius: 8, padding: 10,
-          callbacks: {
-            title: function(items) { var c = cats[items[0].dataIndex]; return c.stock ? weekDisplay(c.w) + ' · Stock' : weekDisplay(c.w) + ' · ' + getDistDisplay(c.ret); },
-            label: function(item) { var c = cats[item.dataIndex]; return (c.stock ? 'Stock' : c.prod) + ': ' + item.parsed.y; }
-          }
+          callbacks: { label: function(item) { return item.dataset.label + ': ' + item.parsed.y; } }
         }
       }
     }
   });
 
   if (legendEl) {
-    var html = products.map(function(p) { return '<span><i style="background:' + getGroupColor(p) + '"></i>' + p + '</span>'; }).join('');
-    html += '<span><i style="background:#cbd5e1"></i>Stock（右轴）</span>';
-    legendEl.innerHTML = html;
+    var lh = products.map(function(p) { return '<span><i style="background:' + getGroupColor(p) + '"></i>' + p + '</span>'; }).join('');
+    lh += '<span><i style="background:#cbd5e1"></i>Stock（右轴）</span>';
+    legendEl.innerHTML = lh;
   }
 }
 
@@ -2918,8 +2929,9 @@ document.addEventListener('DOMContentLoaded', initApp);
       <div style="background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px; height:100%; display:flex; flex-direction:column;">
         <div style="margin-bottom:8px;">
           <h2 style="font-size:14px; font-weight:700;">Channel Sell-Through <span id="cf-dist-name" style="color:#9ca3af; font-weight:600; font-size:12px;"></span></h2>
-          <p style="font-size:12px; color:#9ca3af;">每周 · 各下游渠道 × 各产品的 sell-through（左轴）+ 当周库存（右轴灰柱）</p>
+          <p style="font-size:12px; color:#9ca3af;">选中渠道的各产品逐周 sell-through（左轴）+ 当周总库存（右轴灰柱）· 点下方 pill 切换渠道</p>
         </div>
+        <div id="cf-pills" class="cf-pills"></div>
         <div style="flex:1; min-height:280px; position:relative;"><canvas id="cf-canvas"></canvas></div>
         <div id="cf-legend" class="cf-legend"></div>
         <div id="cf-empty" style="display:none; text-align:center; color:#9ca3af; font-size:13px; padding:60px 0;"></div>
