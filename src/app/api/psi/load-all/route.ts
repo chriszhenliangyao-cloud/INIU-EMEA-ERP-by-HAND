@@ -29,7 +29,7 @@ export async function GET() {
         .select('code, name, category, series, family')
         .eq('is_active', true),
       supabase.from('ka')
-        .select('id, name, country_id, ka_type, parent_ka_id'),
+        .select('id, name, country_id, ka_type, parent_ka_id, is_active'),
       supabase.from('country')
         .select('id, code'),
       // weekly_psi_long_compat view：底层是 weekly_psi_v2 (wide)，view 反 pivot 回 long + 派生 DOS
@@ -124,8 +124,9 @@ export async function GET() {
     const weeklyPSI = Array.from(wideMap.values())
 
     // ─── retailers（dashboard 只用到 retailer 维度；group 结构节点不进看板）─────
+    //     只取 is_active：停用的重复 KA（如 ES 的旧「LINKU」id36，真身是 id20 Tech Linku）不进下拉
     const retailers = dbKas
-      .filter((k: any) => k.ka_type === 'retailer' || k.ka_type === 'distributor')
+      .filter((k: any) => (k.ka_type === 'retailer' || k.ka_type === 'distributor') && k.is_active !== false)
       .map((k: any) => ({
         Retailer: k.name,
         Country: countryById[k.country_id] ?? '',

@@ -1252,6 +1252,8 @@ function getDistDisplay(name) { return name === 'MEX' ? 'Media Expert' : name; }
 function channelFlowAvailable() {
   if (state.viewMode !== 'fd') return false;
   if (!DB.channelFlow || !DB.channelFlow.length) return false;
+  // 必须选定「具体国家 + 具体分销商」：All 状态下渠道流向口径会误导，禁用
+  if (summaryCountry === 'All' || summaryRetailer === 'All') return false;
   var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
   return DB.channelFlow.some(function(r) {
     return weeks.indexOf(r.week_label) >= 0 && r.st > 0 &&
@@ -1260,15 +1262,28 @@ function channelFlowAvailable() {
   });
 }
 
+function flipChannelBack() {
+  var wrap = document.getElementById('cf-flip'); if (wrap) wrap.classList.remove('flipped');
+  channelFlipped = false;
+  var lab = document.getElementById('cf-flipbtn-label'); if (lab) lab.textContent = 'Channel flow';
+}
+
 function updateChannelFlipBtn() {
   var btn = document.getElementById('cf-flipbtn'); if (!btn) return;
+  // 权限闸：只有能拿到渠道明细的用户才显示按钮。channelFlow 已由后端 RLS 按国家隔离，
+  // 非 PL 用户（FR/ES… 销售）拿不到 Komsa 明细 → channelFlow 为空 → 按钮整体隐藏。
+  // 实际效果 = 仅 admin + PL 销售可见（目前只有 Komsa 有渠道拆分）。
+  if (!DB.channelFlow || !DB.channelFlow.length) {
+    btn.style.display = 'none';
+    if (channelFlipped) flipChannelBack();
+    return;
+  }
+  btn.style.display = '';
   var ok = channelFlowAvailable();
   btn.disabled = !ok;
-  if (!ok && channelFlipped) {
-    var wrap = document.getElementById('cf-flip'); if (wrap) wrap.classList.remove('flipped');
-    channelFlipped = false;
-    var lab0 = document.getElementById('cf-flipbtn-label'); if (lab0) lab0.textContent = 'Channel flow';
-  }
+  btn.title = ok ? '翻转查看渠道流向 / Flip to channel flow'
+                 : '请先在本表选定具体「国家 + 分销商」（All 状态口径会误导）';
+  if (!ok && channelFlipped) flipChannelBack();
 }
 
 function toggleChannelFlip() {
@@ -1343,10 +1358,11 @@ function renderChannelFlow() {
   weeks.forEach(function(w) {
     var start = cats.length, any = false;
     products.forEach(function(p) { if (stMap[w + '|' + p]) { cats.push({ w: w, prod: p }); any = true; } });
-    if (!any) return;
+    var sv = stockByWeek[w] || 0;
+    if (!any && !sv) return;   // 该周该渠道无销量、也无库存 → 跳过；无销量但有库存仍保留（只画库存柱）
     cats.push({ w: w, stock: true });
     weekGroups.push({ week: w, start: start, end: cats.length - 1 });
-    if ((stockByWeek[w] || 0) > stockMax) stockMax = stockByWeek[w];
+    if (sv > stockMax) stockMax = sv;
   });
 
   var stDataset = {
@@ -1403,12 +1419,6 @@ function renderChannelFlow() {
     },
     plugins: (window.ChartDataLabels ? [window.ChartDataLabels, cfDecor] : [cfDecor])
   });
-
-  if (legendEl) {
-    var lh = products.map(function(p) { return '<span><i style="background:' + getGroupColor(p) + '"></i>' + p + '</span>'; }).join('');
-    lh += '<span><i style="background:#cbd5e1"></i>Stock（右轴）</span>';
-    legendEl.innerHTML = lh;
-  }
 }
 
 function setSOViewMode(mode) {
@@ -2964,8 +2974,7 @@ document.addEventListener('DOMContentLoaded', initApp);
           <p style="font-size:12px; color:#9ca3af;">选中渠道的各产品逐周 sell-through（左轴）+ 当周总库存（右轴灰柱）· 点下方 pill 切换渠道</p>
         </div>
         <div id="cf-pills" class="cf-pills"></div>
-        <div style="flex:1; min-height:280px; position:relative;"><canvas id="cf-canvas"></canvas></div>
-        <div id="cf-legend" class="cf-legend"></div>
+        <div style="flex:1; min-height:300px; position:relative;"><canvas id="cf-canvas"></canvas></div>
         <div id="cf-empty" style="display:none; text-align:center; color:#9ca3af; font-size:13px; padding:60px 0;"></div>
       </div>
     </div>
