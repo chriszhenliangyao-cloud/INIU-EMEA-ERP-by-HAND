@@ -26,7 +26,7 @@
 | `/admin/import` | Admin 上传周度 shipment 数据 | ✅ |
 | `/admin/history` | 历史 import batch 列表 + 回滚 | ✅ |
 | `/admin/sku` | SKU 主数据管理（admin only · drawer 编辑 · audit log）| ✅ |
-| `/admin/sku/map` | SKU Product Map（类目→系列→家族→型号→颜色色块树 · 4 级 `＋` 新增入口 · 行内编辑）+ 每型号 **📅 产品生命周期甘特图**（拖拽编辑 7 阶段 + 关键帧 + 价格内嵌行）| ✅ |
+| `/admin/sku/map` | SKU Product Map（类目→系列→家族→型号→颜色色块树 · 4 级 `＋` 新增入口 · 行内编辑）+ 每型号 **📅 产品生命周期甘特图**（拖拽编辑 5 阶段：规划/研发/在售/退市/停产 + 关键帧 + 价格内嵌行）| ✅ |
 | `/admin/sales` | Sales Rep 主数据管理（含 super_admin 角色控制 + 国家分配 chips）| ✅ |
 | `/forecast?view=summary` | 4 国 × 动态月数预测 summary（admin 默认 · 含 Total/Stock-FD/Stock-HQ 列）| ✅ |
 | `/forecast?view=edit` | 销售填报 + Σ PO/Σ SO 历史参考 + Manage Channels modal（**周期一旦离开 draft，sales 自动锁定只读**）| ✅ |
@@ -82,7 +82,7 @@
 | `shipment` | 发货明细（按 country_id + sku_id + ka_id + source_type）· 仓库实际出货，按发货日 |
 | `channel_po` | 客户订单明细（po_number + po_date + sku_id + ka_id + country_id + qty_ordered + ship_date + **delivery_date** + notes）· **Performance Achieve 的数据源**，来自"线下零售渠道发货记录表"的 PO Details 子表 · **已发判定 = ship_date 或 delivery_date 任一有值**（物流偶尔漏填 ship_date，用送达日兜底；delivery_date=PO Details 第 28 列 Delivery Date）|
 | `channel_quarterly_review` | 季度复盘（正面=本季进展，背面=下季 Action Plan 的 target/next_move/supports）· 渠道列表复盘自有，不动 KA map |
-| `product_lifecycle` | 产品生命周期（按**型号 model_code** 一行：规划/研发/备货/上市/在售/退市/停产 7 阶段起止 + initial_price）· 驱动 SKU Map 的甘特图 · admin only |
+| `product_lifecycle` | 产品生命周期（按**型号 model_code** 一行）· UI 为 **5 阶段**：规划/研发/**在售**(合并备货+上市+稳定在售)/退市/停产 + initial_price · DB 仍保留 7 列对（pre/launch 列废弃留空，在售复用 active 列）· 驱动 SKU Map 甘特图 · admin only |
 | `product_keyframe` | 生命周期关键帧（中标 win / 价格调整 price+price值 / 研发延期 delay）· model_code + phase + kf_date + title/note · admin only |
 | `import_batch` | Excel 批次记录（支持整批回滚）|
 | `forecast_run` | 预测周期（`month_count` 字段：新 cycle=3 / 历史=4）|

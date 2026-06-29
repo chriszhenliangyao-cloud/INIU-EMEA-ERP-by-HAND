@@ -1,24 +1,23 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 const DAY = 864e5
+// 复用 DB 既有列：合并后的「在售」用 active_start/active_end；pre/launch 列废弃留空。
 const PHASE_DEF = [
   { key: 'plan', name: '1 · 规划立项 Planning', color: '#a8adb5' },
   { key: 'dev', name: '2 · 研发 Development', color: '#8a9bb0' },
-  { key: 'pre', name: '3 · 量产备货·铺货 Pre-launch', color: '#6cc3d5' },
-  { key: 'launch', name: '4 · 上市开售 Launch (NPI)', color: '#52b788' },
-  { key: 'active', name: '5 · 稳定在售 Active', color: '#7aa095' },
-  { key: 'eol', name: '6 · 退市清库 EOL', color: '#c9a227' },
-  { key: 'disc', name: '7 · 停产退市 Discontinued', color: '#d98594' },
+  { key: 'active', name: '3 · 在售 On Sale', color: '#52b788' },
+  { key: 'eol', name: '4 · 退市清库 EOL', color: '#c9a227' },
+  { key: 'disc', name: '5 · 停产退市 Discontinued', color: '#d98594' },
 ] as const
 const TYPES: Record<string, { icon: string; color: string; label: string }> = {
   win: { icon: '🏆', color: '#52b788', label: '商务/中标' },
   price: { icon: '💰', color: '#e0a458', label: '价格调整' },
   delay: { icon: '⏳', color: '#d98594', label: '研发延期 Delay' },
 }
-const PRICE_PHASES = ['launch', 'active', 'eol']
+const PRICE_PHASES = ['active', 'eol']
 
 type Phase = { key: string; name: string; color: string; start: string | null; end: string | null }
 type Kf = { id: number; type: string; date: string; title: string; note: string; price: number | null; phase: string }
@@ -117,9 +116,9 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
 
   // ---- price segments ----
   const priceSegs = () => {
-    const launch = phases.find(p => p.key === 'launch'), active = phases.find(p => p.key === 'active'), eol = phases.find(p => p.key === 'eol')
-    const start = launch?.start; if (!start) return []
-    const end = eol?.end || active?.end || launch?.end; if (!end) return []
+    const active = phases.find(p => p.key === 'active'), eol = phases.find(p => p.key === 'eol')
+    const start = active?.start; if (!start) return []          // 在售起点 = 价格时间轴起点
+    const end = eol?.end || active?.end; if (!end) return []
     const pts = [{ date: start, price: initialPrice ?? 0 }]
     kfs.filter(k => k.type === 'price' && k.price != null).forEach(k => { if (k.date > start && k.date < end) pts.push({ date: k.date, price: +(k.price as number) }) })
     pts.sort((a, b) => +new Date(a.date) - +new Date(b.date))
@@ -356,22 +355,46 @@ function useEsc(onClose: () => void) {
     return () => document.removeEventListener('keydown', h)
   }, [onClose])
 }
-function panelStyle(x: number, y: number): React.CSSProperties {
-  const w = 270, h = 250
-  let left = Math.min(window.innerWidth - w - 10, Math.max(10, x - 100))
-  let top = y + 10; if (top + h > window.innerHeight - 10) top = Math.max(10, y - h - 10)
-  return { position: 'fixed', left, top, zIndex: 60, width: w, background: '#fff', border: '1px solid #ececef', borderRadius: 12, boxShadow: '0 10px 36px rgba(0,0,0,.2)', padding: 14, fontSize: 12 }
+const POP_W = 272
+// 弹窗：先用临时位置渲染，挂载后测量真实高度再夹到视口内（低位翻上方 / 过高则限高滚动）
+function usePopupPos(x: number, y: number) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number; maxH: number }>(() => ({
+    left: Math.min((typeof window !== 'undefined' ? window.innerWidth : 1200) - POP_W - 10, Math.max(10, x - POP_W / 2)),
+    top: y + 12, maxH: 9999,
+  }))
+  useLayoutEffect(() => {
+    const el = ref.current; if (!el) return
+    const place = () => {
+      const vw = window.innerWidth, vh = window.innerHeight, m = 12
+      const maxH = vh - m * 2
+      const h = Math.min(el.getBoundingClientRect().height, maxH)
+      const left = Math.min(vw - POP_W - m, Math.max(m, x - POP_W / 2))
+      let top = y + m
+      if (top + h > vh - m) top = y - m - h                 // 翻到锚点上方
+      top = Math.max(m, Math.min(top, vh - m - h))
+      setPos({ left, top, maxH })
+    }
+    place()
+    const ro = new ResizeObserver(place); ro.observe(el)   // 内容变高（如切到价格调整）时重新夹位
+    window.addEventListener('resize', place)
+    return () => { ro.disconnect(); window.removeEventListener('resize', place) }
+  }, [x, y])
+  return { ref, pos }
+}
+function popStyle(pos: { left: number; top: number; maxH: number }): React.CSSProperties {
+  return { position: 'fixed', left: pos.left, top: pos.top, width: POP_W, maxHeight: pos.maxH, overflowY: 'auto', zIndex: 60, background: '#fff', border: '1px solid #ececef', borderRadius: 14, boxShadow: '0 14px 44px rgba(0,0,0,.22)', padding: 14, fontSize: 12 }
 }
 const lbl = 'block text-[10px] text-gray-500 mt-2 mb-0.5'
 const inp = 'w-full border border-gray-300 rounded-md px-2 py-1 text-xs'
 
 function PhasePopup({ p, x, y, cascade, onSave, onClose }: { p: Phase; x: number; y: number; cascade: boolean; onSave: (s: string, e: string, casc: boolean) => void; onClose: () => void }) {
   const [s, setS] = useState(p.start ?? ''); const [e, setE] = useState(p.end ?? ''); const [c, setC] = useState(cascade)
-  useEsc(onClose)
+  useEsc(onClose); const { ref, pos } = usePopupPos(x, y)
   return (
     <>
       <div className="fixed inset-0 z-50" onMouseDown={onClose} />
-      <div className="lc-pop" style={panelStyle(x, y)}>
+      <div ref={ref} className="lc-pop" style={popStyle(pos)}>
         <h4 className="text-[13px] font-semibold mb-1">📐 {p.name}</h4>
         <label className={lbl}>开始日期</label><input type="date" className={inp} value={s} onChange={ev => setS(ev.target.value)} />
         <label className={lbl}>结束日期</label><input type="date" className={inp} value={e} onChange={ev => setE(ev.target.value)} />
@@ -392,11 +415,11 @@ function KfPopup({ k, x, y, isNew, initialPrice, onSave, onDelete, onClose, onSe
   const [type, setType] = useState(k.type); const [title, setTitle] = useState(k.title); const [date, setDate] = useState(k.date)
   const [note, setNote] = useState(k.note); const [price, setPrice] = useState<string>(k.price != null ? String(k.price) : '')
   const [ip, setIp] = useState<string>(initialPrice != null ? String(initialPrice) : '')
-  useEsc(onClose)
+  useEsc(onClose); const { ref, pos } = usePopupPos(x, y)
   return (
     <>
       <div className="fixed inset-0 z-50" onMouseDown={onClose} />
-      <div className="lc-pop" style={panelStyle(x, y)}>
+      <div ref={ref} className="lc-pop" style={popStyle(pos)}>
         <h4 className="text-[13px] font-semibold mb-1">{isNew ? '＋ 新建关键帧' : `${TYPES[type]?.icon} 关键帧`}</h4>
         <label className={lbl}>类型</label>
         <select className={inp} value={type} onChange={e => setType(e.target.value)}>
