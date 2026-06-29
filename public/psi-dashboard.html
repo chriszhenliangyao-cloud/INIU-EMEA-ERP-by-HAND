@@ -1369,7 +1369,8 @@ function renderChannelFlow() {
           callbacks: { label: function(item) { return item.dataset.label + ': ' + item.parsed.y; } }
         }
       }
-    }
+    },
+    plugins: (window.ChartDataLabels ? [window.ChartDataLabels] : [])
   });
 
   if (legendEl) {
