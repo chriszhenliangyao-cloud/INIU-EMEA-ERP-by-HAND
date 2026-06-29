@@ -80,7 +80,7 @@
 | 表 | 用途 |
 |---|---|
 | `shipment` | 发货明细（按 country_id + sku_id + ka_id + source_type）· 仓库实际出货，按发货日 |
-| `channel_po` | 客户订单明细（po_number + po_date + sku_id + ka_id + country_id + qty_ordered + ship_date + notes）· **Performance Achieve 的数据源**，来自"线下零售渠道发货记录表"的 PO Details 子表 |
+| `channel_po` | 客户订单明细（po_number + po_date + sku_id + ka_id + country_id + qty_ordered + ship_date + **delivery_date** + notes）· **Performance Achieve 的数据源**，来自"线下零售渠道发货记录表"的 PO Details 子表 · **已发判定 = ship_date 或 delivery_date 任一有值**（物流偶尔漏填 ship_date，用送达日兜底；delivery_date=PO Details 第 28 列 Delivery Date）|
 | `channel_quarterly_review` | 季度复盘（正面=本季进展，背面=下季 Action Plan 的 target/next_move/supports）· 渠道列表复盘自有，不动 KA map |
 | `product_lifecycle` | 产品生命周期（按**型号 model_code** 一行：规划/研发/备货/上市/在售/退市/停产 7 阶段起止 + initial_price）· 驱动 SKU Map 的甘特图 · admin only |
 | `product_keyframe` | 生命周期关键帧（中标 win / 价格调整 price+price值 / 研发延期 delay）· model_code + phase + kf_date + title/note · admin only |

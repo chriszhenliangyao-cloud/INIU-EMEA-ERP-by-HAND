@@ -2,31 +2,15 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/lib/auth/current-user'
 import { PoView } from './po-view'
 
-// 临时限制：PO 页仅 Chris 可见（完善后再放开权限）
-const PO_ALLOWED_EMAILS = ['chris.yao@iniushop.com']
-
 export default async function PoPage() {
-  // Step 1: current user identity (RBAC)
+  // PO 对所有人开放；国家隔离由 channel_po 的 RLS（read=can_access_country）自动处理，
+  // 销售只能查到自己被分配国家的订单行。
   const me = await getCurrentUser()
-
-  // 访问门禁：非白名单用户直接挡掉
-  if (!PO_ALLOWED_EMAILS.includes(me.email)) {
-    return (
-      <div className="p-6">
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 text-amber-800 max-w-md">
-          <div className="text-lg font-semibold mb-1">🚧 PO module — not available yet</div>
-          <p className="text-sm">This page is still under construction and restricted. It will be opened up once finalized.</p>
-        </div>
-      </div>
-    )
-  }
-
-  // Step 2: fetch PO lines — RLS handles country scoping automatically
   const supabase = createClient()
   const { data: pos, error } = await supabase
     .from('channel_po')
     .select(`
-      id, po_number, po_date, qty_ordered, ship_date, notes,
+      id, po_number, po_date, qty_ordered, ship_date, delivery_date, notes,
       sku:sku_id ( id, code, name, category ),
       country:country_id ( id, code, name_en, flag_emoji, region ),
       ka:ka_id ( id, name )
@@ -44,7 +28,7 @@ export default async function PoPage() {
   }
 
   type FlatRow = {
-    id: number; po_date: string; qty: number; po_number: string | null; ship_date: string | null; notes: string | null
+    id: number; po_date: string; qty: number; po_number: string | null; ship_date: string | null; delivery_date: string | null; notes: string | null
     sku_id: number; sku_code: string; sku_name: string; sku_category: string | null
     country_id: number; country_code: string; country_name: string; country_flag: string; country_region: string
     ka_id: number | null; ka_name: string | null
@@ -56,6 +40,7 @@ export default async function PoPage() {
     qty: r.qty_ordered,
     po_number: r.po_number,
     ship_date: r.ship_date,
+    delivery_date: r.delivery_date,
     notes: r.notes,
     sku_id: r.sku?.id,
     sku_code: r.sku?.code,
