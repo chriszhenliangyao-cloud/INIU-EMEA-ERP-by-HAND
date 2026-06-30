@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import { fmtNum } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -104,8 +105,9 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
     const totalQty = dashFiltered.reduce((s, r) => s + r.qty, 0)
     const poCount = new Set(dashFiltered.filter(r => r.po_number).map(r => r.po_number)).size
     const skuCount = new Set(dashFiltered.map(r => r.sku_code)).size
-    return { totalQty, poCount, skuCount }
-  }, [dashFiltered])
+    const totalValueEUR = dashFiltered.reduce((s, r) => s + toEUR(r.turnover, r.currency, plnToEur), 0)
+    return { totalQty, poCount, skuCount, totalValueEUR }
+  }, [dashFiltered, plnToEur])
 
   const options = useMemo(() => ({
     months: Array.from(new Set(rows.map(r => r.po_date?.slice(0, 7) ?? ''))).filter(Boolean).sort().reverse(),
@@ -249,12 +251,10 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
         <KpiCard label="Total Ordered" value={fmtNum(stats.totalQty)} hint="units (Qty Ordered)" />
-        <KpiCard label="PO Lines" value={fmtNum(dashFiltered.length)} hint={`${fmtNum(stats.poCount)} distinct POs`} color="blue" />
-        <KpiCard label="SKUs" value={fmtNum(stats.skuCount)} hint="distinct product codes" color="purple" />
+        <KpiCard label="Total Value" value={'€' + fmtNum(Math.round(stats.totalValueEUR))} hint={`turnover · 折算 EUR（PLN×${plnToEur.toFixed(4)}）`} color="green" />
         <KpiCard label="Key Accounts" value={fmtNum(kaNames.length)} hint={kaNames.join(' · ') || 'ordering KAs'} color="amber" />
-        <KpiCard label="Markets" value={fmtNum(marketCount)} hint="active countries" color="green" />
       </div>
 
       {/* Filters (dashboard — drive charts/KPI) */}
@@ -352,7 +352,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
       </div>
 
       {/* Unshipped POs (no ship date) — editable notes */}
-      <UnshippedTable rows={unshipped} />
+      <UnshippedTable rows={unshipped} plnToEur={plnToEur} />
 
       {/* Aggregation detail (independent filters) */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -425,14 +425,22 @@ function ShippedBadge({ shipped, total }: { shipped: number; total: number }) {
 type UnRow = {
   id: number; po_date: string; po_number: string | null; notes: string | null
   sku_code: string; sku_name: string; country_code: string; country_flag: string; ka_name: string | null; qty: number
+  fd_buying_price: number | null; turnover: number | null; currency: string | null
 }
 
 // 未发货 PO 表 —— notes 可编辑并写回 channel_po
-function UnshippedTable({ rows }: { rows: UnRow[] }) {
+function UnshippedTable({ rows, plnToEur }: { rows: UnRow[]; plnToEur: number }) {
+  const totalQty = rows.reduce((s, r) => s + r.qty, 0)
+  const totalValEUR = rows.reduce((s, r) => s + toEUR(r.turnover, r.currency, plnToEur), 0)
   const supabase = useRef(createClient()).current
+  const router = useRouter()
+  const today = useRef(new Date().toISOString().slice(0, 10)).current
   const [draft, setDraft] = useState<Record<number, string>>(() => Object.fromEntries(rows.map(r => [r.id, r.notes ?? ''])))
   const [savingId, setSavingId] = useState<number | null>(null)
   const [savedId, setSavedId] = useState<number | null>(null)
+  // 每行的发货日期（默认今天，可改成实际发货日）+ 标记中状态
+  const [shipDate, setShipDate] = useState<Record<number, string>>({})
+  const [shippingId, setShippingId] = useState<number | null>(null)
 
   const save = async (id: number) => {
     setSavingId(id); setSavedId(null)
@@ -442,11 +450,20 @@ function UnshippedTable({ rows }: { rows: UnRow[] }) {
     else alert(`Save failed: ${error.message}`)
   }
 
+  // 标记已发货：写入 ship_date → 该行不再算 unshipped，聚合表里计为已发货。router.refresh() 重新拉服务端数据。
+  const markShipped = async (id: number) => {
+    const d = shipDate[id] || today
+    setShippingId(id)
+    const { error } = await supabase.from('channel_po').update({ ship_date: d }).eq('id', id)
+    if (error) { setShippingId(null); alert(`标记失败: ${error.message}`); return }
+    router.refresh() // 服务端重新渲染：该行从清单消失、聚合表 Shipped +1
+  }
+
   return (
     <div className="bg-white rounded-xl border border-amber-200 p-4 mb-5">
       <div className="flex items-center justify-between mb-1">
         <div className="text-base font-semibold text-gray-900">🚚 Unshipped POs <span className="ml-2 text-xs font-normal text-amber-600">no ship date & no delivery date — needs follow-up</span></div>
-        <div className="text-xs text-gray-400">{rows.length} lines</div>
+        <div className="text-xs text-gray-400 whitespace-nowrap">{rows.length} lines · <strong className="text-gray-700 tabular-nums">{fmtNum(totalQty)}</strong> units · <strong className="text-gray-700 tabular-nums">€{fmtNum(Math.round(totalValEUR))}</strong></div>
       </div>
       <div className="text-xs text-gray-400 mb-3">A PO counts as shipped if it has either a Ship Date or a Delivery Date (logistics sometimes leaves Ship Date blank). Only POs missing both are listed here. Add a note to record why.</div>
       <div className="overflow-x-auto max-h-[420px] overflow-y-auto border border-gray-200 rounded-lg">
@@ -460,7 +477,10 @@ function UnshippedTable({ rows }: { rows: UnRow[] }) {
               <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">SKU</th>
               <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">Product</th>
               <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="FD 进货单价（原币种）">Unit Price</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="营业额（原币种）">Turnover</th>
               <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase" style={{ minWidth: 280 }}>Notes — why not shipped?</th>
+              <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="标记已发货：写入发货日，该行转入聚合表计为已发货">Mark Shipped</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -475,6 +495,8 @@ function UnshippedTable({ rows }: { rows: UnRow[] }) {
                   <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{r.sku_code}</td>
                   <td className="px-3 py-2 text-gray-600">{r.sku_name || '-'}</td>
                   <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtNum(r.qty)}</td>
+                  <td className="px-3 py-2 text-right text-gray-500 tabular-nums whitespace-nowrap">{fmtMoney(r.fd_buying_price, r.currency)}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fmtMoney(r.turnover, r.currency)}</td>
                   <td className="px-3 py-2">
                     <div className="flex items-start gap-2">
                       <textarea value={draft[r.id] ?? ''} onChange={e => setDraft(p => ({ ...p, [r.id]: e.target.value }))} rows={2}
@@ -486,11 +508,33 @@ function UnshippedTable({ rows }: { rows: UnRow[] }) {
                       </button>
                     </div>
                   </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <div className="flex flex-col items-stretch gap-1 w-[124px]">
+                      <input type="date" value={shipDate[r.id] ?? today} max={today}
+                        onChange={e => setShipDate(p => ({ ...p, [r.id]: e.target.value }))}
+                        className="rounded-md border border-gray-300 px-1.5 py-1 text-[11px] outline-none focus:ring-1 focus:ring-green-400" />
+                      <button onClick={() => markShipped(r.id)} disabled={shippingId === r.id}
+                        className="px-2.5 py-1 text-xs rounded-md bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-60">
+                        {shippingId === r.id ? '…' : '✓ 已发货'}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               )
             })}
-            {!rows.length && <tr><td colSpan={8} className="py-10 text-center text-gray-400">All POs have a ship date 🎉</td></tr>}
+            {!rows.length && <tr><td colSpan={11} className="py-10 text-center text-gray-400">All POs have a ship date 🎉</td></tr>}
           </tbody>
+          {rows.length > 0 && (
+            <tfoot className="bg-amber-50 border-t-2 border-amber-200 sticky bottom-0">
+              <tr>
+                <td className="px-3 py-2 text-xs font-semibold text-gray-600" colSpan={6}>Unshipped total（计入总 PO）</td>
+                <td className="px-3 py-2 text-right text-sm font-bold tabular-nums">{fmtNum(totalQty)}</td>
+                <td className="px-3 py-2"></td>
+                <td className="px-3 py-2 text-right text-sm font-bold tabular-nums whitespace-nowrap" title={`折算 EUR · PLN×${plnToEur.toFixed(4)}`}>€{fmtNum(Math.round(totalValEUR))}</td>
+                <td className="px-3 py-2" colSpan={2}></td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
