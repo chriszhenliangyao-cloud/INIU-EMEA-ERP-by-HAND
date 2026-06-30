@@ -376,7 +376,7 @@ function ModelCard({ model, variants, onSuccess, onError }: {
         {showLife && (
           <LifecycleGantt modelCode={model} modelName={baseName}
             subtitle={[variants[0].category, variants[0].series, variants[0].family].filter(Boolean).join(' / ')}
-            currentLifecycle={lifecycle} skuIds={variants.map(v => v.id)} />
+            currentLifecycle={lifecycle} skuVariants={variants.map(v => ({ id: v.id, color: splitModel(v.code).color }))} />
         )}
       </div>
     </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 const DAY = 864e5
@@ -19,7 +19,7 @@ const TYPES: Record<string, { icon: string; color: string; label: string }> = {
 const PRICE_PHASES = ['active', 'eol']
 
 // 分渠道价签轨道（实时从 PO 算，不存库）
-type PoRow = { date: string; price: number | null; currency: string; channel: string }
+type PoRow = { date: string; price: number | null; currency: string; channel: string; color: string | null }
 type PSeg = { start: string; end: string; price: number; currency: string }
 // 顺序排得相邻最大色差，按渠道序号分配 → 同一 model 内不撞色
 const CH_PALETTE = ['#0071e3', '#1d7a3d', '#c77800', '#e3326a', '#9333ea', '#0d9488', '#b45309', '#5e5ce6', '#db2777', '#0a84c9']
@@ -76,17 +76,27 @@ const GANTT_CSS = `
 .lc-pop{animation:lcPop .2s ${EASE};transform-origin:top center}
 `
 
-export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycle, skuIds }: {
-  modelCode: string; modelName: string; subtitle: string; currentLifecycle: string; skuIds: number[]
+export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycle, skuVariants }: {
+  modelCode: string; modelName: string; subtitle: string; currentLifecycle: string; skuVariants: { id: number; color: string | null }[]
 }) {
+  const skuIds = skuVariants.map(v => v.id)
   const skuKey = skuIds.join(',')
+  const colorById: Record<number, string | null> = Object.fromEntries(skuVariants.map(v => [v.id, v.color]))
   const supabase = useRef(createClient()).current
   const ganttRef = useRef<HTMLDivElement>(null)
   const [loaded, setLoaded] = useState(false)
   const [phases, setPhases] = useState<Phase[]>(PHASE_DEF.map(d => ({ ...d, start: null, end: null })))
   const [initialPrice, setInitialPrice] = useState<number | null>(null)
   const [kfs, setKfs] = useState<Kf[]>([])
-  const [tracks, setTracks] = useState<{ channel: string; color: string; segs: PSeg[] }[]>([])
+  const [poRows, setPoRows] = useState<PoRow[]>([])
+  const [colorFilter, setColorFilter] = useState<string | null>(null)
+  // 价格轨道:按所选颜色过滤后,实时算（切颜色不重新拉数据）
+  const tracks = useMemo(
+    () => buildChannelTracks(colorFilter ? poRows.filter(r => r.color === colorFilter) : poRows),
+    [poRows, colorFilter],
+  )
+  // 只列出真正有 PO 数据的颜色
+  const colorOptions = useMemo(() => Array.from(new Set(poRows.map(r => r.color).filter(Boolean))) as string[], [poRows])
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [cascade, setCascade] = useState(false)
@@ -101,17 +111,17 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
         supabase.from('product_lifecycle').select('*').eq('model_code', modelCode).maybeSingle(),
         supabase.from('product_keyframe').select('*').eq('model_code', modelCode).order('kf_date'),
         skuIds.length
-          ? supabase.from('channel_po').select('po_date, fd_buying_price, currency, ka:ka_id(name)').in('sku_id', skuIds).order('po_date')
+          ? supabase.from('channel_po').select('po_date, fd_buying_price, currency, sku_id, ka:ka_id(name)').in('sku_id', skuIds).order('po_date')
           : Promise.resolve({ data: [] as any[] }),
       ])
       if (!alive) return
       setPhases(PHASE_DEF.map(d => ({ ...d, start: (pl as any)?.[d.key + '_start'] ?? null, end: (pl as any)?.[d.key + '_end'] ?? null })))
       setInitialPrice((pl as any)?.initial_price ?? null)
       setKfs((kf ?? []).map((k: any) => ({ id: k.id, type: k.kf_type, date: k.kf_date, title: k.title ?? '', note: k.note ?? '', price: k.price, phase: k.phase })))
-      setTracks(buildChannelTracks((po ?? []).map((r: any) => {
+      setPoRows((po ?? []).map((r: any) => {
         const ka = Array.isArray(r.ka) ? r.ka[0] : r.ka
-        return { date: r.po_date, price: r.fd_buying_price == null ? null : Number(r.fd_buying_price), currency: r.currency, channel: ka?.name ?? '—' }
-      })))
+        return { date: r.po_date, price: r.fd_buying_price == null ? null : Number(r.fd_buying_price), currency: r.currency, channel: ka?.name ?? '—', color: colorById[r.sku_id] ?? null }
+      }))
       setLoaded(true)
     })()
     return () => { alive = false }
@@ -352,9 +362,24 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
             {/* 渠道价格轨道：作为「在售」相位的子段（来自 PO，实时） */}
             {p.key === 'active' && tracks.length > 0 && (
               <>
-                <div className="flex border-b border-gray-100" style={{ background: '#fafafb' }}>
-                  <div className="flex-none border-r border-gray-200" style={{ width: 180, padding: '4px 12px 4px 26px', fontSize: 10, fontWeight: 600, color: '#86868b' }}>↳ 渠道价格 · 来自 PO</div>
-                  <div className="flex-1" style={{ minHeight: 6 }} />
+                <div className="flex items-center border-b border-gray-100" style={{ background: '#fafafb' }}>
+                  <div className="flex-none border-r border-gray-200" style={{ width: 180, padding: '5px 12px 5px 26px', fontSize: 10, fontWeight: 600, color: '#86868b' }}>↳ 渠道价格 · 来自 PO</div>
+                  <div className="flex-1 flex items-center gap-1.5 flex-wrap" style={{ padding: '4px 10px' }}>
+                    {colorOptions.length >= 2 && (<>
+                      <span style={{ fontSize: 10, color: '#a8a8ad' }}>按颜色</span>
+                      {[null, ...colorOptions].map(c => {
+                        const on = colorFilter === c
+                        return (
+                          <button key={c ?? 'all'} onClick={() => setColorFilter(c)}
+                            style={{ fontSize: 10, fontWeight: 600, padding: '2px 9px', borderRadius: 999, cursor: 'pointer',
+                              border: on ? '1px solid #1c1c1e' : '1px solid #e2e2e6',
+                              background: on ? '#1c1c1e' : '#fff', color: on ? '#fff' : '#6b6b70' }}>
+                            {c ?? '全部'}
+                          </button>
+                        )
+                      })}
+                    </>)}
+                  </div>
                 </div>
                 {tracks.map(t => (
                   <div key={t.channel} className="flex border-b border-gray-100" style={{ minHeight: 28 }}>
