@@ -168,12 +168,12 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
   const fmtRankVal = (v: number) => rankMetric === 'value' ? '€' + fmtNum(Math.round(v)) : fmtNum(v)
   const fmtSkuVal = (v: number) => skuMetric === 'value' ? '€' + fmtNum(Math.round(v)) : fmtNum(v)
 
-  // Volume / Value 切换标签
+  // Volume / Value 切换标签 —— iOS 玻璃分段控件：磨砂半透轨道 + 白玻璃滑块
   const metricTag = (cur: 'volume' | 'value', set: (v: 'volume' | 'value') => void) => (
-    <div className="inline-flex rounded-md border border-gray-200 overflow-hidden text-[11px] font-semibold flex-shrink-0">
+    <div className="inline-flex items-center gap-0.5 rounded-[10px] border border-white/60 bg-gray-500/10 p-0.5 text-[11px] font-semibold backdrop-blur-md flex-shrink-0">
       {(['volume', 'value'] as const).map(m => (
         <button key={m} onClick={() => set(m)}
-          className={`px-2.5 py-1 transition-colors ${cur === m ? 'bg-gray-900 text-white' : 'bg-white text-gray-500 hover:text-gray-800'}`}>
+          className={`rounded-[7px] px-2.5 py-1 transition-all ${cur === m ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>
           {m === 'volume' ? 'Volume' : 'Value'}
         </button>
       ))}
@@ -493,6 +493,18 @@ function UnshippedTable({ rows, plnToEur }: { rows: UnRow[]; plnToEur: number })
 
   return (
     <div className="bg-white rounded-xl border border-amber-200 p-4 mb-5">
+      <style>{`
+        .lg-date{background:rgba(120,120,128,.10);border:1px solid rgba(255,255,255,.6);box-shadow:inset 0 1px 1px rgba(255,255,255,.7);backdrop-filter:blur(10px) saturate(150%);-webkit-backdrop-filter:blur(10px) saturate(150%);transition:background .25s}
+        .lg-date:hover{background:rgba(120,120,128,.16)}
+        .lg-ship{background:rgba(16,185,129,.20);border:1px solid rgba(16,185,129,.35);box-shadow:inset 0 1px 1px rgba(255,255,255,.7);backdrop-filter:blur(8px) saturate(160%);-webkit-backdrop-filter:blur(8px) saturate(160%);transition:background .25s,transform .2s}
+        .lg-ship:hover{background:rgba(16,185,129,.30);transform:translateY(-1px)}
+        .lg-chip{background:rgba(120,120,128,.12);border:1px solid rgba(255,255,255,.55);box-shadow:inset 0 1px 0 rgba(255,255,255,.6);backdrop-filter:blur(8px) saturate(150%);-webkit-backdrop-filter:blur(8px) saturate(150%);transition:background .25s,transform .2s}
+        .lg-chip:hover{transform:translateY(-1px)}
+        .lg-chip-blue{color:#0369a1}
+        .lg-chip-blue:hover{background:rgba(2,132,199,.15)}
+        .lg-chip-red{color:#be123c}
+        .lg-chip-red:hover{background:rgba(225,29,72,.14)}
+      `}</style>
       <div className="flex items-center justify-between mb-1">
         <div className="text-base font-semibold text-gray-900">🚚 Unshipped POs <span className="ml-2 text-xs font-normal text-amber-600">no ship date & no delivery date — needs follow-up</span></div>
         <div className="text-xs text-gray-400 whitespace-nowrap">{rows.length} lines · <strong className="text-gray-700 tabular-nums">{fmtNum(totalQty)}</strong> units · <strong className="text-gray-700 tabular-nums">€{fmtNum(Math.round(totalValEUR))}</strong></div>
@@ -540,23 +552,23 @@ function UnshippedTable({ rows, plnToEur }: { rows: UnRow[]; plnToEur: number })
                       </button>
                     </div>
                   </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <div className="flex flex-col items-stretch gap-1 w-[148px]">
+                  <td className="px-3 py-2.5 align-middle">
+                    <div className="flex flex-col gap-1.5 w-[140px]">
                       <input type="date" value={shipDate[r.id] ?? today} max={today}
                         onChange={e => setShipDate(p => ({ ...p, [r.id]: e.target.value }))}
-                        className="rounded-md border border-gray-300 px-1.5 py-1 text-[11px] outline-none focus:ring-1 focus:ring-green-400" />
+                        className="lg-date w-full rounded-[10px] px-2 py-1 text-[11px] text-gray-700 outline-none focus:ring-2 focus:ring-emerald-200/70" />
                       <button onClick={() => markShipped(r.id)} disabled={shippingId === r.id}
-                        className="px-2.5 py-1 text-xs rounded-md bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-60">
-                        {shippingId === r.id ? '…' : '✓ 已发货'}
+                        className="lg-ship w-full rounded-[10px] px-3 py-1.5 text-xs font-semibold text-emerald-800 active:scale-[0.98] disabled:opacity-50">
+                        {shippingId === r.id ? '处理中…' : '已发货'}
                       </button>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1.5">
                         <button onClick={() => markPartial(r.id, r.qty)} disabled={shippingId === r.id}
-                          className="flex-1 px-1.5 py-1 text-[11px] rounded-md bg-sky-100 text-sky-700 hover:bg-sky-200 transition disabled:opacity-60" title="部分发货：输入已发数量">
-                          ◑ 部分
+                          className="lg-chip lg-chip-blue flex-1 rounded-[10px] px-2 py-1 text-[11px] font-semibold active:scale-[0.98] disabled:opacity-50" title="部分发货：输入已发数量">
+                          部分发货
                         </button>
                         <button onClick={() => markCancelled(r.id)} disabled={shippingId === r.id}
-                          className="flex-1 px-1.5 py-1 text-[11px] rounded-md bg-rose-100 text-rose-700 hover:bg-rose-200 transition disabled:opacity-60" title="取消该 PO">
-                          ✗ 取消
+                          className="lg-chip lg-chip-red flex-1 rounded-[10px] px-2 py-1 text-[11px] font-semibold active:scale-[0.98] disabled:opacity-50" title="取消该 PO">
+                          取消
                         </button>
                       </div>
                     </div>
