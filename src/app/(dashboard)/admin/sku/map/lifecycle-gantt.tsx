@@ -6,16 +6,16 @@ import { createClient } from '@/lib/supabase/client'
 const DAY = 864e5
 // 复用 DB 既有列：合并后的「在售」用 active_start/active_end；pre/launch 列废弃留空。
 const PHASE_DEF = [
-  { key: 'plan', name: '1 · 规划立项 Planning', color: '#a8adb5' },
-  { key: 'dev', name: '2 · 研发 Development', color: '#8a9bb0' },
-  { key: 'active', name: '3 · 在售 On Sale', color: '#52b788' },
-  { key: 'eol', name: '4 · 退市清库 EOL', color: '#c9a227' },
-  { key: 'disc', name: '5 · 停产退市 Discontinued', color: '#d98594' },
+  { key: 'plan', name: '1 · 规划立项 Planning', color: '#aeaeb2' },
+  { key: 'dev', name: '2 · 研发 Development', color: '#5e5ce6' },
+  { key: 'active', name: '3 · 在售 On Sale', color: '#0071e3' },
+  { key: 'eol', name: '4 · 退市清库 EOL', color: '#c77800' },
+  { key: 'disc', name: '5 · 停产退市 Discontinued', color: '#e35d6a' },
 ] as const
 const TYPES: Record<string, { icon: string; color: string; label: string }> = {
-  win: { icon: '🏆', color: '#52b788', label: '商务/中标' },
-  price: { icon: '💰', color: '#e0a458', label: '价格调整' },
-  delay: { icon: '⏳', color: '#d98594', label: '研发延期 Delay' },
+  win: { icon: '🏆', color: '#1d7a3d', label: '商务/中标' },
+  price: { icon: '💰', color: '#c77800', label: '价格调整' },
+  delay: { icon: '⏳', color: '#e35d6a', label: '研发延期 Delay' },
 }
 const PRICE_PHASES = ['active', 'eol']
 

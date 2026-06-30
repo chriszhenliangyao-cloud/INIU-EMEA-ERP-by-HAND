@@ -2413,15 +2413,20 @@ function retailerColor(name) { return RETAILER_COLORS[name] || '#94a3b8'; }
 
 // 渠道子行单元格：周 ST + Total ST，后面 Latest Stock / Latest DOS 两列留空
 function summaryChannelCellsHtml(row, weeks, opts) {
+  var sh = opts.cellShadow ? 'box-shadow:' + opts.cellShadow + ';' : '';
   var html = '';
   weeks.forEach(function(w) {
     var val = row.weekly[w];
-    var display = (val === undefined || val === null) ? '<span style="color:#cbd5e1;">-</span>' : formatMetricValue(val);
-    html += '<td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#64748b; font-variant-numeric:tabular-nums;' + (opts.rowBg ? 'background:' + opts.rowBg + ';' : '') + '">' + display + '</td>';
+    var isNum = !(val === undefined || val === null);
+    var display = isNum ? formatMetricValue(val) : '<span style="color:#cbd5e1;">-</span>';
+    var cbg = '', col = '#64748b';
+    if (opts.heatMax && isNum) { cbg = 'background:' + heatColor(val, opts.heatMax) + ';'; if (val / opts.heatMax > 0.6) col = '#fff'; else col = '#1e293b'; }
+    else if (opts.rowBg) { cbg = 'background:' + opts.rowBg + ';'; }
+    html += '<td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:' + col + '; font-variant-numeric:tabular-nums;' + cbg + sh + '">' + display + '</td>';
   });
-  html += '<td style="padding:6px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; font-weight:600; background:' + opts.summaryBg + '; border-left:2px solid #cbd5e1; font-variant-numeric:tabular-nums;">' + formatMetricValue(row.total) + '</td>';
-  html += '<td style="border-bottom:1px solid #f1f5f9; background:' + opts.summaryBg + ';"></td>';
-  html += '<td style="border-bottom:1px solid #f1f5f9; background:' + opts.summaryBg + ';"></td>';
+  html += '<td style="padding:6px 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; font-weight:600; background:' + opts.summaryBg + '; border-left:2px solid #cbd5e1; font-variant-numeric:tabular-nums;' + sh + '">' + formatMetricValue(row.total) + '</td>';
+  html += '<td style="border-bottom:1px solid #f1f5f9; background:' + opts.summaryBg + ';' + sh + '"></td>';
+  html += '<td style="border-bottom:1px solid #f1f5f9; background:' + opts.summaryBg + ';' + sh + '"></td>';
   return html;
 }
 
@@ -2632,17 +2637,22 @@ function summaryRowsFromAgg(agg) {
 
 function summaryCellsHtml(row, weeks, opts) {
   var bg = opts.summaryBg;
+  var sh = opts.cellShadow ? 'box-shadow:' + opts.cellShadow + ';' : '';
   var dosStr = (row.dos !== undefined && row.dos !== null && isFinite(row.dos))
-    ? row.dos + 'd' : '-';
+    ? row.dos.toFixed(1) + 'd' : '-';
   var html = '';
   weeks.forEach(function(w) {
     var val = row.weekly[w];
-    var display = (val === undefined || val === null) ? '<span style="color:#cbd5e1;">-</span>' : formatMetricValue(val);
-    html += '<td style="padding:' + opts.pad + ' 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; font-variant-numeric:tabular-nums;' + (opts.rowBg ? 'background:' + opts.rowBg + ';' : '') + '">' + display + '</td>';
+    var isNum = !(val === undefined || val === null);
+    var display = isNum ? formatMetricValue(val) : '<span style="color:#cbd5e1;">-</span>';
+    var cbg = '', col = '#334155';
+    if (opts.heatMax && isNum) { cbg = 'background:' + heatColor(val, opts.heatMax) + ';'; if (val / opts.heatMax > 0.6) col = '#fff'; else col = '#1e293b'; }
+    else if (opts.rowBg) { cbg = 'background:' + opts.rowBg + ';'; }
+    html += '<td style="padding:' + opts.pad + ' 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:' + col + '; font-variant-numeric:tabular-nums;' + cbg + sh + '">' + display + '</td>';
   });
-  html += '<td style="padding:' + opts.pad + ' 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#111827; font-weight:' + (opts.bold ? '700' : '600') + '; background:' + bg + '; border-left:2px solid #cbd5e1; font-variant-numeric:tabular-nums;">' + formatMetricValue(row.total) + '</td>';
-  html += '<td style="padding:' + opts.pad + ' 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; background:' + bg + '; font-variant-numeric:tabular-nums;">' + formatMetricValue(row.stock) + '</td>';
-  html += '<td style="padding:' + opts.pad + ' 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; background:' + bg + '; font-variant-numeric:tabular-nums;">' + dosStr + '</td>';
+  html += '<td style="padding:' + opts.pad + ' 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#111827; font-weight:' + (opts.bold ? '700' : '600') + '; background:' + bg + '; border-left:2px solid #cbd5e1; font-variant-numeric:tabular-nums;' + sh + '">' + formatMetricValue(row.total) + '</td>';
+  html += '<td style="padding:' + opts.pad + ' 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; background:' + bg + '; font-variant-numeric:tabular-nums;' + sh + '">' + formatMetricValue(row.stock) + '</td>';
+  html += '<td style="padding:' + opts.pad + ' 12px; border-bottom:1px solid #f1f5f9; text-align:right; color:#334155; background:' + bg + '; font-variant-numeric:tabular-nums;' + sh + '">' + dosStr + '</td>';
   return html;
 }
 
@@ -2720,27 +2730,38 @@ function renderPSISummaryTable() {
       var children = productRows.filter(function(p) {
         return ((PRODUCTS_META[p.name] || {}).series || 'Other') === row.name;
       });
-      children.forEach(function(p) {
+      // 本组(该系列下产品)的 heatmap 最大值 —— 仅在这块展开区内独立着色
+      var pMax = 0;
+      children.forEach(function(p) { weeks.forEach(function(w) { var v = p.weekly[w]; if (typeof v === 'number' && v > pMax) pMax = v; }); });
+      children.forEach(function(p, ci) {
         var pColor = (PRODUCTS_META[p.name] || { color: '#cbd5e1' }).color || '#cbd5e1';
         var pExp = productHasChannel(p.name);
         var pOpen = pExp && !!summaryExpandedProducts[p.name];
         var pArrow = pExp
           ? '<span style="color:#94a3b8; font-size:8px; margin-right:5px;">' + (pOpen ? '&#9660;' : '&#9654;') + '</span>'
           : '<span style="display:inline-block; width:13px;"></span>';
+        // 展开区视觉:首行顶部内阴影(像抽屉拉开)+ 名称列左侧内阴影(成组的纵向"凹槽")
+        var topSh = ci === 0 ? 'inset 0 9px 8px -9px rgba(15,23,42,.20)' : '';
+        var nameSh = ['inset 8px 0 8px -8px rgba(15,23,42,.13)', topSh].filter(Boolean).join(',');
         html += '<tr ' + (pExp ? 'data-product-toggle="' + p.name.replace(/"/g, '&quot;') + '" style="background:#fbfcfe; cursor:pointer;" title="Click to ' + (pOpen ? 'collapse' : 'expand') + ' retailers"' : 'style="background:#fbfcfe;"') + '>';
-        html += '<td style="position:sticky; left:0; background:#fbfcfe; z-index:1; padding:7px 12px 7px 30px; border-bottom:1px solid #f1f5f9; color:#475569; font-weight:500; white-space:nowrap;">' +
+        html += '<td style="position:sticky; left:0; background:#fbfcfe; z-index:1; padding:7px 12px 7px 30px; border-bottom:1px solid #f1f5f9; color:#475569; font-weight:500; white-space:nowrap; box-shadow:' + nameSh + ';">' +
           pArrow +
           '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + pColor + ';margin-right:8px;"></span>' + p.name + '</td>';
-        html += summaryCellsHtml(p, weeks, { pad: '7px', bold: false, summaryBg: '#f4f7fb', rowBg: '#fbfcfe' });
+        html += summaryCellsHtml(p, weeks, { pad: '7px', bold: false, summaryBg: '#f4f7fb', rowBg: '#fbfcfe', heatMax: pMax || null, cellShadow: topSh || null });
         html += '</tr>';
         if (pOpen) {
           var rets = Object.keys(channelByProduct[p.name]).map(function(k) { return channelByProduct[p.name][k]; })
             .sort(function(a, b) { return b.total - a.total; });
-          rets.forEach(function(rt) {
+          // 本子组(该产品下游 retailer)的 heatmap 最大值 —— 独立于上层
+          var rMax = 0;
+          rets.forEach(function(rt) { weeks.forEach(function(w) { var v = rt.weekly[w]; if (typeof v === 'number' && v > rMax) rMax = v; }); });
+          rets.forEach(function(rt, ri) {
+            var rTopSh = ri === 0 ? 'inset 0 8px 7px -8px rgba(15,23,42,.16)' : '';
+            var rNameSh = ['inset 16px 0 9px -12px rgba(15,23,42,.12)', rTopSh].filter(Boolean).join(',');
             html += '<tr style="background:#f5f8fe;">';
-            html += '<td style="position:sticky; left:0; background:#f5f8fe; z-index:1; padding:5px 12px 5px 52px; border-bottom:1px solid #f1f5f9; color:#64748b; font-weight:500; white-space:nowrap;">' +
+            html += '<td style="position:sticky; left:0; background:#f5f8fe; z-index:1; padding:5px 12px 5px 52px; border-bottom:1px solid #f1f5f9; color:#64748b; font-weight:500; white-space:nowrap; box-shadow:' + rNameSh + ';">' +
               '<span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:' + retailerColor(rt.retailer) + ';margin-right:8px;"></span>' + getDistDisplay(rt.retailer) + '</td>';
-            html += summaryChannelCellsHtml(rt, weeks, { summaryBg: '#eef3fb', rowBg: '#f5f8fe' });
+            html += summaryChannelCellsHtml(rt, weeks, { summaryBg: '#eef3fb', rowBg: '#f5f8fe', heatMax: rMax || null, cellShadow: rTopSh || null });
             html += '</tr>';
           });
         }

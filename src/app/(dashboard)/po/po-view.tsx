@@ -162,6 +162,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
     return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, qty]) => ({ name, qty }))
   }, [dashFiltered, rankMetric, plnToEur])
   const rankTotal = topKas.reduce((s, r) => s + r.qty, 0) || 1
+  const rankMax = topKas[0]?.qty || 1  // 排名第一 = 满条，其余按比例
 
   // 图表数值格式：Value 模式 = 折算后的 EUR 金额（€ 前缀、整数欧元）；Volume = 原数量
   const fmtMonthVal = (v: number) => monthMetric === 'value' ? '€' + fmtNum(Math.round(v)) : fmtNum(v)
@@ -317,18 +318,26 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
           <div className="text-xs text-gray-400 mb-3">{currentCountryLabel} · {dMonth === 'ALL' ? 'All months' : monthShort(dMonth)} · {rankMetric === 'value' ? `by turnover · € (PLN×${plnToEur.toFixed(4)})` : 'by volume'}</div>
           <table className="w-full border-collapse">
             <tbody>
-              {topKas.map((k, i) => (
-                <tr key={k.name}>
-                  <td className="w-6 py-2.5 text-xs font-semibold text-gray-300 font-mono border-b border-gray-100">{i + 1}</td>
-                  <td className="py-2.5 border-b border-gray-100">
-                    <span className="inline-block w-2.5 h-2.5 rounded-sm mr-2 align-middle" style={{ background: PALETTE[i % PALETTE.length] }} />
-                    <span className="text-[13px] font-medium text-gray-800">{k.name}</span>
-                  </td>
-                  <td className="w-24 py-2.5 text-right text-[13px] font-semibold font-mono border-b border-gray-100 tabular-nums">{fmtRankVal(k.qty)}</td>
-                  <td className="w-14 py-2.5 text-right text-[11px] text-gray-400 border-b border-gray-100">{((k.qty / rankTotal) * 100).toFixed(1)}%</td>
-                </tr>
-              ))}
-              {!topKas.length && <tr><td className="py-8 text-center text-gray-300 text-sm" colSpan={4}>No data</td></tr>}
+              {topKas.map((k, i) => {
+                const color = PALETTE[i % PALETTE.length]
+                return (
+                  <tr key={k.name} className="group">
+                    <td className="w-6 py-2.5 text-xs font-semibold text-gray-300 font-mono border-b border-black/[0.05] tabular-nums">{i + 1}</td>
+                    <td className="w-28 py-2.5 border-b border-black/[0.05] whitespace-nowrap">
+                      <span className="inline-block w-2.5 h-2.5 rounded-sm mr-2 align-middle" style={{ background: color }} />
+                      <span className="text-[13px] font-medium text-gray-800">{k.name}</span>
+                    </td>
+                    <td className="py-2.5 px-3 border-b border-black/[0.05]">
+                      <div className="h-2 rounded-full bg-gray-500/10 overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(2, (k.qty / rankMax) * 100)}%`, background: `linear-gradient(90deg, ${color}99, ${color})` }} />
+                      </div>
+                    </td>
+                    <td className="w-24 py-2.5 text-right text-[13px] font-semibold font-mono border-b border-black/[0.05] tabular-nums">{fmtRankVal(k.qty)}</td>
+                    <td className="w-14 py-2.5 text-right text-[11px] text-gray-400 border-b border-black/[0.05] tabular-nums">{((k.qty / rankTotal) * 100).toFixed(1)}%</td>
+                  </tr>
+                )
+              })}
+              {!topKas.length && <tr><td className="py-8 text-center text-gray-300 text-sm" colSpan={5}>No data</td></tr>}
             </tbody>
           </table>
         </div>
