@@ -181,18 +181,21 @@ export function SalesRepManagementView({
 
       {/* 工具栏 */}
       <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-4 mb-4 flex items-center gap-3 flex-wrap">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍 Search name / email…"
-          className="px-3 py-1.5 border border-gray-300 rounded-md text-sm flex-1 min-w-[220px] max-w-md"
-        />
-        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as any)} className="px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name / email…"
+            className="w-full pl-9 pr-3 py-2 bg-gray-500/[0.08] rounded-xl text-sm outline-none transition focus:bg-white focus:ring-2 focus:ring-blue-200"
+          />
+        </div>
+        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as any)} className="px-3 py-2 bg-gray-500/[0.08] rounded-xl text-sm outline-none cursor-pointer hover:bg-gray-500/[0.12] transition">
           <option value="all">All roles</option>
           <option value="admin">Admin only</option>
           <option value="sales">Sales only</option>
         </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white">
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="px-3 py-2 bg-gray-500/[0.08] rounded-xl text-sm outline-none cursor-pointer hover:bg-gray-500/[0.12] transition">
           <option value="active">✓ Active</option>
           <option value="inactive">⊘ Inactive</option>
           <option value="all">All status</option>
@@ -202,7 +205,7 @@ export function SalesRepManagementView({
         </div>
         <button
           onClick={() => setAddOpen(true)}
-          className="px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 flex items-center gap-1.5"
+          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl shadow-sm hover:bg-blue-700 active:scale-[0.98] transition flex items-center gap-1.5"
         >
           <span>+</span> Add sales rep
         </button>
@@ -213,13 +216,13 @@ export function SalesRepManagementView({
         <div className="overflow-auto max-h-[750px]">
           <table className="w-full text-sm border-collapse" style={{ minWidth: 1100 }}>
             <thead>
-              <tr className="bg-gray-50">
+              <tr className="bg-white">
                 {[
                   ['Name', 'left'], ['Email', 'left'], ['Role', 'center'],
                   ['Auth', 'center'], ['Countries', 'left'], ['Hired', 'left'],
                   ['Status', 'center'], ['Actions', 'right'],
                 ].map(([h, align]) => (
-                  <th key={h} className={`sticky top-0 bg-gray-50 z-10 px-3 py-2 text-${align} text-xs font-semibold text-gray-600 border-b-2 border-gray-200`}>
+                  <th key={h} className={`sticky top-0 bg-white z-10 px-3 py-2.5 text-${align} text-[11px] font-medium text-gray-400 border-b border-black/[0.06]`}>
                     {h}
                   </th>
                 ))}
@@ -232,10 +235,10 @@ export function SalesRepManagementView({
               {filteredReps.map(rep => {
                 const assignments = activeAssignmentsByRep[rep.id] ?? []
                 return (
-                  <tr key={rep.id} className={`hover:bg-gray-50 ${!rep.is_active ? 'opacity-60' : ''}`}>
-                    <td className="px-3 py-2 font-medium text-gray-900 border-b border-gray-100">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold ${rep.role === 'admin' ? 'bg-purple-500' : 'bg-blue-500'}`}>
+                  <tr key={rep.id} className={`hover:bg-[#f5f5f7] transition-colors ${!rep.is_active ? 'opacity-55' : ''}`}>
+                    <td className="px-3 py-2.5 font-medium text-gray-900 border-b border-black/[0.05]">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold ${rep.role === 'admin' ? 'bg-purple-500' : 'bg-blue-500'}`}>
                           {rep.display_name?.[0]?.toUpperCase() ?? '?'}
                         </div>
                         <span>{rep.display_name}</span>
@@ -247,18 +250,18 @@ export function SalesRepManagementView({
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100">{rep.email}</td>
-                    <td className="px-3 py-2 text-center border-b border-gray-100">
-                      <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${rep.role === 'admin' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                    <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">{rep.email}</td>
+                    <td className="px-3 py-2 text-center border-b border-black/[0.05]">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-md text-[11px] font-medium ${rep.role === 'admin' ? 'bg-purple-50 text-purple-600' : 'bg-blue-50 text-blue-600'}`}>
                         {rep.role}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-center border-b border-gray-100">
+                    <td className="px-3 py-2 text-center border-b border-black/[0.05]">
                       {rep.user_id
                         ? <span title={`Last login: ${rep.last_login_at ?? '-'}`} className="text-green-600 text-base">✓</span>
                         : <span title="Not logged in yet" className="text-orange-500 text-base">⚠</span>}
                     </td>
-                    <td className="px-3 py-2 border-b border-gray-100">
+                    <td className="px-3 py-2 border-b border-black/[0.05]">
                       {assignments.length === 0 ? (
                         <span className="text-gray-300 text-xs">-</span>
                       ) : (
@@ -276,28 +279,22 @@ export function SalesRepManagementView({
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100">
+                    <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">
                       {rep.hired_at ?? '-'}
                       {rep.left_at && <span className="block text-red-500 text-[10px]">Left {rep.left_at}</span>}
                     </td>
-                    <td className="px-3 py-2 text-center border-b border-gray-100">
-                      {rep.is_active ? (
-                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700 border border-green-200">Active</span>
-                      ) : (
-                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 border border-gray-200">Inactive</span>
-                      )}
+                    <td className="px-3 py-2.5 text-center border-b border-black/[0.05]">
+                      <button
+                        onClick={() => rep.is_active ? onMarkLeft(rep) : onReactivate(rep)}
+                        disabled={isPending || (rep.is_active && rep.is_super_admin)}
+                        title={rep.is_super_admin && rep.is_active ? 'Cannot mark super_admin as left from UI' : (rep.is_active ? 'Active — click to mark left' : 'Inactive — click to reactivate')}
+                        className={`relative inline-flex h-[22px] w-[38px] items-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${rep.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                      >
+                        <span className={`inline-block h-[18px] w-[18px] rounded-full bg-white shadow transition-transform ${rep.is_active ? 'translate-x-[18px]' : 'translate-x-[2px]'}`} />
+                      </button>
                     </td>
-                    <td className="px-3 py-2 text-right border-b border-gray-100 whitespace-nowrap">
-                      <button onClick={() => setEditingRep(rep)} className="px-2 py-1 text-xs text-gray-700 hover:bg-gray-200 rounded">Edit</button>
-                      {rep.is_active ? (
-                        <button onClick={() => onMarkLeft(rep)} disabled={isPending || rep.is_super_admin} title={rep.is_super_admin ? 'Cannot mark super_admin as left from UI' : ''} className="px-2 py-1 text-xs text-red-700 hover:bg-red-100 rounded disabled:opacity-30 disabled:cursor-not-allowed ml-1">
-                          Mark left
-                        </button>
-                      ) : (
-                        <button onClick={() => onReactivate(rep)} disabled={isPending} className="px-2 py-1 text-xs text-green-700 hover:bg-green-100 rounded disabled:opacity-50 ml-1">
-                          Reactivate
-                        </button>
-                      )}
+                    <td className="px-3 py-2.5 text-right border-b border-black/[0.05] whitespace-nowrap">
+                      <button onClick={() => setEditingRep(rep)} className="px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-black/[0.04] rounded-md transition">Edit</button>
                     </td>
                   </tr>
                 )
