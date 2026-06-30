@@ -172,7 +172,7 @@ export function ForecastLogView({
         {cards.map(({ rep, countryIds, last, todayN, weekN, confirmed, pending }) => (
           <div key={rep.id} className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <div className="w-7 h-7 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center">
+              <div className="w-8 h-8 rounded-full bg-blue-500 text-white text-xs font-semibold flex items-center justify-center">
                 {rep.display_name[0]?.toUpperCase()}
               </div>
               <div className="min-w-0">
@@ -209,24 +209,24 @@ export function ForecastLogView({
       {/* 筛选栏 */}
       <div className="flex items-center gap-2 flex-wrap mb-3 text-sm">
         <select value={repFilter} onChange={e => setRepFilter(e.target.value)}
-          className="px-2 py-1 border border-gray-300 rounded bg-white text-sm">
+          className="px-2 py-1 bg-gray-500/[0.08] rounded-lg text-sm outline-none cursor-pointer hover:bg-gray-500/[0.12] transition">
           <option value="ALL">All people</option>
           {reps.filter(r => r.user_id).map(r => (
             <option key={r.id} value={r.user_id!}>{r.display_name}</option>
           ))}
         </select>
         <select value={countryFilter} onChange={e => setCountryFilter(e.target.value)}
-          className="px-2 py-1 border border-gray-300 rounded bg-white text-sm">
+          className="px-2 py-1 bg-gray-500/[0.08] rounded-lg text-sm outline-none cursor-pointer hover:bg-gray-500/[0.12] transition">
           <option value="ALL">All countries</option>
           {countries.map(c => <option key={c.id} value={c.code}>{c.flag_emoji} {c.code}</option>)}
         </select>
         <select value={runFilter} onChange={e => setRunFilter(e.target.value)}
-          className="px-2 py-1 border border-gray-300 rounded bg-white text-sm">
+          className="px-2 py-1 bg-gray-500/[0.08] rounded-lg text-sm outline-none cursor-pointer hover:bg-gray-500/[0.12] transition">
           <option value="ALL">All cycles</option>
           {runs.map(r => <option key={r.id} value={String(r.id)}>{r.code}</option>)}
         </select>
         <select value={days} onChange={e => setDays(Number(e.target.value))}
-          className="px-2 py-1 border border-gray-300 rounded bg-white text-sm">
+          className="px-2 py-1 bg-gray-500/[0.08] rounded-lg text-sm outline-none cursor-pointer hover:bg-gray-500/[0.12] transition">
           <option value={1}>Last 24h</option>
           <option value={7}>Last 7 days</option>
           <option value={30}>Last 30 days</option>
@@ -248,7 +248,7 @@ export function ForecastLogView({
           <div key={b.key}>
             <button
               onClick={() => toggle(b.key)}
-              className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 text-left"
+              className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-[#f5f5f7] transition-colors text-left"
             >
               <span className="text-gray-400 text-xs w-4">{expanded.has(b.key) ? '▼' : '▶'}</span>
               <span className="text-xs text-gray-500 w-20 flex-shrink-0" title={fmtTs(b.changed_at)}>
@@ -263,10 +263,10 @@ export function ForecastLogView({
               </span>
               <span className="text-xs text-gray-400 flex-shrink-0">{runById[b.run_id] ?? `run#${b.run_id}`}</span>
               <span className="ml-auto text-xs tabular-nums flex-shrink-0">
-                <span className="text-gray-600 font-medium">{b.rows.length} cells</span>
-                {b.ins > 0 && <span className="text-green-700 ml-2">+{b.ins}</span>}
-                {b.upd > 0 && <span className="text-blue-700 ml-2">~{b.upd}</span>}
-                {b.del > 0 && <span className="text-red-700 ml-2">-{b.del}</span>}
+                <span className="text-gray-500 font-medium">{b.rows.length} cells</span>
+                {b.ins > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded-md bg-green-50 text-green-700 font-medium">+{b.ins}</span>}
+                {b.upd > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 font-medium">~{b.upd}</span>}
+                {b.del > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded-md bg-red-50 text-red-600 font-medium">-{b.del}</span>}
               </span>
             </button>
 
@@ -291,9 +291,9 @@ export function ForecastLogView({
                           <td className="py-1 pr-4 font-mono text-gray-700">{skuById[l.sku_id] ?? `sku#${l.sku_id}`}</td>
                           <td className="py-1 pr-4 text-gray-500">{l.month?.slice(0, 7)}</td>
                           <td className={`py-1 text-right tabular-nums font-medium ${OP_STYLE[l.op] ?? 'text-gray-700'}`}>
-                            {l.op === 'I' && <>+ {l.new_qty}</>}
-                            {l.op === 'U' && <>{l.old_qty} → {l.new_qty}</>}
-                            {l.op === 'D' && <><s>{l.old_qty}</s> 删除</>}
+                            {l.op === 'I' && <span className="text-green-600">+ {l.new_qty}</span>}
+                            {l.op === 'U' && <><span className="text-gray-400">{l.old_qty}</span> <span className="text-gray-300">→</span> <span className="text-blue-600 font-semibold">{l.new_qty}</span></>}
+                            {l.op === 'D' && <><s className="text-gray-400">{l.old_qty}</s> <span className="text-red-500">删除</span></>}
                           </td>
                         </tr>
                       ))}

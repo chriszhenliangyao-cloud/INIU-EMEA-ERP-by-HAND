@@ -146,17 +146,20 @@ export function SkuManagementView({ allSkus, viewerName }: { allSkus: Sku[]; vie
 
       {/* 工具栏 */}
       <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-4 mb-4 flex items-center gap-3 flex-wrap">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍 Search code / name / series / family…"
-          className="px-3 py-1.5 border border-gray-300 rounded-md text-sm flex-1 min-w-[220px] max-w-md"
-        />
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search code / name / series / family…"
+            className="w-full pl-9 pr-3 py-2 bg-gray-500/[0.08] rounded-xl text-sm outline-none transition focus:bg-white focus:ring-2 focus:ring-blue-200"
+          />
+        </div>
 
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as any)}
-          className="px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+          className="px-3 py-2 bg-gray-500/[0.08] rounded-xl text-sm outline-none cursor-pointer hover:bg-gray-500/[0.12] transition"
         >
           <option value="all">All status ({allSkus.length})</option>
           <option value="active">✓ Active ({activeCount})</option>
@@ -166,7 +169,7 @@ export function SkuManagementView({ allSkus, viewerName }: { allSkus: Sku[]; vie
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+          className="px-3 py-2 bg-gray-500/[0.08] rounded-xl text-sm outline-none cursor-pointer hover:bg-gray-500/[0.12] transition"
         >
           <option value="all">All categories</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -178,7 +181,7 @@ export function SkuManagementView({ allSkus, viewerName }: { allSkus: Sku[]; vie
 
         <button
           onClick={() => setAddOpen(true)}
-          className="px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 flex items-center gap-1.5"
+          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl shadow-sm hover:bg-blue-700 active:scale-[0.98] transition flex items-center gap-1.5"
         >
           <span>+</span> Add SKU
         </button>
@@ -189,13 +192,13 @@ export function SkuManagementView({ allSkus, viewerName }: { allSkus: Sku[]; vie
         <div className="overflow-auto max-h-[750px]">
           <table className="w-full text-sm border-collapse" style={{ minWidth: 1100 }}>
             <thead>
-              <tr className="bg-gray-50">
+              <tr className="bg-white">
                 {[
                   ['Code', 'left'], ['Name', 'left'], ['Category', 'left'],
                   ['Series', 'left'], ['Family', 'left'], ['Lifecycle', 'left'],
                   ['Sort', 'right'], ['Status', 'center'], ['Actions', 'right'],
                 ].map(([h, align]) => (
-                  <th key={h} className={`sticky top-0 bg-gray-50 z-10 px-3 py-2 text-${align} text-xs font-semibold text-gray-600 border-b-2 border-gray-200`}>
+                  <th key={h} className={`sticky top-0 bg-white z-10 px-3 py-2.5 text-${align} text-[11px] font-medium text-gray-400 border-b border-black/[0.06]`}>
                     {h}
                   </th>
                 ))}
@@ -206,35 +209,35 @@ export function SkuManagementView({ allSkus, viewerName }: { allSkus: Sku[]; vie
                 <tr><td colSpan={9} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
               )}
               {filteredSkus.map(s => (
-                <tr key={s.id} className={`hover:bg-gray-50 ${!s.is_active ? 'opacity-60' : ''}`}>
-                  <td className="px-3 py-2 font-mono text-xs font-bold text-gray-900 border-b border-gray-100">{s.code}</td>
-                  <td className="px-3 py-2 text-xs text-gray-700 border-b border-gray-100">
+                <tr key={s.id} className={`hover:bg-[#f5f5f7] transition-colors ${!s.is_active ? 'opacity-55' : ''}`}>
+                  <td className="px-3 py-2 font-mono text-xs font-bold text-gray-900 border-b border-black/[0.05]">{s.code}</td>
+                  <td className="px-3 py-2 text-xs text-gray-700 border-b border-black/[0.05]">
                     {s.name}
                     {s.name_zh && <span className="text-gray-400 ml-1">· {s.name_zh}</span>}
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100">{s.category || '-'}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100">{s.series || '-'}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100">{s.family || '-'}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100">
+                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">{s.category || '-'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">{s.series || '-'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">{s.family || '-'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">
                     <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${lifecycleBadge(s.lifecycle)}`}>
                       {s.lifecycle || '-'}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-500 text-right border-b border-gray-100 tabular-nums">{s.sort_order}</td>
-                  <td className="px-3 py-2 text-center border-b border-gray-100">
+                  <td className="px-3 py-2 text-xs text-gray-500 text-right border-b border-black/[0.05] tabular-nums">{s.sort_order}</td>
+                  <td className="px-3 py-2 text-center border-b border-black/[0.05]">
                     {s.is_active ? (
-                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700 border border-green-200">Active</span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 text-emerald-600"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Active</span>
                     ) : (
-                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 border border-gray-200">Inactive</span>
+                      <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-medium bg-gray-100 text-gray-400">Inactive</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right border-b border-gray-100 whitespace-nowrap">
-                    <button onClick={() => setEditingSku(s)} className="px-2 py-1 text-xs text-gray-700 hover:bg-gray-200 rounded">Edit</button>
+                  <td className="px-3 py-2 text-right border-b border-black/[0.05] whitespace-nowrap">
+                    <button onClick={() => setEditingSku(s)} className="px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-black/[0.04] rounded-md transition">Edit</button>
                     {s.is_active ? (
-                      <button onClick={() => onDeactivate(s)} disabled={isPending} className="px-2 py-1 text-xs text-orange-700 hover:bg-orange-100 rounded disabled:opacity-50 ml-1">Deactivate</button>
+                      <button onClick={() => onDeactivate(s)} disabled={isPending} className="px-2.5 py-1 text-xs font-medium text-orange-600 hover:bg-orange-50 rounded-md transition disabled:opacity-50 ml-1">Deactivate</button>
                     ) : (
                       <>
-                        <button onClick={() => onReactivate(s)} disabled={isPending} className="px-2 py-1 text-xs text-green-700 hover:bg-green-100 rounded disabled:opacity-50 ml-1">Reactivate</button>
+                        <button onClick={() => onReactivate(s)} disabled={isPending} className="px-2.5 py-1 text-xs font-medium text-green-600 hover:bg-green-50 rounded-md transition disabled:opacity-50 ml-1">Reactivate</button>
                         <DeleteButton sku={s} disabled={isPending} onDelete={() => onDelete(s)} />
                       </>
                     )}
@@ -319,7 +322,7 @@ function DeleteButton({ sku, disabled, onDelete }: {
       onClick={onDelete}
       disabled={disabled || hasHistory}
       title={title}
-      className="px-2 py-1 text-xs text-red-700 hover:bg-red-100 rounded disabled:opacity-30 disabled:cursor-not-allowed ml-1"
+      className="px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-md transition disabled:opacity-30 disabled:cursor-not-allowed ml-1"
     >
       Delete
     </button>

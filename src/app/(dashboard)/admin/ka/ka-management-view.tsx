@@ -326,13 +326,13 @@ function TreeNode({ ka, depth, childrenOf, parentOptions, shipCount, psiCount, o
         {/* 连接线 + 箭头（每层 28px）*/}
         {prefix.map((hasMore, i) => (
           <div key={i} className="w-7 flex-shrink-0 relative">
-            {hasMore && <div className="absolute left-3 top-0 bottom-0 w-px bg-gray-300" />}
+            {hasMore && <div className="absolute left-3 top-0 bottom-0 w-px bg-black/[0.1]" />}
           </div>
         ))}
         {depth > 0 && (
           <div className="w-7 flex-shrink-0 relative">
-            <div className={`absolute left-3 top-0 w-px bg-gray-300 ${isLast ? 'h-1/2' : 'h-full'}`} />
-            <div className="absolute left-3 top-1/2 right-0 h-px bg-gray-300" />
+            <div className={`absolute left-3 top-0 w-px bg-black/[0.1] ${isLast ? 'h-1/2' : 'h-full'}`} />
+            <div className="absolute left-3 top-1/2 right-0 h-px bg-black/[0.1]" />
             <div className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 text-[10px] leading-none">▶</div>
           </div>
         )}
@@ -382,7 +382,7 @@ const TYPE_STYLE: Record<string, { emoji: string; label: string; cls: string; bo
 function Badge({ type }: { type: string }) {
   const s = TYPE_STYLE[type] ?? TYPE_STYLE.retailer
   return (
-    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${s.cls}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${s.cls}`}>
       {s.emoji} {s.label}
     </span>
   )
@@ -534,9 +534,9 @@ function NodeCard({ ka, parentOptions, ship, psi, onSuccess, onError }: {
   }
 
   return (
-    <div className={`flex-1 my-1 flex items-center gap-2 border ${style.border} rounded-lg px-3 py-1.5 ${
+    <div className={`flex-1 my-1 flex items-center gap-2 border ${style.border} rounded-xl px-3 py-2 ${
       ka.is_active ? 'bg-white' : 'bg-gray-50'
-    } hover:shadow-sm transition-shadow group`}>
+    } hover:bg-[#fafafa] hover:shadow-sm transition group`}>
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ka.is_active ? 'bg-green-500' : 'bg-gray-300'}`}
         title={ka.is_active ? 'Active' : 'Inactive'} />
       <span className={`font-medium text-sm truncate ${ka.is_active ? 'text-gray-900' : 'text-gray-400 line-through'}`}>
@@ -554,7 +554,7 @@ function NodeCard({ ka, parentOptions, ship, psi, onSuccess, onError }: {
       </span>
       <button
         onClick={() => setEditing(true)}
-        className="opacity-0 group-hover:opacity-100 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-200 rounded transition-opacity flex-shrink-0"
+        className="opacity-0 group-hover:opacity-100 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-black/[0.06] rounded-md transition flex-shrink-0"
       >
         Edit
       </button>

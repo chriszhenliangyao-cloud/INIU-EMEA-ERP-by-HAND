@@ -3,7 +3,8 @@
 /**
  * Sales Rep Master Data 管理 UI
  *
- * - 表格：Name / Email / Role / Auth status / Countries (chips) / Hired / Status / Actions
+ * - 表格：Name / Email / Role / Auth status / Countries (chips) / Status(开关) / Actions
+ *   （Hired 列已从表格移除；hired_at 仍可在 Add/Edit 抽屉里编辑）
  * - 顶部：search + role filter + status filter + Add 按钮
  * - Add/Edit Drawer：基本信息 + role（super_admin 才能改）+ 初始国家分配
  * - 国家管理：每个 chip 有 × 解除，顶部 + 加国家
@@ -219,7 +220,7 @@ export function SalesRepManagementView({
               <tr className="bg-white">
                 {[
                   ['Name', 'left'], ['Email', 'left'], ['Role', 'center'],
-                  ['Auth', 'center'], ['Countries', 'left'], ['Hired', 'left'],
+                  ['Auth', 'center'], ['Countries', 'left'],
                   ['Status', 'center'], ['Actions', 'right'],
                 ].map(([h, align]) => (
                   <th key={h} className={`sticky top-0 bg-white z-10 px-3 py-2.5 text-${align} text-[11px] font-medium text-gray-400 border-b border-black/[0.06]`}>
@@ -230,7 +231,7 @@ export function SalesRepManagementView({
             </thead>
             <tbody>
               {filteredReps.length === 0 && (
-                <tr><td colSpan={8} className="py-12 text-center text-gray-400">No sales reps match the filters</td></tr>
+                <tr><td colSpan={7} className="py-12 text-center text-gray-400">No sales reps match the filters</td></tr>
               )}
               {filteredReps.map(rep => {
                 const assignments = activeAssignmentsByRep[rep.id] ?? []
@@ -279,10 +280,6 @@ export function SalesRepManagementView({
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">
-                      {rep.hired_at ?? '-'}
-                      {rep.left_at && <span className="block text-red-500 text-[10px]">Left {rep.left_at}</span>}
-                    </td>
                     <td className="px-3 py-2.5 text-center border-b border-black/[0.05]">
                       <button
                         onClick={() => rep.is_active ? onMarkLeft(rep) : onReactivate(rep)}
@@ -292,6 +289,7 @@ export function SalesRepManagementView({
                       >
                         <span className={`inline-block h-[18px] w-[18px] rounded-full bg-white shadow transition-transform ${rep.is_active ? 'translate-x-[18px]' : 'translate-x-[2px]'}`} />
                       </button>
+                      {rep.left_at && <div className="text-[10px] text-red-400 mt-1">Left {rep.left_at}</div>}
                     </td>
                     <td className="px-3 py-2.5 text-right border-b border-black/[0.05] whitespace-nowrap">
                       <button onClick={() => setEditingRep(rep)} className="px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-black/[0.04] rounded-md transition">Edit</button>
