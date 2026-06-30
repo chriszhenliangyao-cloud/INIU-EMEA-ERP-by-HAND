@@ -10,7 +10,7 @@
  *  - 完整字段编辑（价格/EAN/箱规等）仍去 ⚙️ SKU Master Data 表格面板
  */
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { Fragment, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -158,15 +158,17 @@ export function SkuMapView({ allSkus, viewerName }: Props) {
 }
 
 // ───────────────────────────────────────
-// 图谱视图（node-graph）：Family → 型号 连线图；点中型号 → 下方抽屉复用 ModelCard
+// 图谱视图（node-graph）：Category(根) → Family → 型号 整齐节点树 + 贝塞尔连线 + 「+型号」幽灵节点
+// 点中型号 → 下方抽屉复用 ModelCard（编辑/+颜色/生命周期甘特全在）
 // ───────────────────────────────────────
 function SkuGraphView({ allSkus, categories, onSuccess, onError }: {
   allSkus: Sku[]; categories: string[]; onSuccess: (m: string) => void; onError: (m: string) => void
 }) {
   const [selModel, setSelModel] = useState<string | null>(null)
-  // 抽屉数据从最新 allSkus 实时重算（不存死 variants，避免编辑后过时）
+  const [adding, setAdding] = useState<{ category: string; series: string | null; family: string } | null>(null)
   const selVariants = useMemo(() => (selModel ? allSkus.filter(s => splitModel(s.code).model === selModel) : []), [selModel, allSkus])
-  const FAM_W = 150, MODEL_X = 220, ROW_H = 52, NODE_W = 250
+  const ROOT_X = 6, ROOT_W = 116, FAM_X = 152, FAM_W = 122, MODEL_X = 304, MODEL_W = 244, ROW = 58, PLUS_H = 30, GAP = 16
+  const W = MODEL_X + MODEL_W + 16
   const card = 'bg-white rounded-2xl border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)]'
 
   return (
@@ -175,59 +177,88 @@ function SkuGraphView({ allSkus, categories, onSuccess, onError }: {
         const catSkus = allSkus.filter(s => (s.category ?? '(uncategorized)') === cat)
         const famMap = new Map<string, { series: string | null; skus: Sku[] }>()
         catSkus.forEach(s => { const k = s.family ?? '(no family)'; if (!famMap.has(k)) famMap.set(k, { series: s.series, skus: [] }); famMap.get(k)!.skus.push(s) })
+        // ── tidy-tree 布局：型号为叶子逐个排 y，family 居中其型号，root 居中所有 family ──
+        let y = 10
+        const fams = Array.from(famMap.entries()).map(([fam, info]) => {
+          const mMap = new Map<string, Sku[]>()
+          info.skus.forEach(s => { const { model } = splitModel(s.code); if (!mMap.has(model)) mMap.set(model, []); mMap.get(model)!.push(s) })
+          const models = Array.from(mMap.entries()).map(([model, variants]) => { const my = y + ROW / 2; y += ROW; return { model, variants, my } })
+          const plusY = y + PLUS_H / 2; y += PLUS_H + GAP
+          const fy = (models[0].my + models[models.length - 1].my) / 2
+          return { fam, series: info.series, models, plusY, fy }
+        })
+        const totalH = Math.max(y, ROW)
+        const rootY = fams.length ? (fams[0].fy + fams[fams.length - 1].fy) / 2 : totalH / 2
+        const mid = (a: number, b: number) => (a + b) / 2
         return (
           <div key={cat} className={`${card} p-4`}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-base font-semibold tracking-tight text-gray-900">{cat}</span>
-              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md">{catSkus.length} SKUs</span>
-            </div>
-            <div className="space-y-5 overflow-x-auto">
-              {Array.from(famMap.entries()).map(([fam, { series, skus }]) => {
-                const mMap = new Map<string, Sku[]>()
-                skus.forEach(s => { const { model } = splitModel(s.code); if (!mMap.has(model)) mMap.set(model, []); mMap.get(model)!.push(s) })
-                const models = Array.from(mMap.entries())
-                const h = Math.max(models.length * ROW_H, ROW_H), famCy = h / 2, mx = (FAM_W + MODEL_X) / 2
-                return (
-                  <div key={fam} className="relative" style={{ height: h, minWidth: MODEL_X + NODE_W + 16 }}>
-                    <svg className="absolute inset-0 pointer-events-none" width={MODEL_X + NODE_W + 16} height={h}>
-                      {models.map((_, i) => {
-                        const y2 = i * ROW_H + ROW_H / 2
-                        return <path key={i} d={`M${FAM_W} ${famCy} C${mx} ${famCy} ${mx} ${y2} ${MODEL_X} ${y2}`} fill="none" stroke="#5e5ce6" strokeWidth={1.5} opacity={0.4} />
-                      })}
-                    </svg>
-                    <div className="absolute" style={{ left: 0, top: famCy - 19, width: FAM_W - 14 }}>
-                      <div className="rounded-xl bg-purple-50 border border-purple-200 px-3 py-1.5">
-                        <div className="text-[12.5px] font-semibold text-purple-700 truncate">{fam}</div>
-                        {series && <div className="text-[10px] text-purple-400 truncate">{series} series</div>}
-                      </div>
+            <div className="overflow-x-auto">
+              <div className="relative" style={{ height: totalH, minWidth: W }}>
+                <svg className="absolute inset-0 pointer-events-none" width={W} height={totalH}>
+                  {fams.map((f, fi) => (
+                    <Fragment key={fi}>
+                      <path d={`M${ROOT_X + ROOT_W} ${rootY} C${mid(ROOT_X + ROOT_W, FAM_X)} ${rootY} ${mid(ROOT_X + ROOT_W, FAM_X)} ${f.fy} ${FAM_X} ${f.fy}`} fill="none" stroke="#c4b5e8" strokeWidth={1.6} />
+                      {f.models.map((m, mi) => (
+                        <path key={mi} d={`M${FAM_X + FAM_W} ${f.fy} C${mid(FAM_X + FAM_W, MODEL_X)} ${f.fy} ${mid(FAM_X + FAM_W, MODEL_X)} ${m.my} ${MODEL_X} ${m.my}`} fill="none" stroke="#d7cbef" strokeWidth={1.6} />
+                      ))}
+                      <path d={`M${FAM_X + FAM_W} ${f.fy} C${mid(FAM_X + FAM_W, MODEL_X)} ${f.fy} ${mid(FAM_X + FAM_W, MODEL_X)} ${f.plusY} ${MODEL_X} ${f.plusY}`} fill="none" stroke="#dcdce0" strokeWidth={1.4} strokeDasharray="4 4" />
+                    </Fragment>
+                  ))}
+                </svg>
+
+                {/* root = Category 节点 */}
+                <div className="absolute flex items-center gap-1.5 rounded-xl bg-gray-900 text-white px-3 py-2" style={{ left: ROOT_X, top: rootY - 17, width: ROOT_W }}>
+                  <span className="text-[12px] font-semibold truncate">{cat}</span>
+                  <span className="ml-auto text-[9px] text-white/60 tabular-nums">{catSkus.length}</span>
+                </div>
+
+                {fams.map((f, fi) => (
+                  <Fragment key={fi}>
+                    {/* family 节点 */}
+                    <div className="absolute rounded-xl bg-purple-50 border border-purple-200 px-2.5 py-1.5" style={{ left: FAM_X, top: f.fy - 18, width: FAM_W }}>
+                      <div className="text-[12px] font-semibold text-purple-700 truncate">{f.fam}</div>
+                      {f.series && <div className="text-[9.5px] text-purple-400 truncate">{f.series} series</div>}
                     </div>
-                    {models.map(([model, variants], i) => {
-                      const active = selModel === model
-                      const anyActive = variants.some(v => v.is_active)
+                    {/* 型号节点 */}
+                    {f.models.map(m => {
+                      const active = selModel === m.model
+                      const anyActive = m.variants.some(v => v.is_active)
                       return (
-                        <button key={model} onClick={() => setSelModel(active ? null : model)}
-                          className={`absolute text-left rounded-xl border px-3 py-1.5 transition ${active ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-100' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
-                          style={{ left: MODEL_X, top: i * ROW_H + 4, width: NODE_W }}>
+                        <button key={m.model} onClick={() => setSelModel(active ? null : m.model)}
+                          className={`absolute text-left rounded-xl border px-3 py-1.5 transition ${active ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-100 z-10' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
+                          style={{ left: MODEL_X, top: m.my - 22, width: MODEL_W }}>
                           <div className="flex items-center gap-2">
                             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: anyActive ? '#34c759' : '#c7c7cc' }} />
-                            <span className="font-mono text-[11px] font-semibold text-gray-700 bg-gray-100 px-1.5 rounded">{model}</span>
-                            <span className="text-[12px] text-gray-800 truncate flex-1">{variants[0]?.name?.split(' - ')[0]}</span>
+                            <span className="font-mono text-[11px] font-semibold text-gray-700 bg-gray-100 px-1.5 rounded">{m.model}</span>
+                            <span className="text-[12px] text-gray-800 truncate flex-1">{m.variants[0]?.name?.split(' - ')[0]}</span>
                           </div>
                           <div className="flex flex-wrap gap-1 mt-1 ml-5">
-                            {variants.map(v => { const { color } = splitModel(v.code); return color
+                            {m.variants.map(v => { const { color } = splitModel(v.code); return color
                               ? <span key={v.id} title={color} className="w-3 h-3 rounded-sm" style={{ background: COLOR_DOT[color] ?? '#ccc', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.12)' }} />
                               : <span key={v.id} className="text-[9px] text-gray-300">·</span> })}
                           </div>
                         </button>
                       )
                     })}
-                  </div>
-                )
-              })}
+                    {/* 「+型号」幽灵节点 */}
+                    <button onClick={() => setAdding({ category: cat, series: f.series, family: f.fam === '(no family)' ? '' : f.fam })}
+                      className="absolute rounded-lg border border-dashed border-gray-300 bg-white text-[10.5px] font-medium text-gray-400 hover:text-purple-600 hover:border-purple-300 transition"
+                      style={{ left: MODEL_X, top: f.plusY - 11, width: 92, height: 22 }}>＋ 型号</button>
+                  </Fragment>
+                ))}
+              </div>
             </div>
           </div>
         )
       })}
+
+      {adding && (
+        <div className={`${card} p-4`}>
+          <AddSkuForm prefill={{ category: adding.category, series: adding.series, family: adding.family }}
+            title={`在 ${adding.family || '(no family)'} 下新增型号`}
+            onDone={(m) => { onSuccess(m); setAdding(null) }} onError={onError} onCancel={() => setAdding(null)} />
+        </div>
+      )}
 
       {selModel && selVariants.length > 0 && (
         <div className={`${card} p-4`}>
