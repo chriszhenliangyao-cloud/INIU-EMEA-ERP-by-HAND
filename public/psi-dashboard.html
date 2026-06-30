@@ -238,7 +238,6 @@
 <!-- Loading -->
 <div id="loading" class="loading-overlay">
   <div class="text-center">
-    <div class="spinner mx-auto mb-3"></div>
     <p class="text-sm text-gray-500">Loading PSI data...</p>
   </div>
 </div>
@@ -542,7 +541,6 @@ function initApp() {
     if (loading && loading.style.display !== 'none') {
       loading.innerHTML =
         '<div class="text-center" style="max-width:420px;">' +
-        '<div class="spinner mx-auto mb-3"></div>' +
         '<p style="color:#b45309;font-weight:700;margin-bottom:8px;">Still loading data</p>' +
         '<p class="text-sm text-gray-500">The Google Sheets backend has not returned yet. If this stays here, check Apps Script executions for loadAllData().</p>' +
         '</div>';
@@ -1881,9 +1879,8 @@ function renderSOTrend() {
 
 function formatMetricValue(v) {
   if (v === null || v === undefined || isNaN(v)) return '-';
-  if (Math.abs(v) >= 1000000) return (v / 1000000).toFixed(1) + 'M';
-  if (Math.abs(v) >= 1000) return (v / 1000).toFixed(1) + 'K';
-  return String(Math.round(v));
+  // 显示原始完整数值，不缩写(K/M)、不四舍五入；仅加千分位便于阅读
+  return Number(v).toLocaleString('en-US', { maximumFractionDigits: 6 });
 }
 
 function heatColor(value, maxValue) {
@@ -2636,7 +2633,7 @@ function summaryRowsFromAgg(agg) {
 function summaryCellsHtml(row, weeks, opts) {
   var bg = opts.summaryBg;
   var dosStr = (row.dos !== undefined && row.dos !== null && isFinite(row.dos))
-    ? Math.round(row.dos) + 'd' : '-';
+    ? row.dos + 'd' : '-';
   var html = '';
   weeks.forEach(function(w) {
     var val = row.weekly[w];
