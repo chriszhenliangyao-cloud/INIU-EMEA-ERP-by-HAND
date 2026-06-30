@@ -258,7 +258,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
       {/* KPI cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
         <KpiCard label="Total Ordered" value={fmtNum(stats.totalQty)} hint="units (Qty Ordered)" />
-        <KpiCard label="Total Value" value={'€' + fmtNum(Math.round(stats.totalValueEUR))} hint={`turnover · 折算 EUR（PLN×${plnToEur.toFixed(4)}）`} color="green" />
+        <KpiCard label="Total Value" value={'€' + fmtNum(Math.round(stats.totalValueEUR))} hint={`turnover · in EUR (PLN×${plnToEur.toFixed(4)})`} color="green" />
         <KpiCard label="Key Accounts" value={fmtNum(kaNames.length)} hint={kaNames.join(' · ') || 'ordering KAs'} color="amber" />
       </div>
 
@@ -286,7 +286,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
             <div className="text-sm font-semibold text-gray-700">📈 Monthly order {monthMetric === 'value' ? 'value · by PO date' : 'volume · by PO date'}</div>
             {metricTag(monthMetric, setMonthMetric)}
           </div>
-          <div className="text-xs text-gray-400 mb-3">{monthlyChart.grouped ? `${currentCountryLabel} · split by KA${monthMetric === 'value' ? ` · €（PLN×${plnToEur.toFixed(4)}）` : ''}` : (monthMetric === 'value' ? `turnover · 统一折算 EUR（ECB实时汇率 PLN×${plnToEur.toFixed(4)}）` : 'value labelled on bars')}</div>
+          <div className="text-xs text-gray-400 mb-3">{monthlyChart.grouped ? `${currentCountryLabel} · split by KA${monthMetric === 'value' ? ` · € (PLN×${plnToEur.toFixed(4)})` : ''}` : (monthMetric === 'value' ? `turnover · converted to EUR (ECB live rate PLN×${plnToEur.toFixed(4)})` : 'value labelled on bars')}</div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={monthlyChart.data} margin={{ top: 22, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
@@ -314,7 +314,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
             <div className="text-sm font-semibold text-gray-700">🏢 Customer order ranking</div>
             {metricTag(rankMetric, setRankMetric)}
           </div>
-          <div className="text-xs text-gray-400 mb-3">{currentCountryLabel} · {dMonth === 'ALL' ? 'All months' : monthShort(dMonth)} · {rankMetric === 'value' ? `by turnover · €（PLN×${plnToEur.toFixed(4)}）` : 'by volume'}</div>
+          <div className="text-xs text-gray-400 mb-3">{currentCountryLabel} · {dMonth === 'ALL' ? 'All months' : monthShort(dMonth)} · {rankMetric === 'value' ? `by turnover · € (PLN×${plnToEur.toFixed(4)})` : 'by volume'}</div>
           <table className="w-full border-collapse">
             <tbody>
               {topKas.map((k, i) => (
@@ -337,7 +337,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
       {/* SKU trend (by product name) */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-5">
         <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="text-sm font-semibold text-gray-700">📊 SKU order {skuMetric === 'value' ? 'value' : 'volume'} <span className="ml-2 text-xs text-gray-400">· {currentCountryLabel} · {dMonth === 'ALL' ? 'All months' : monthShort(dMonth)}{skuMetric === 'value' ? ` · €（PLN×${plnToEur.toFixed(4)}）` : ''}</span></div>
+          <div className="text-sm font-semibold text-gray-700">📊 SKU order {skuMetric === 'value' ? 'value' : 'volume'} <span className="ml-2 text-xs text-gray-400">· {currentCountryLabel} · {dMonth === 'ALL' ? 'All months' : monthShort(dMonth)}{skuMetric === 'value' ? ` · € (PLN×${plnToEur.toFixed(4)})` : ''}</span></div>
           <div className="flex items-center gap-2">
             {metricTag(skuMetric, setSkuMetric)}
             <div className="text-xs text-gray-400 whitespace-nowrap">{skuTrend.length} SKUs</div>
@@ -388,8 +388,8 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
                 <FilterTh col="country_code" label="Country" sc={sortCol} sd={sortDir} on={toggleSort} value={tCountry} onPick={setTCountry} options={options.countries} />
                 <FilterTh col="category" label="Category" sc={sortCol} sd={sortDir} on={toggleSort} value={tCat} onPick={setTCat} options={options.cats} />
                 <FilterTh col="qty" label="Qty" sc={sortCol} sd={sortDir} on={toggleSort} align="right" />
-                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="FD 进货均价 = 营业额 / 数量（原币种，不折算）">FD Price</th>
-                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="营业额合计 Subtotal（原币种，对方所报实际整单额，EUR/PLN 不混算）">Turnover</th>
+                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="FD buying price = turnover / qty (original currency, not converted)">FD Price</th>
+                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="Total Subtotal / turnover (original currency, as reported by the channel; EUR and PLN not mixed)">Turnover</th>
                 <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600 uppercase">Shipped</th>
                 <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="Lines counted as shipped only via Delivery Date (Ship Date was blank)">Via Delivery</th>
                 <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase">Count</th>
@@ -410,7 +410,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
                     <td className="px-4 py-2 text-right text-gray-500 tabular-nums whitespace-nowrap">{r.fdPrice != null ? fmtMoney(r.fdPrice, r.currency) : (r.qty ? fmtMoney(r.turnover / r.qty, r.currency) : '–')}</td>
                     <td className="px-4 py-2 text-right font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fmtMoney(r.turnover, r.currency)}</td>
                     <td className="px-4 py-2 text-center"><ShippedBadge shipped={r.shipped} total={r.count} /></td>
-                    <td className="px-4 py-2 text-center">{r.rescued > 0 ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-sky-100 text-sky-700" title="发货日漏填，用送达日兜底">🚚 {r.rescued}</span> : <span className="text-gray-300">-</span>}</td>
+                    <td className="px-4 py-2 text-center">{r.rescued > 0 ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-sky-100 text-sky-700" title="Ship date was blank; counted as shipped via delivery date">🚚 {r.rescued}</span> : <span className="text-gray-300">-</span>}</td>
                     <td className="px-4 py-2 text-right text-gray-400">{r.count}</td>
                   </tr>
                 )
@@ -466,28 +466,28 @@ function UnshippedTable({ rows, plnToEur }: { rows: UnRow[]; plnToEur: number })
     const d = shipDate[id] || today
     setShippingId(id)
     const { error } = await supabase.from('channel_po').update({ ship_date: d }).eq('id', id)
-    if (error) { setShippingId(null); alert(`标记失败: ${error.message}`); return }
+    if (error) { setShippingId(null); alert(`Mark failed: ${error.message}`); return }
     router.refresh() // 服务端重新渲染：该行从清单消失、聚合表 Shipped +1
   }
 
   // 取消：po_status=cancelled → 移入 Cancelled 表（仍计入总额，只是状态标签）。
   const markCancelled = async (id: number) => {
-    if (!confirm('确认标记为 Cancelled？\n该 PO 仍计入总额，但会移入 Cancelled 表。')) return
+    if (!confirm('Mark this PO as cancelled?\nIt still counts toward totals, but moves to the Cancelled table.')) return
     setShippingId(id)
     const { error } = await supabase.from('channel_po').update({ po_status: 'cancelled' }).eq('id', id)
-    if (error) { setShippingId(null); alert(`标记失败: ${error.message}`); return }
+    if (error) { setShippingId(null); alert(`Mark failed: ${error.message}`); return }
     router.refresh()
   }
 
   // 部分发货：输入已发数量 → po_status=partial + delivered_qty + ship_date（部分发货日）→ 移入 Partially Delivered 表。
   const markPartial = async (id: number, ordered: number) => {
-    const input = prompt(`部分发货 —— 已发数量（共下单 ${ordered}）：`, '')
+    const input = prompt(`Partial shipment — quantity delivered (of ${ordered} ordered):`, '')
     if (input == null) return
     const n = Math.floor(Number(input))
-    if (!Number.isFinite(n) || n <= 0 || n >= ordered) { alert(`请输入 1 ~ ${ordered - 1} 之间的已发数量（≥整单数量请直接用「已发货」）`); return }
+    if (!Number.isFinite(n) || n <= 0 || n >= ordered) { alert(`Enter a delivered quantity between 1 and ${ordered - 1} (for the full order, use "Mark shipped").`); return }
     setShippingId(id)
     const { error } = await supabase.from('channel_po').update({ po_status: 'partial', delivered_qty: n, ship_date: shipDate[id] || today }).eq('id', id)
-    if (error) { setShippingId(null); alert(`标记失败: ${error.message}`); return }
+    if (error) { setShippingId(null); alert(`Mark failed: ${error.message}`); return }
     router.refresh()
   }
 
@@ -521,10 +521,10 @@ function UnshippedTable({ rows, plnToEur }: { rows: UnRow[]; plnToEur: number })
               <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">SKU</th>
               <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">Product</th>
               <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
-              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="FD 进货单价（原币种）">Unit Price</th>
-              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="营业额（原币种）">Turnover</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="FD buying price (original currency)">Unit Price</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="Turnover (original currency)">Turnover</th>
               <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase" style={{ minWidth: 280 }}>Notes — why not shipped?</th>
-              <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="已发货 / 部分发货 / 取消 —— 选择后转入对应表">Action</th>
+              <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="Shipped / Partial / Cancel — moves the row to the matching table">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -559,16 +559,16 @@ function UnshippedTable({ rows, plnToEur }: { rows: UnRow[]; plnToEur: number })
                         className="lg-date w-full rounded-[10px] px-2 py-1 text-[11px] text-gray-700 outline-none focus:ring-2 focus:ring-emerald-200/70" />
                       <button onClick={() => markShipped(r.id)} disabled={shippingId === r.id}
                         className="lg-ship w-full rounded-[10px] px-3 py-1.5 text-xs font-semibold text-emerald-800 active:scale-[0.98] disabled:opacity-50">
-                        {shippingId === r.id ? '处理中…' : '已发货'}
+                        {shippingId === r.id ? 'Saving…' : 'Mark shipped'}
                       </button>
                       <div className="flex gap-1.5">
                         <button onClick={() => markPartial(r.id, r.qty)} disabled={shippingId === r.id}
-                          className="lg-chip lg-chip-blue flex-1 rounded-[10px] px-2 py-1 text-[11px] font-semibold active:scale-[0.98] disabled:opacity-50" title="部分发货：输入已发数量">
-                          部分发货
+                          className="lg-chip lg-chip-blue flex-1 rounded-[10px] px-2 py-1 text-[11px] font-semibold active:scale-[0.98] disabled:opacity-50" title="Partial shipment: enter quantity delivered">
+                          Partial
                         </button>
                         <button onClick={() => markCancelled(r.id)} disabled={shippingId === r.id}
-                          className="lg-chip lg-chip-red flex-1 rounded-[10px] px-2 py-1 text-[11px] font-semibold active:scale-[0.98] disabled:opacity-50" title="取消该 PO">
-                          取消
+                          className="lg-chip lg-chip-red flex-1 rounded-[10px] px-2 py-1 text-[11px] font-semibold active:scale-[0.98] disabled:opacity-50" title="Cancel this PO">
+                          Cancel
                         </button>
                       </div>
                     </div>
@@ -581,10 +581,10 @@ function UnshippedTable({ rows, plnToEur }: { rows: UnRow[]; plnToEur: number })
           {rows.length > 0 && (
             <tfoot className="bg-amber-50 border-t-2 border-amber-200 sticky bottom-0">
               <tr>
-                <td className="px-3 py-2 text-xs font-semibold text-gray-600" colSpan={6}>Unshipped total（计入总 PO）</td>
+                <td className="px-3 py-2 text-xs font-semibold text-gray-600" colSpan={6}>Unshipped total (in total PO)</td>
                 <td className="px-3 py-2 text-right text-sm font-bold tabular-nums">{fmtNum(totalQty)}</td>
                 <td className="px-3 py-2"></td>
-                <td className="px-3 py-2 text-right text-sm font-bold tabular-nums whitespace-nowrap" title={`折算 EUR · PLN×${plnToEur.toFixed(4)}`}>€{fmtNum(Math.round(totalValEUR))}</td>
+                <td className="px-3 py-2 text-right text-sm font-bold tabular-nums whitespace-nowrap" title={`In EUR · PLN×${plnToEur.toFixed(4)}`}>€{fmtNum(Math.round(totalValEUR))}</td>
                 <td className="px-3 py-2" colSpan={2}></td>
               </tr>
             </tfoot>
@@ -613,10 +613,10 @@ function ActionedTable({ rows, mode, plnToEur }: { rows: UnRow[]; mode: 'cancell
   }
   // 退回待发：清空 po_status / delivered_qty / ship_date（这些行原本都来自未发货清单）
   const reopen = async (id: number) => {
-    if (!confirm('退回到 Unshipped 待发清单？将清除该行的发货/部分/取消标记。')) return
+    if (!confirm('Move back to the Unshipped list? This clears the shipped / partial / cancelled mark on this row.')) return
     setBusyId(id)
     const { error } = await supabase.from('channel_po').update({ po_status: null, delivered_qty: null, ship_date: null }).eq('id', id)
-    if (error) { setBusyId(null); alert(`操作失败: ${error.message}`); return }
+    if (error) { setBusyId(null); alert(`Action failed: ${error.message}`); return }
     router.refresh()
   }
 
@@ -625,8 +625,8 @@ function ActionedTable({ rows, mode, plnToEur }: { rows: UnRow[]; mode: 'cancell
   const totalDelivered = rows.reduce((s, r) => s + (r.delivered_qty ?? 0), 0)
   const totalOrdered = rows.reduce((s, r) => s + r.qty, 0)
   const theme = isPartial
-    ? { border: 'border-sky-200', head: 'bg-sky-50', foot: 'bg-sky-50 border-sky-200', icon: '◑', title: 'Partially Delivered POs', sub: '部分发货 —— 整单数量仍计入总额，剩余可继续跟进' }
-    : { border: 'border-rose-200', head: 'bg-rose-50', foot: 'bg-rose-50 border-rose-200', icon: '✗', title: 'Cancelled POs', sub: '已取消 —— 仍计入总额（只是状态标签）' }
+    ? { border: 'border-sky-200', head: 'bg-sky-50', foot: 'bg-sky-50 border-sky-200', icon: '◑', title: 'Partially Delivered POs', sub: 'Partially delivered — full ordered qty still counts toward totals; track the remainder here' }
+    : { border: 'border-rose-200', head: 'bg-rose-50', foot: 'bg-rose-50 border-rose-200', icon: '✗', title: 'Cancelled POs', sub: 'Cancelled — still counts toward totals (status label only)' }
 
   return (
     <div className={`bg-white rounded-xl border ${theme.border} p-4 mb-5`}>
@@ -636,7 +636,7 @@ function ActionedTable({ rows, mode, plnToEur }: { rows: UnRow[]; mode: 'cancell
       </div>
       <div className="text-xs text-gray-400 mb-3">{theme.sub}</div>
       {rows.length === 0 ? (
-        <div className="text-sm text-gray-300 py-6 text-center border border-gray-100 rounded-lg">无记录</div>
+        <div className="text-sm text-gray-300 py-6 text-center border border-gray-100 rounded-lg">No records</div>
       ) : (
         <div className="overflow-x-auto max-h-[420px] overflow-y-auto border border-gray-200 rounded-lg">
           <table className="w-full text-sm">
@@ -675,7 +675,7 @@ function ActionedTable({ rows, mode, plnToEur }: { rows: UnRow[]; mode: 'cancell
                     <td className="px-3 py-2">
                       <div className="flex items-start gap-2">
                         <textarea value={draft[r.id] ?? ''} onChange={e => setDraft(p => ({ ...p, [r.id]: e.target.value }))} rows={2}
-                          placeholder={isPartial ? '剩余发货计划 / 备注…' : '取消原因…'}
+                          placeholder={isPartial ? 'Remaining shipment plan / notes…' : 'Cancellation reason…'}
                           className="flex-1 min-w-0 resize-y rounded-md border border-gray-300 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-gray-400" />
                         <button onClick={() => save(r.id)} disabled={!dirty || savingId === r.id}
                           className={`shrink-0 px-2.5 py-1 text-xs rounded-md transition ${dirty ? 'bg-gray-700 text-white hover:bg-gray-800' : 'bg-gray-100 text-gray-400'}`}>
@@ -685,7 +685,7 @@ function ActionedTable({ rows, mode, plnToEur }: { rows: UnRow[]; mode: 'cancell
                     </td>
                     <td className="px-3 py-2 text-center">
                       <button onClick={() => reopen(r.id)} disabled={busyId === r.id}
-                        className="px-2 py-1 text-[11px] rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 transition disabled:opacity-60" title="退回 Unshipped 待发">
+                        className="px-2 py-1 text-[11px] rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 transition disabled:opacity-60" title="Move back to Unshipped">
                         {busyId === r.id ? '…' : '↩ Reopen'}
                       </button>
                     </td>
@@ -699,7 +699,7 @@ function ActionedTable({ rows, mode, plnToEur }: { rows: UnRow[]; mode: 'cancell
                 <td className="px-3 py-2 text-right text-sm font-bold tabular-nums">{fmtNum(totalOrdered)}</td>
                 {isPartial && <td className="px-3 py-2 text-right text-sm font-bold text-emerald-700 tabular-nums">{fmtNum(totalDelivered)}</td>}
                 {isPartial && <td className="px-3 py-2 text-right text-sm font-bold text-amber-700 tabular-nums">{fmtNum(totalOrdered - totalDelivered)}</td>}
-                <td className="px-3 py-2 text-right text-sm font-bold tabular-nums whitespace-nowrap" title={`折算 EUR · PLN×${plnToEur.toFixed(4)}`}>€{fmtNum(Math.round(totalValEUR))}</td>
+                <td className="px-3 py-2 text-right text-sm font-bold tabular-nums whitespace-nowrap" title={`In EUR · PLN×${plnToEur.toFixed(4)}`}>€{fmtNum(Math.round(totalValEUR))}</td>
                 <td className="px-3 py-2" colSpan={2}></td>
               </tr>
             </tfoot>
