@@ -160,7 +160,7 @@ export function ForecastLogView({
   return (
     <div className="p-6 max-w-6xl">
       <div className="mb-1 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">📋 Forecast Activity</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">📋 Forecast Activity</h1>
         <span className="text-xs text-gray-500">Signed in as {viewerName} · 1 row = 1 save batch</span>
       </div>
       <p className="text-sm text-gray-500 mb-4">
@@ -170,7 +170,7 @@ export function ForecastLogView({
       {/* 监控卡 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {cards.map(({ rep, countryIds, last, todayN, weekN, confirmed, pending }) => (
-          <div key={rep.id} className="bg-white border border-gray-200 rounded-xl p-3">
+          <div key={rep.id} className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-3">
             <div className="flex items-center gap-2 mb-1.5">
               <div className="w-7 h-7 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center">
                 {rep.display_name[0]?.toUpperCase()}
@@ -240,7 +240,7 @@ export function ForecastLogView({
       </div>
 
       {/* 批次日志 */}
-      <div className="bg-white border border-gray-200 rounded-xl divide-y">
+      <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl divide-y">
         {filtered.length === 0 && (
           <div className="py-12 text-center text-gray-400 text-sm">该筛选条件下没有填报记录</div>
         )}

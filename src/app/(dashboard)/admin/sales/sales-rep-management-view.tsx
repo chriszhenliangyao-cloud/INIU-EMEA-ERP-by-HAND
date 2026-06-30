@@ -161,7 +161,7 @@ export function SalesRepManagementView({
       {/* 页头 */}
       <div className="flex items-baseline justify-between mb-4 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
             👤 Sales Rep Master Data
             <span className="text-base text-gray-500 ml-2 font-normal">· Admin only</span>
           </h1>
@@ -180,7 +180,7 @@ export function SalesRepManagementView({
       </div>
 
       {/* 工具栏 */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 flex items-center gap-3 flex-wrap">
+      <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-4 mb-4 flex items-center gap-3 flex-wrap">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -209,7 +209,7 @@ export function SalesRepManagementView({
       </div>
 
       {/* 表格 */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl overflow-hidden">
         <div className="overflow-auto max-h-[750px]">
           <table className="w-full text-sm border-collapse" style={{ minWidth: 1100 }}>
             <thead>
@@ -219,7 +219,7 @@ export function SalesRepManagementView({
                   ['Auth', 'center'], ['Countries', 'left'], ['Hired', 'left'],
                   ['Status', 'center'], ['Actions', 'right'],
                 ].map(([h, align]) => (
-                  <th key={h} className={`sticky top-0 bg-gray-50 z-10 px-3 py-2 text-${align} text-xs font-semibold text-gray-600 uppercase border-b-2 border-gray-200`}>
+                  <th key={h} className={`sticky top-0 bg-gray-50 z-10 px-3 py-2 text-${align} text-xs font-semibold text-gray-600 border-b-2 border-gray-200`}>
                     {h}
                   </th>
                 ))}
@@ -268,7 +268,7 @@ export function SalesRepManagementView({
                             if (!c) return null
                             return (
                               <span key={a.country_id} title={a.is_primary ? 'Primary' : 'Secondary'}
-                                className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border ${a.is_primary ? 'bg-blue-100 text-blue-800 border-blue-300' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>
+                                className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border ${a.is_primary ? 'bg-blue-50 text-blue-600 border-blue-300' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>
                                 {c.flag_emoji} {c.code}{a.is_primary && '★'}
                               </span>
                             )
@@ -499,7 +499,7 @@ function SalesRepFormDrawer({
                     const c = countries.find(cc => cc.id === a.country_id)
                     if (!c) return null
                     return (
-                      <span key={c.id} className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${a.is_primary ? 'bg-blue-100 text-blue-800 border-blue-300' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>
+                      <span key={c.id} className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${a.is_primary ? 'bg-blue-50 text-blue-600 border-blue-300' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>
                         {c.flag_emoji} {c.code} {a.is_primary && '★'}
                         <button type="button" onClick={() => onUnassignCountry?.(c.id)} className="ml-1.5 text-red-500 hover:text-red-700 text-base leading-none" title="Remove">
                           ×
@@ -568,7 +568,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 pb-1 border-b border-gray-200">{title}</div>
+      <div className="text-xs font-bold text-gray-500 tracking-wider mb-2 pb-1 border-b border-gray-200">{title}</div>
       {children}
     </div>
   )

@@ -62,7 +62,7 @@ export function KaManagementView({ allKas, countries, shipCount, psiCount, viewe
   return (
     <div className="p-6 max-w-5xl">
       <div className="mb-1 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">🗺️ KA Channel Map</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">🗺️ KA Channel Map</h1>
         <span className="text-xs text-gray-500">Signed in as {viewerName} · All changes audit-logged</span>
       </div>
       <p className="text-sm text-gray-500 mb-4">
@@ -137,7 +137,7 @@ function CountrySection({ country, kas, shipCount, psiCount, onSuccess, onError 
   const parentOptions = kas.filter(k => (k.ka_type === 'distributor' || k.ka_type === 'group') && k.is_active)
 
   return (
-    <section className="bg-white border border-gray-200 rounded-xl shadow-sm">
+    <section className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl shadow-sm">
       <div className="px-5 py-3 border-b bg-gray-50 rounded-t-xl flex items-center gap-2">
         <span className="text-xl">{country.flag_emoji}</span>
         <span className="font-bold text-gray-900">{country.name_en}</span>
@@ -244,7 +244,7 @@ function AddChannelInline({ countryId, parentOptions, onSuccess, onError }: {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="w-full px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium rounded-lg border border-blue-200 border-dashed text-sm"
+        className="w-full px-3 py-2 bg-blue-50 hover:bg-blue-50 text-blue-600 font-medium rounded-lg border border-blue-200 border-dashed text-sm"
       >
         + Add channel
       </button>
@@ -374,9 +374,9 @@ function TreeNode({ ka, depth, childrenOf, parentOptions, shipCount, psiCount, o
 // 节点卡片 + 行内编辑
 // ───────────────────────────────────────
 const TYPE_STYLE: Record<string, { emoji: string; label: string; cls: string; border: string }> = {
-  distributor: { emoji: '📦', label: 'FD', cls: 'bg-purple-100 text-purple-700', border: 'border-purple-300' },
-  group:       { emoji: '🏢', label: 'Group', cls: 'bg-amber-100 text-amber-700', border: 'border-amber-300' },
-  retailer:    { emoji: '🛒', label: 'Retailer', cls: 'bg-blue-100 text-blue-700', border: 'border-blue-200' },
+  distributor: { emoji: '📦', label: 'FD', cls: 'bg-purple-50 text-purple-600', border: 'border-purple-300' },
+  group:       { emoji: '🏢', label: 'Group', cls: 'bg-amber-50 text-amber-700', border: 'border-amber-300' },
+  retailer:    { emoji: '🛒', label: 'Retailer', cls: 'bg-blue-50 text-blue-600', border: 'border-blue-200' },
 }
 
 function Badge({ type }: { type: string }) {
