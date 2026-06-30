@@ -13,6 +13,9 @@ type FlatRow = {
   ship_date: string | null
   delivery_date: string | null
   notes: string | null
+  fd_buying_price: number | null
+  turnover: number | null
+  currency: string | null
   sku_id: number
   sku_code: string
   sku_name: string
@@ -28,6 +31,13 @@ type FlatRow = {
 
 // 发货判定：有 ship_date 或 delivery_date 任一即视为已发（物流偶尔漏填 ship_date，用送达日兜底）
 const isShipped = (r: { ship_date: string | null; delivery_date: string | null }) => !!(r.ship_date || r.delivery_date)
+
+// 金额按原币种展示（不折算）：EUR→€ · PLN→zł
+const CCY_SYM: Record<string, string> = { EUR: '€', PLN: 'zł ' }
+const fmtMoney = (v: number | null | undefined, ccy: string | null) => {
+  if (v == null) return '–'
+  return (ccy ? (CCY_SYM[ccy] ?? ccy + ' ') : '') + fmtNum(Math.round(v))
+}
 
 // 低饱和度调色板（PO 色卡，shipment 也复用）
 const PALETTE = ['#5b8def', '#52b788', '#9b8cce', '#e0a458', '#d98594', '#6cc3d5', '#c9a227', '#7aa095', '#b58db6', '#8a9bb0']
@@ -162,7 +172,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
     return true
   }), [rows, tYear, tCountry, tMonth, tSku, tKa, tCat, tSearch])
 
-  type AggRow = { month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_flag: string; category: string | null; qty: number; count: number; shipped: number; rescued: number }
+  type AggRow = { month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_flag: string; category: string | null; qty: number; count: number; shipped: number; rescued: number; turnover: number; currency: string | null }
   // 靠 delivery_date 兜底的行（有送达日但 ship_date 为空）
   const rescuedBy = (r: FlatRow) => !r.ship_date && !!r.delivery_date
   const aggRows = useMemo<AggRow[]>(() => {
@@ -172,8 +182,8 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
       const ka = r.ka_name ?? '-'
       const key = `${ym}|${r.sku_code}|${ka}|${r.country_code}`
       const ex = map.get(key)
-      if (ex) { ex.qty += r.qty; ex.count += 1; if (isShipped(r)) ex.shipped += 1; if (rescuedBy(r)) ex.rescued += 1 }
-      else map.set(key, { month: ym, sku_code: r.sku_code, sku_name: r.sku_name, ka_name: ka, country_code: r.country_code, country_flag: r.country_flag, category: r.sku_category, qty: r.qty, count: 1, shipped: isShipped(r) ? 1 : 0, rescued: rescuedBy(r) ? 1 : 0 })
+      if (ex) { ex.qty += r.qty; ex.count += 1; if (isShipped(r)) ex.shipped += 1; if (rescuedBy(r)) ex.rescued += 1; ex.turnover += r.turnover ?? 0; if (!ex.currency) ex.currency = r.currency }
+      else map.set(key, { month: ym, sku_code: r.sku_code, sku_name: r.sku_name, ka_name: ka, country_code: r.country_code, country_flag: r.country_flag, category: r.sku_category, qty: r.qty, count: 1, shipped: isShipped(r) ? 1 : 0, rescued: rescuedBy(r) ? 1 : 0, turnover: r.turnover ?? 0, currency: r.currency })
     })
     return Array.from(map.values())
   }, [tableFiltered])
@@ -324,6 +334,8 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
                 <FilterTh col="country_code" label="Country" sc={sortCol} sd={sortDir} on={toggleSort} value={tCountry} onPick={setTCountry} options={options.countries} />
                 <FilterTh col="category" label="Category" sc={sortCol} sd={sortDir} on={toggleSort} value={tCat} onPick={setTCat} options={options.cats} />
                 <FilterTh col="qty" label="Qty" sc={sortCol} sd={sortDir} on={toggleSort} align="right" />
+                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="FD 进货均价 = 营业额 / 数量（原币种，不折算）">FD Price</th>
+                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="营业额合计 Subtotal（原币种，对方所报实际整单额，EUR/PLN 不混算）">Turnover</th>
                 <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600 uppercase">Shipped</th>
                 <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="Lines counted as shipped only via Delivery Date (Ship Date was blank)">Via Delivery</th>
                 <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase">Count</th>
@@ -341,13 +353,15 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
                     <td className="px-4 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_code}</span></td>
                     <td className="px-4 py-2">{r.category ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">{r.category}</span> : <span className="text-gray-300">-</span>}</td>
                     <td className="px-4 py-2 text-right font-medium tabular-nums">{fmtNum(r.qty)}</td>
+                    <td className="px-4 py-2 text-right text-gray-500 tabular-nums whitespace-nowrap">{r.qty ? fmtMoney(r.turnover / r.qty, r.currency) : '–'}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fmtMoney(r.turnover, r.currency)}</td>
                     <td className="px-4 py-2 text-center"><ShippedBadge shipped={r.shipped} total={r.count} /></td>
                     <td className="px-4 py-2 text-center">{r.rescued > 0 ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-sky-100 text-sky-700" title="发货日漏填，用送达日兜底">🚚 {r.rescued}</span> : <span className="text-gray-300">-</span>}</td>
                     <td className="px-4 py-2 text-right text-gray-400">{r.count}</td>
                   </tr>
                 )
               })}
-              {!sortedAgg.length && <tr><td colSpan={10} className="py-12 text-center text-gray-400">No matching records</td></tr>}
+              {!sortedAgg.length && <tr><td colSpan={12} className="py-12 text-center text-gray-400">No matching records</td></tr>}
             </tbody>
           </table>
         </div>
