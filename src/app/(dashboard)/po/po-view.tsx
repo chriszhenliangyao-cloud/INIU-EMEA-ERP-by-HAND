@@ -359,9 +359,11 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
       {/* Unshipped POs (no ship date) — editable notes */}
       <UnshippedTable rows={unshipped} plnToEur={plnToEur} />
 
-      {/* 部分发货 / 已取消 —— 从 Unshipped 标记后转入 */}
-      <ActionedTable rows={partialRows} mode="partial" plnToEur={plnToEur} />
-      <ActionedTable rows={cancelledRows} mode="cancelled" plnToEur={plnToEur} />
+      {/* 部分发货 / 已取消 —— 从 Unshipped 标记后转入（并排一行） */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ActionedTable rows={partialRows} mode="partial" plnToEur={plnToEur} />
+        <ActionedTable rows={cancelledRows} mode="cancelled" plnToEur={plnToEur} />
+      </div>
 
       {/* Aggregation detail (independent filters) */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
