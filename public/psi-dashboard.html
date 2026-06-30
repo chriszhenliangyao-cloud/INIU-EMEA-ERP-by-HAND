@@ -1331,7 +1331,7 @@ function renderChannelFlow() {
     pillsEl.innerHTML = retailers.map(function(ret) {
       var on = ret === channelSelectedRetailer;
       return '<button type="button" class="cf-pill' + (on ? ' active' : '') + '" onclick="selectChannelRetailer(\'' + ret.replace(/'/g, "\\'") + '\')">' +
-        '<i style="background:' + retailerColor(ret) + '"></i>' + getDistDisplay(ret) +
+        getDistDisplay(ret) +
         ' <span style="opacity:.55; font-weight:500;">' + formatMetricValue(retTot[ret]) + '</span></button>';
     }).join('');
   }
@@ -1342,38 +1342,26 @@ function renderChannelFlow() {
   var products = Object.keys(prodTot).sort(function(a, b) { return prodTot[b] - prodTot[a]; });
   var stMap = {}; rrows.forEach(function(r) { stMap[r.week_label + '|' + r['Product Name']] = r.st; });
 
-  var stockByWeek = {};
-  (DB.weeklyPSI || []).forEach(function(r) {
-    if (r.Metric !== 'Stock') return;
-    if (!DISTRIBUTOR_SET[r.Retailer]) return;
-    if (country !== 'All' && r.Country !== country) return;
-    if (dist !== 'All' && r.Retailer !== dist) return;
-    weeks.forEach(function(w) { var v = Number(r[w]); if (v) stockByWeek[w] = (stockByWeek[w] || 0) + v; });
-  });
-
-  // 扁平类目：每根柱=一个(周,产品)，x 轴标签=产品名(斜排)；每周末尾留一个库存类目位
-  var cats = [], weekGroups = [], stockMax = 1;
+  // 扁平类目：每根柱=一个(周,产品)，x 轴标签=产品名(斜排)
+  var cats = [], weekGroups = [];
   weeks.forEach(function(w) {
-    var start = cats.length, any = false;
-    products.forEach(function(p) { if (stMap[w + '|' + p]) { cats.push({ w: w, prod: p }); any = true; } });
-    var sv = stockByWeek[w] || 0;
-    if (!any && !sv) return;   // 该周该渠道无销量、也无库存 → 跳过；无销量但有库存仍保留（只画库存柱）
-    cats.push({ w: w, stock: true });
+    var start = cats.length;
+    products.forEach(function(p) { if (stMap[w + '|' + p]) cats.push({ w: w, prod: p }); });
+    if (cats.length === start) return;   // 该周该渠道无销量 → 跳过
     weekGroups.push({ week: w, start: start, end: cats.length - 1 });
-    if (sv > stockMax) stockMax = sv;
   });
 
   var stDataset = {
     label: 'Sell-Through', yAxisID: 'y', categoryPercentage: 0.92, barPercentage: 0.9,
-    data: cats.map(function(c) { return c.stock ? null : (stMap[c.w + '|' + c.prod] || 0); }),
-    backgroundColor: cats.map(function(c) { return c.stock ? 'rgba(0,0,0,0)' : getGroupColor(c.prod); })
+    data: cats.map(function(c) { return stMap[c.w + '|' + c.prod] || 0; }),
+    backgroundColor: cats.map(function(c) { return getGroupColor(c.prod); })
   };
 
-  // 周分隔线 + 顶部周名 + 手绘库存柱(右轴)，避免双数据集错位
+  // 周分隔线 + 顶部周名
   var cfDecor = {
     id: 'cfDecor',
     afterDatasetsDraw: function(chart) {
-      var xs = chart.scales.x, ys = chart.scales.yStock; if (!xs || !ys) return;
+      var xs = chart.scales.x; if (!xs) return;
       var ctx = chart.ctx, top = chart.chartArea.top, bottom = chart.chartArea.bottom;
       var catW = cats.length > 1 ? Math.abs(xs.getPixelForValue(1) - xs.getPixelForValue(0)) : xs.width;
       ctx.save();
@@ -1382,14 +1370,6 @@ function renderChannelFlow() {
         var cx = (xs.getPixelForValue(g.start) + xs.getPixelForValue(g.end)) / 2;
         ctx.fillStyle = '#334155'; ctx.font = '700 12px "Segoe UI",Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
         ctx.fillText(weekDisplay(g.week), cx, top - 5);
-        var sv = stockByWeek[g.week] || 0;
-        if (sv > 0) {
-          var bw = catW * 0.52, xc = xs.getPixelForValue(g.end), yTop = ys.getPixelForValue(sv), yBase = ys.getPixelForValue(0);
-          ctx.fillStyle = 'rgba(203,213,225,0.6)'; ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1;
-          ctx.fillRect(xc - bw / 2, yTop, bw, yBase - yTop); ctx.strokeRect(xc - bw / 2, yTop, bw, yBase - yTop);
-          ctx.fillStyle = '#94a3b8'; ctx.font = '700 9px "Segoe UI",Arial'; ctx.textBaseline = 'bottom';
-          ctx.fillText(sv >= 1000 ? (sv / 1000).toFixed(1) + 'k' : sv, xc, yTop - 2);
-        }
       });
       ctx.restore();
     }
@@ -1403,8 +1383,7 @@ function renderChannelFlow() {
       scales: {
         x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 55, minRotation: 55, font: { size: 9 }, color: '#64748b',
           callback: function(val) { var l = this.getLabelForValue(val); return l.length > 26 ? l.slice(0, 25) + '…' : l; } } },
-        y: { beginAtZero: true, title: { display: true, text: 'Sell-Through', font: { size: 10 }, color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.15)' }, ticks: { font: { size: 10 }, color: '#94a3b8' } },
-        yStock: { beginAtZero: true, position: 'right', min: 0, max: Math.ceil(stockMax * 1.1), title: { display: true, text: 'Stock', font: { size: 10 }, color: '#94a3b8' }, grid: { drawOnChartArea: false }, ticks: { font: { size: 10 }, color: '#cbd5e1' } }
+        y: { beginAtZero: true, title: { display: true, text: 'Sell-Through', font: { size: 10 }, color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.15)' }, ticks: { font: { size: 10 }, color: '#94a3b8' } }
       },
       plugins: {
         legend: { display: false },
@@ -3002,7 +2981,7 @@ document.addEventListener('DOMContentLoaded', initApp);
       <div style="background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:20px; height:100%; display:flex; flex-direction:column;">
         <div style="margin-bottom:8px;">
           <h2 style="font-size:14px; font-weight:700;">Channel Sell-Through <span id="cf-dist-name" style="color:#9ca3af; font-weight:600; font-size:12px;"></span></h2>
-          <p style="font-size:12px; color:#9ca3af;">选中渠道的各产品逐周 sell-through（左轴）+ 当周总库存（右轴灰柱）· 点下方 pill 切换渠道</p>
+          <p style="font-size:12px; color:#9ca3af;">选中渠道的各产品逐周 sell-through · 点下方 pill 切换渠道</p>
         </div>
         <div id="cf-pills" class="cf-pills"></div>
         <div style="flex:1; min-height:300px; position:relative;"><canvas id="cf-canvas"></canvas></div>
