@@ -309,7 +309,7 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
 
         {/* rows */}
         {phases.map(p => {
-          const hasPx = PRICE_PHASES.includes(p.key) && p.start
+          const hasPx = PRICE_PHASES.includes(p.key) && p.start && initialPrice != null
           const rowKfs = kfs.filter(k => k.phase === p.key)
           return (
             <div key={p.key} className="flex border-b border-gray-100" style={{ minHeight: hasPx ? 54 : 44 }}>
@@ -370,6 +370,16 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
                     style={{ position: 'absolute', top: 7, left: left + '%', width: w + '%', minWidth: 34, height: 14, borderRadius: 4, background: t.color + '1f', border: '1px solid ' + t.color + '59', color: t.color, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap', padding: '0 3px', overflow: 'hidden' }}>
                     {(CCY_SYM[sg.currency] || sg.currency + ' ') + sg.price}
                   </div>
+                )
+              })}
+              {/* 调价关键帧标记：段边界(i>0)= 该渠道一次调价 */}
+              {t.segs.map((sg, i) => {
+                if (i === 0) return null
+                const prev = t.segs[i - 1]
+                const sym = (c: string) => CCY_SYM[c] || c + ' '
+                return (
+                  <div key={'kf' + i} title={`💰 调价 ${sg.start} · ${sym(prev.currency)}${prev.price} → ${sym(sg.currency)}${sg.price}`}
+                    style={{ position: 'absolute', top: 7, left: clamp(pct(sg.start)) + '%', transform: 'translateX(-50%)', width: 14, height: 14, borderRadius: '50%', background: t.color, color: '#fff', border: '1.5px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, zIndex: 4 }}>💰</div>
                 )
               })}
               <div style={{ position: 'absolute', left: tx + '%', top: 0, bottom: 0, width: 2, background: '#f0617c', opacity: 0.45 }} />
