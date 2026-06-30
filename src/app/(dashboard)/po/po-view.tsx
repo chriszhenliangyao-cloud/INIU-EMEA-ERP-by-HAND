@@ -32,11 +32,12 @@ type FlatRow = {
 // 发货判定：有 ship_date 或 delivery_date 任一即视为已发（物流偶尔漏填 ship_date，用送达日兜底）
 const isShipped = (r: { ship_date: string | null; delivery_date: string | null }) => !!(r.ship_date || r.delivery_date)
 
-// 金额按原币种展示（不折算）：EUR→€ · PLN→zł
+// 金额按原币种展示（不折算、不取整，保留真实 2 位小数）：EUR→€ · PLN→zł
 const CCY_SYM: Record<string, string> = { EUR: '€', PLN: 'zł ' }
 const fmtMoney = (v: number | null | undefined, ccy: string | null) => {
   if (v == null) return '–'
-  return (ccy ? (CCY_SYM[ccy] ?? ccy + ' ') : '') + fmtNum(Math.round(v))
+  return (ccy ? (CCY_SYM[ccy] ?? ccy + ' ') : '') +
+    v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 // 低饱和度调色板（PO 色卡，shipment 也复用）
@@ -172,7 +173,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
     return true
   }), [rows, tYear, tCountry, tMonth, tSku, tKa, tCat, tSearch])
 
-  type AggRow = { month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_flag: string; category: string | null; qty: number; count: number; shipped: number; rescued: number; turnover: number; currency: string | null }
+  type AggRow = { month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_flag: string; category: string | null; qty: number; count: number; shipped: number; rescued: number; turnover: number; currency: string | null; fdPrice: number | null }
   // 靠 delivery_date 兜底的行（有送达日但 ship_date 为空）
   const rescuedBy = (r: FlatRow) => !r.ship_date && !!r.delivery_date
   const aggRows = useMemo<AggRow[]>(() => {
@@ -182,8 +183,11 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
       const ka = r.ka_name ?? '-'
       const key = `${ym}|${r.sku_code}|${ka}|${r.country_code}`
       const ex = map.get(key)
-      if (ex) { ex.qty += r.qty; ex.count += 1; if (isShipped(r)) ex.shipped += 1; if (rescuedBy(r)) ex.rescued += 1; ex.turnover += r.turnover ?? 0; if (!ex.currency) ex.currency = r.currency }
-      else map.set(key, { month: ym, sku_code: r.sku_code, sku_name: r.sku_name, ka_name: ka, country_code: r.country_code, country_flag: r.country_flag, category: r.sku_category, qty: r.qty, count: 1, shipped: isShipped(r) ? 1 : 0, rescued: rescuedBy(r) ? 1 : 0, turnover: r.turnover ?? 0, currency: r.currency })
+      if (ex) {
+        ex.qty += r.qty; ex.count += 1; if (isShipped(r)) ex.shipped += 1; if (rescuedBy(r)) ex.rescued += 1
+        ex.turnover += r.turnover ?? 0; if (!ex.currency) ex.currency = r.currency
+        if (ex.fdPrice !== r.fd_buying_price) ex.fdPrice = null  // 组内单价不一致 → 退回加权均价
+      } else map.set(key, { month: ym, sku_code: r.sku_code, sku_name: r.sku_name, ka_name: ka, country_code: r.country_code, country_flag: r.country_flag, category: r.sku_category, qty: r.qty, count: 1, shipped: isShipped(r) ? 1 : 0, rescued: rescuedBy(r) ? 1 : 0, turnover: r.turnover ?? 0, currency: r.currency, fdPrice: r.fd_buying_price })
     })
     return Array.from(map.values())
   }, [tableFiltered])
@@ -353,7 +357,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
                     <td className="px-4 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_code}</span></td>
                     <td className="px-4 py-2">{r.category ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">{r.category}</span> : <span className="text-gray-300">-</span>}</td>
                     <td className="px-4 py-2 text-right font-medium tabular-nums">{fmtNum(r.qty)}</td>
-                    <td className="px-4 py-2 text-right text-gray-500 tabular-nums whitespace-nowrap">{r.qty ? fmtMoney(r.turnover / r.qty, r.currency) : '–'}</td>
+                    <td className="px-4 py-2 text-right text-gray-500 tabular-nums whitespace-nowrap">{r.fdPrice != null ? fmtMoney(r.fdPrice, r.currency) : (r.qty ? fmtMoney(r.turnover / r.qty, r.currency) : '–')}</td>
                     <td className="px-4 py-2 text-right font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fmtMoney(r.turnover, r.currency)}</td>
                     <td className="px-4 py-2 text-center"><ShippedBadge shipped={r.shipped} total={r.count} /></td>
                     <td className="px-4 py-2 text-center">{r.rescued > 0 ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-sky-100 text-sky-700" title="发货日漏填，用送达日兜底">🚚 {r.rescued}</span> : <span className="text-gray-300">-</span>}</td>
