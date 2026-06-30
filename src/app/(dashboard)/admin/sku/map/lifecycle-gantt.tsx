@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 const DAY = 864e5
@@ -312,7 +312,8 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
           const hasPx = PRICE_PHASES.includes(p.key) && p.start && initialPrice != null
           const rowKfs = kfs.filter(k => k.phase === p.key)
           return (
-            <div key={p.key} className="flex border-b border-gray-100" style={{ minHeight: hasPx ? 54 : 44 }}>
+            <Fragment key={p.key}>
+            <div className="flex border-b border-gray-100" style={{ minHeight: hasPx ? 54 : 44 }}>
               <div className="flex-none border-r border-gray-200 flex items-center gap-2" style={{ width: 180, padding: '6px 12px', fontSize: 11.5 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: p.color, flex: '0 0 auto' }} /><span>{p.name}</span>
               </div>
@@ -347,45 +348,47 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
                 <div style={{ position: 'absolute', left: tx + '%', top: 0, bottom: 0, width: 2, background: '#f0617c', zIndex: 5 }} />
               </div>
             </div>
+
+            {/* 渠道价格轨道：作为「在售」相位的子段（来自 PO，实时） */}
+            {p.key === 'active' && tracks.length > 0 && (
+              <>
+                <div className="flex border-b border-gray-100" style={{ background: '#fafafb' }}>
+                  <div className="flex-none border-r border-gray-200" style={{ width: 180, padding: '4px 12px 4px 26px', fontSize: 10, fontWeight: 600, color: '#86868b' }}>↳ 渠道价格 · 来自 PO</div>
+                  <div className="flex-1" style={{ minHeight: 6 }} />
+                </div>
+                {tracks.map(t => (
+                  <div key={t.channel} className="flex border-b border-gray-100" style={{ minHeight: 28 }}>
+                    <div className="flex-none border-r border-gray-200 flex items-center gap-1.5" style={{ width: 180, padding: '4px 12px 4px 26px', fontSize: 10.5, color: '#52525b' }}>
+                      <span style={{ width: 7, height: 7, borderRadius: 2, background: t.color, flex: '0 0 auto' }} /><span className="truncate">{t.channel}</span>
+                    </div>
+                    <div className="relative flex-1" style={{ height: 28 }}>
+                      {t.segs.map((sg, i) => {
+                        const left = clamp(pct(sg.start)), w = Math.max(clamp(pct(sg.end)) - left, 0)
+                        return (
+                          <div key={i} title={`${t.channel} · ${sg.start}${sg.end !== sg.start ? ' → ' + sg.end : ''} · ${(CCY_SYM[sg.currency] || sg.currency + ' ')}${sg.price}`}
+                            style={{ position: 'absolute', top: 7, left: left + '%', width: w + '%', minWidth: 34, height: 14, borderRadius: 4, background: t.color + '1f', border: '1px solid ' + t.color + '59', color: t.color, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap', padding: '0 3px', overflow: 'hidden' }}>
+                            {(CCY_SYM[sg.currency] || sg.currency + ' ') + sg.price}
+                          </div>
+                        )
+                      })}
+                      {t.segs.map((sg, i) => {
+                        if (i === 0) return null
+                        const prev = t.segs[i - 1]
+                        const sym = (c: string) => CCY_SYM[c] || c + ' '
+                        return (
+                          <div key={'kf' + i} title={`💰 调价 ${sg.start} · ${sym(prev.currency)}${prev.price} → ${sym(sg.currency)}${sg.price}`}
+                            style={{ position: 'absolute', top: 7, left: clamp(pct(sg.start)) + '%', transform: 'translateX(-50%)', width: 14, height: 14, borderRadius: '50%', background: t.color, color: '#fff', border: '1.5px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, zIndex: 4 }}>💰</div>
+                        )
+                      })}
+                      <div style={{ position: 'absolute', left: tx + '%', top: 0, bottom: 0, width: 2, background: '#f0617c', opacity: 0.45 }} />
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+            </Fragment>
           )
         })}
-
-        {/* 分渠道价签轨道（来自 PO，实时） */}
-        {tracks.length > 0 && (
-          <div className="flex border-b border-gray-100" style={{ background: '#fafafb' }}>
-            <div className="flex-none border-r border-gray-200" style={{ width: 180, padding: '5px 12px', fontSize: 10, fontWeight: 600, color: '#86868b' }}>💶 渠道价格 · 来自 PO</div>
-            <div className="flex-1" style={{ minHeight: 6 }} />
-          </div>
-        )}
-        {tracks.map(t => (
-          <div key={t.channel} className="flex border-b border-gray-100" style={{ minHeight: 28 }}>
-            <div className="flex-none border-r border-gray-200 flex items-center gap-1.5" style={{ width: 180, padding: '4px 12px', fontSize: 10.5, color: '#52525b' }}>
-              <span style={{ width: 7, height: 7, borderRadius: 2, background: t.color, flex: '0 0 auto' }} /><span className="truncate">{t.channel}</span>
-            </div>
-            <div className="relative flex-1" style={{ height: 28 }}>
-              {t.segs.map((sg, i) => {
-                const left = clamp(pct(sg.start)), w = Math.max(clamp(pct(sg.end)) - left, 0)
-                return (
-                  <div key={i} title={`${t.channel} · ${sg.start}${sg.end !== sg.start ? ' → ' + sg.end : ''} · ${(CCY_SYM[sg.currency] || sg.currency + ' ')}${sg.price}`}
-                    style={{ position: 'absolute', top: 7, left: left + '%', width: w + '%', minWidth: 34, height: 14, borderRadius: 4, background: t.color + '1f', border: '1px solid ' + t.color + '59', color: t.color, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap', padding: '0 3px', overflow: 'hidden' }}>
-                    {(CCY_SYM[sg.currency] || sg.currency + ' ') + sg.price}
-                  </div>
-                )
-              })}
-              {/* 调价关键帧标记：段边界(i>0)= 该渠道一次调价 */}
-              {t.segs.map((sg, i) => {
-                if (i === 0) return null
-                const prev = t.segs[i - 1]
-                const sym = (c: string) => CCY_SYM[c] || c + ' '
-                return (
-                  <div key={'kf' + i} title={`💰 调价 ${sg.start} · ${sym(prev.currency)}${prev.price} → ${sym(sg.currency)}${sg.price}`}
-                    style={{ position: 'absolute', top: 7, left: clamp(pct(sg.start)) + '%', transform: 'translateX(-50%)', width: 14, height: 14, borderRadius: '50%', background: t.color, color: '#fff', border: '1.5px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, zIndex: 4 }}>💰</div>
-                )
-              })}
-              <div style={{ position: 'absolute', left: tx + '%', top: 0, bottom: 0, width: 2, background: '#f0617c', opacity: 0.45 }} />
-            </div>
-          </div>
-        ))}
       </div>
 
       {/* popups */}
