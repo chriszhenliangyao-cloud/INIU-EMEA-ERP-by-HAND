@@ -2,11 +2,31 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/lib/auth/current-user'
 import { PoView } from './po-view'
 
+// Value 模式把 PLN 营业额统一折算成 EUR 所用的实时汇率。
+// 服务端拉取、Next.js fetch 缓存 7 天自动续期（每周一次）；ECB(frankfurter) 主、open.er-api 兜底、0.23 最终兜底。
+async function getPlnToEur(): Promise<number> {
+  const WEEK = 60 * 60 * 24 * 7
+  const sources: Array<{ url: string; pick: (j: any) => unknown }> = [
+    { url: 'https://api.frankfurter.dev/v1/latest?base=PLN&symbols=EUR', pick: (j) => j?.rates?.EUR },
+    { url: 'https://open.er-api.com/v6/latest/PLN', pick: (j) => j?.rates?.EUR },
+  ]
+  for (const s of sources) {
+    try {
+      const res = await fetch(s.url, { next: { revalidate: WEEK } })
+      if (!res.ok) continue
+      const r = s.pick(await res.json())
+      if (typeof r === 'number' && r > 0 && r < 1) return r
+    } catch { /* 网络/解析失败 → 试下一个源 */ }
+  }
+  return 0.23 // 兜底：两源都不可用时
+}
+
 export default async function PoPage() {
   // PO 对所有人开放；国家隔离由 channel_po 的 RLS（read=can_access_country）自动处理，
   // 销售只能查到自己被分配国家的订单行。
   const me = await getCurrentUser()
   const supabase = createClient()
+  const plnToEur = await getPlnToEur()
   const { data: pos, error } = await supabase
     .from('channel_po')
     .select(`
@@ -65,6 +85,7 @@ export default async function PoPage() {
       viewerIsAdmin={me.isAdmin}
       viewerName={me.displayName}
       marketCount={me.countryIds.length}
+      plnToEur={plnToEur}
     />
   )
 }

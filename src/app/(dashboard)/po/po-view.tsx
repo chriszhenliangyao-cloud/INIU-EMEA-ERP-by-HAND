@@ -34,6 +34,12 @@ const isShipped = (r: { ship_date: string | null; delivery_date: string | null }
 
 // 金额按原币种展示（不折算、不取整，保留真实 2 位小数）：EUR→€ · PLN→zł
 const CCY_SYM: Record<string, string> = { EUR: '€', PLN: 'zł ' }
+
+// 仅用于 Value 模式的图表把营业额统一折算成 EUR（明细列仍存原币种，不受影响）。
+// 汇率由服务端每周从 ECB(frankfurter.dev) 拉取，经 page.tsx 注入 plnToEur prop；此处仅作兜底默认。
+const FX_FALLBACK = 0.23
+const toEUR = (turnover: number | null, currency: string | null, rate: number) =>
+  turnover == null ? 0 : (currency === 'PLN' ? turnover * rate : turnover)
 const fmtMoney = (v: number | null | undefined, ccy: string | null) => {
   if (v == null) return '–'
   return (ccy ? (CCY_SYM[ccy] ?? ccy + ' ') : '') +
@@ -45,7 +51,7 @@ const PALETTE = ['#5b8def', '#52b788', '#9b8cce', '#e0a458', '#d98594', '#6cc3d5
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const monthShort = (ym: string) => { const m = Number(ym?.slice(5, 7)); return m ? MONTH_ABBR[m - 1] : ym }
 
-export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows: FlatRow[]; viewerIsAdmin: boolean; viewerName: string; marketCount: number }) {
+export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur = FX_FALLBACK }: { rows: FlatRow[]; viewerIsAdmin: boolean; viewerName: string; marketCount: number; plnToEur?: number }) {
   const thisYear = String(new Date().getFullYear())
 
   // ===== top dashboard filters (drive KPI / charts / pills) =====
@@ -53,6 +59,10 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
   const [dCountry, setDCountry] = useState<string>('ALL')
   const [dKa, setDKa] = useState<string>('ALL')
   const [dMonth, setDMonth] = useState<string>('ALL')
+  // 月度图 / 客户排名各自的口径：volume(数量) 或 value(turnover 营业额)
+  const [monthMetric, setMonthMetric] = useState<'volume' | 'value'>('volume')
+  const [rankMetric, setRankMetric] = useState<'volume' | 'value'>('volume')
+  const [skuMetric, setSkuMetric] = useState<'volume' | 'value'>('volume')
 
   // ===== aggregation table filters (independent — only control the detail table) =====
   const [tYear, setTYear] = useState<string>(thisYear)
@@ -123,10 +133,11 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
 
   // ===== monthly chart: single bar by month, OR grouped bars by KA when a single country with >1 KA is selected =====
   const monthlyChart = useMemo(() => {
+    const pick = (r: FlatRow) => monthMetric === 'value' ? toEUR(r.turnover, r.currency, plnToEur) : r.qty
     const grouped = dCountry !== 'ALL' && kaNames.length > 1
     if (!grouped) {
       const m: Record<string, number> = {}
-      dashFiltered.forEach(r => { const ym = r.po_date?.slice(0, 7) ?? ''; if (ym) m[ym] = (m[ym] ?? 0) + r.qty })
+      dashFiltered.forEach(r => { const ym = r.po_date?.slice(0, 7) ?? ''; if (ym) m[ym] = (m[ym] ?? 0) + pick(r) })
       return { grouped: false, kas: [] as string[], data: Object.entries(m).sort().map(([month, qty]) => ({ month: monthShort(month), qty })) }
     }
     const byMonth: Record<string, any> = {}
@@ -134,28 +145,47 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
       const ym = r.po_date?.slice(0, 7) ?? ''; if (!ym) return
       const ka = r.ka_name ?? 'Unspecified'
       byMonth[ym] ??= { _ym: ym, month: monthShort(ym) }
-      byMonth[ym][ka] = (byMonth[ym][ka] ?? 0) + r.qty
+      byMonth[ym][ka] = (byMonth[ym][ka] ?? 0) + pick(r)
     })
     const data = Object.values(byMonth).sort((a: any, b: any) => a._ym.localeCompare(b._ym))
     return { grouped: true, kas: kaNames, data }
-  }, [dashFiltered, dCountry, kaNames])
+  }, [dashFiltered, dCountry, kaNames, monthMetric, plnToEur])
 
   const topKas = useMemo(() => {
+    const pick = (r: FlatRow) => rankMetric === 'value' ? toEUR(r.turnover, r.currency, plnToEur) : r.qty
     const m: Record<string, number> = {}
-    dashFiltered.forEach(r => { const name = r.ka_name ?? 'Unspecified'; m[name] = (m[name] ?? 0) + r.qty })
+    dashFiltered.forEach(r => { const name = r.ka_name ?? 'Unspecified'; m[name] = (m[name] ?? 0) + pick(r) })
     return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, qty]) => ({ name, qty }))
-  }, [dashFiltered])
+  }, [dashFiltered, rankMetric, plnToEur])
   const rankTotal = topKas.reduce((s, r) => s + r.qty, 0) || 1
+
+  // 图表数值格式：Value 模式 = 折算后的 EUR 金额（€ 前缀、整数欧元）；Volume = 原数量
+  const fmtMonthVal = (v: number) => monthMetric === 'value' ? '€' + fmtNum(Math.round(v)) : fmtNum(v)
+  const fmtRankVal = (v: number) => rankMetric === 'value' ? '€' + fmtNum(Math.round(v)) : fmtNum(v)
+  const fmtSkuVal = (v: number) => skuMetric === 'value' ? '€' + fmtNum(Math.round(v)) : fmtNum(v)
+
+  // Volume / Value 切换标签
+  const metricTag = (cur: 'volume' | 'value', set: (v: 'volume' | 'value') => void) => (
+    <div className="inline-flex rounded-md border border-gray-200 overflow-hidden text-[11px] font-semibold flex-shrink-0">
+      {(['volume', 'value'] as const).map(m => (
+        <button key={m} onClick={() => set(m)}
+          className={`px-2.5 py-1 transition-colors ${cur === m ? 'bg-gray-900 text-white' : 'bg-white text-gray-500 hover:text-gray-800'}`}>
+          {m === 'volume' ? 'Volume' : 'Value'}
+        </button>
+      ))}
+    </div>
+  )
 
   // 未发货 PO（无 ship_date 且无 delivery_date）— 独立于上方筛选，列出全部待跟进
   const unshipped = useMemo(() => rows.filter(r => !isShipped(r))
     .sort((a, b) => (b.po_date ?? '').localeCompare(a.po_date ?? '')), [rows])
 
   const skuTrend = useMemo(() => {
+    const pick = (r: FlatRow) => skuMetric === 'value' ? toEUR(r.turnover, r.currency, plnToEur) : r.qty
     const m: Record<string, { name: string; qty: number }> = {}
-    dashFiltered.forEach(r => { const e = (m[r.sku_code] ??= { name: r.sku_name || r.sku_code, qty: 0 }); e.qty += r.qty })
+    dashFiltered.forEach(r => { const e = (m[r.sku_code] ??= { name: r.sku_name || r.sku_code, qty: 0 }); e.qty += pick(r) })
     return Object.entries(m).sort((a, b) => b[1].qty - a[1].qty).map(([code, v]) => ({ code, name: v.name, qty: v.qty }))
-  }, [dashFiltered])
+  }, [dashFiltered, skuMetric, plnToEur])
 
   // ===== aggregation table (independent) =====
   const tableFiltered = useMemo(() => rows.filter(r => {
@@ -247,24 +277,27 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
       {/* Monthly volume + Customer ranking */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-sm font-semibold text-gray-700 mb-1">📈 Monthly order volume · by PO date</div>
-          <div className="text-xs text-gray-400 mb-3">{monthlyChart.grouped ? `${currentCountryLabel} · split by KA` : 'value labelled on bars'}</div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="text-sm font-semibold text-gray-700">📈 Monthly order {monthMetric === 'value' ? 'value · by PO date' : 'volume · by PO date'}</div>
+            {metricTag(monthMetric, setMonthMetric)}
+          </div>
+          <div className="text-xs text-gray-400 mb-3">{monthlyChart.grouped ? `${currentCountryLabel} · split by KA${monthMetric === 'value' ? ` · €（PLN×${plnToEur.toFixed(4)}）` : ''}` : (monthMetric === 'value' ? `turnover · 统一折算 EUR（ECB实时汇率 PLN×${plnToEur.toFixed(4)}）` : 'value labelled on bars')}</div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={monthlyChart.data} margin={{ top: 22, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#6b7280' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => fmtNum(v)} />
+              <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => fmtMonthVal(v)} />
               {monthlyChart.grouped ? (<>
-                <Tooltip formatter={(v: any) => fmtNum(v)} />
+                <Tooltip formatter={(v: any) => fmtMonthVal(v)} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {monthlyChart.kas.map((ka, i) => (
                   <Bar key={ka} dataKey={ka} fill={PALETTE[i % PALETTE.length]} radius={[3, 3, 0, 0]} isAnimationActive={false} maxBarSize={26}>
-                    <LabelList dataKey={ka} position="top" formatter={(v: any) => (v ? fmtNum(v) : '')} style={{ fontSize: 9, fill: '#374151', fontWeight: 600 }} />
+                    <LabelList dataKey={ka} position="top" formatter={(v: any) => (v ? fmtMonthVal(v) : '')} style={{ fontSize: 9, fill: '#374151', fontWeight: 600 }} />
                   </Bar>
                 ))}
               </>) : (
                 <Bar dataKey="qty" fill={PALETTE[0]} radius={[4, 4, 0, 0]} isAnimationActive={false} maxBarSize={56}>
-                  <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 11, fill: '#374151', fontWeight: 600 }} />
+                  <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtMonthVal(v)} style={{ fontSize: 11, fill: '#374151', fontWeight: 600 }} />
                 </Bar>
               )}
             </BarChart>
@@ -272,8 +305,11 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-sm font-semibold text-gray-700 mb-1">🏢 Customer order ranking</div>
-          <div className="text-xs text-gray-400 mb-3">{currentCountryLabel} · {dMonth === 'ALL' ? 'All months' : monthShort(dMonth)}</div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="text-sm font-semibold text-gray-700">🏢 Customer order ranking</div>
+            {metricTag(rankMetric, setRankMetric)}
+          </div>
+          <div className="text-xs text-gray-400 mb-3">{currentCountryLabel} · {dMonth === 'ALL' ? 'All months' : monthShort(dMonth)} · {rankMetric === 'value' ? `by turnover · €（PLN×${plnToEur.toFixed(4)}）` : 'by volume'}</div>
           <table className="w-full border-collapse">
             <tbody>
               {topKas.map((k, i) => (
@@ -283,7 +319,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
                     <span className="inline-block w-2.5 h-2.5 rounded-sm mr-2 align-middle" style={{ background: PALETTE[i % PALETTE.length] }} />
                     <span className="text-[13px] font-medium text-gray-800">{k.name}</span>
                   </td>
-                  <td className="w-24 py-2.5 text-right text-[13px] font-semibold font-mono border-b border-gray-100 tabular-nums">{fmtNum(k.qty)}</td>
+                  <td className="w-24 py-2.5 text-right text-[13px] font-semibold font-mono border-b border-gray-100 tabular-nums">{fmtRankVal(k.qty)}</td>
                   <td className="w-14 py-2.5 text-right text-[11px] text-gray-400 border-b border-gray-100">{((k.qty / rankTotal) * 100).toFixed(1)}%</td>
                 </tr>
               ))}
@@ -295,18 +331,21 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount }: { rows:
 
       {/* SKU trend (by product name) */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-5">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-sm font-semibold text-gray-700">📊 SKU order volume <span className="ml-2 text-xs text-gray-400">· {currentCountryLabel} · {dMonth === 'ALL' ? 'All months' : monthShort(dMonth)}</span></div>
-          <div className="text-xs text-gray-400">{skuTrend.length} SKUs</div>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="text-sm font-semibold text-gray-700">📊 SKU order {skuMetric === 'value' ? 'value' : 'volume'} <span className="ml-2 text-xs text-gray-400">· {currentCountryLabel} · {dMonth === 'ALL' ? 'All months' : monthShort(dMonth)}{skuMetric === 'value' ? ` · €（PLN×${plnToEur.toFixed(4)}）` : ''}</span></div>
+          <div className="flex items-center gap-2">
+            {metricTag(skuMetric, setSkuMetric)}
+            <div className="text-xs text-gray-400 whitespace-nowrap">{skuTrend.length} SKUs</div>
+          </div>
         </div>
         <ResponsiveContainer width="100%" height={400}>
           <BarChart data={skuTrend} margin={{ top: 24, right: 10, left: 0, bottom: 120 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
             <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6b7280' }} angle={-50} textAnchor="end" interval={0} height={140} />
-            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => fmtNum(v)} />
+            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => fmtSkuVal(v)} />
             <Bar dataKey="qty" radius={[3, 3, 0, 0]} isAnimationActive={false} maxBarSize={40}>
               {skuTrend.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
-              <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtNum(v)} style={{ fontSize: 9, fill: '#374151' }} />
+              <LabelList dataKey="qty" position="top" formatter={(v: any) => fmtSkuVal(v)} style={{ fontSize: 9, fill: '#374151' }} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
