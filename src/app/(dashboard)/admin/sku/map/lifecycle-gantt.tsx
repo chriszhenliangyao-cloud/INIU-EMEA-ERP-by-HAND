@@ -21,16 +21,16 @@ const PRICE_PHASES = ['active', 'eol']
 // 分渠道价签轨道（实时从 PO 算，不存库）
 type PoRow = { date: string; price: number | null; currency: string; channel: string }
 type PSeg = { start: string; end: string; price: number; currency: string }
-const CH_PALETTE = ['#5e5ce6', '#0071e3', '#1d7a3d', '#c77800', '#e35d6a', '#0a84c9', '#9333ea', '#0d9488', '#b45309', '#d6536d']
+// 顺序排得相邻最大色差，按渠道序号分配 → 同一 model 内不撞色
+const CH_PALETTE = ['#0071e3', '#1d7a3d', '#c77800', '#e3326a', '#9333ea', '#0d9488', '#b45309', '#5e5ce6', '#db2777', '#0a84c9']
 const CCY_SYM: Record<string, string> = { EUR: '€', PLN: 'zł' }
-const chColor = (name: string) => { let h = 0; for (let i = 0; i < name.length; i++) h += name.charCodeAt(i); return CH_PALETTE[h % CH_PALETTE.length] }
 // 每渠道一条轨道：按时间合并价格段（变动 <5% 视作同段，币种变/≥5% 切新段；近 0 促销价剔除）
 function buildChannelTracks(pos: PoRow[]): { channel: string; color: string; segs: PSeg[] }[] {
   const byCh: Record<string, PoRow[]> = {}
   pos.forEach(r => { if (r.price == null || r.price < 1) return; (byCh[r.channel] ??= []).push(r) })
   return Object.keys(byCh)
     .sort((a, b) => byCh[b].length - byCh[a].length)
-    .map(ch => {
+    .map((ch, idx) => {
       const rows = byCh[ch].slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
       const segs: PSeg[] = []
       rows.forEach(r => {
@@ -39,7 +39,7 @@ function buildChannelTracks(pos: PoRow[]): { channel: string; color: string; seg
         if (changed) { if (last) last.end = r.date; segs.push({ start: r.date, end: r.date, price: r.price as number, currency: r.currency }) }
         else last.end = r.date
       })
-      return { channel: ch, color: chColor(ch), segs }
+      return { channel: ch, color: CH_PALETTE[idx % CH_PALETTE.length], segs }
     })
 }
 
@@ -358,15 +358,15 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
                 </div>
                 {tracks.map(t => (
                   <div key={t.channel} className="flex border-b border-gray-100" style={{ minHeight: 28 }}>
-                    <div className="flex-none border-r border-gray-200 flex items-center gap-1.5" style={{ width: 180, padding: '4px 12px 4px 26px', fontSize: 10.5, color: '#52525b' }}>
-                      <span style={{ width: 7, height: 7, borderRadius: 2, background: t.color, flex: '0 0 auto' }} /><span className="truncate">{t.channel}</span>
+                    <div className="flex-none border-r border-gray-200 flex items-center gap-1.5" style={{ width: 180, padding: '4px 12px 4px 26px', fontSize: 10.5, color: '#3f3f46', boxShadow: 'inset 3px 0 0 ' + t.color }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, background: t.color, flex: '0 0 auto' }} /><span className="truncate" style={{ fontWeight: 500 }}>{t.channel}</span>
                     </div>
                     <div className="relative flex-1" style={{ height: 28 }}>
                       {t.segs.map((sg, i) => {
                         const left = clamp(pct(sg.start)), w = Math.max(clamp(pct(sg.end)) - left, 0)
                         return (
                           <div key={i} title={`${t.channel} · ${sg.start}${sg.end !== sg.start ? ' → ' + sg.end : ''} · ${(CCY_SYM[sg.currency] || sg.currency + ' ')}${sg.price}`}
-                            style={{ position: 'absolute', top: 7, left: left + '%', width: w + '%', minWidth: 34, height: 14, borderRadius: 4, background: t.color + '1f', border: '1px solid ' + t.color + '59', color: t.color, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap', padding: '0 3px', overflow: 'hidden' }}>
+                            style={{ position: 'absolute', top: 6, left: left + '%', width: w + '%', minWidth: 36, height: 15, borderRadius: 4, background: t.color + '33', border: '1.5px solid ' + t.color, color: t.color, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap', padding: '0 3px', overflow: 'hidden' }}>
                             {(CCY_SYM[sg.currency] || sg.currency + ' ') + sg.price}
                           </div>
                         )
