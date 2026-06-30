@@ -72,9 +72,9 @@ const CATEGORY_ORDER: Record<string, number> = {
 }
 
 const LIFECYCLE_STYLE: Record<string, string> = {
-  active: 'bg-green-100 text-green-700',
-  npi: 'bg-blue-100 text-blue-700',
-  eol: 'bg-amber-100 text-amber-700',
+  active: 'bg-green-50 text-green-700',
+  npi: 'bg-blue-50 text-blue-600',
+  eol: 'bg-amber-50 text-amber-700',
   discontinued: 'bg-gray-200 text-gray-500',
 }
 
@@ -94,7 +94,7 @@ export function SkuMapView({ allSkus, viewerName }: Props) {
   return (
     <div className="p-6 max-w-5xl">
       <div className="mb-1 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">🧬 SKU Product Map</h1>
+        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">🧬 SKU Product Map</h1>
         <div className="flex items-center gap-3">
           <button onClick={() => setAddingGlobal(v => !v)}
             className="px-3 py-1 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700">
@@ -169,7 +169,7 @@ function CategorySection({ category, skus, onSuccess, onError }: {
   }, [skus])
 
   return (
-    <section className="bg-white border border-gray-200 rounded-xl shadow-sm">
+    <section className="bg-white border border-black/[0.06] rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)]">
       <div className="px-5 py-3 border-b bg-gray-50 rounded-t-xl flex items-center gap-2">
         <span className="font-bold text-gray-900">{category}</span>
         <span className="ml-auto text-xs text-gray-500">

@@ -30,8 +30,8 @@ export function NavLink({ href, children }: { href: string; children: React.Reac
         if (pathname === href) return
         startTransition(() => router.push(href))
       }}
-      className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm hover:bg-gray-100 ${
-        active ? 'bg-gray-100 text-gray-900 font-medium' : 'text-gray-700'
+      className={`flex items-center justify-between px-3 py-2 rounded-[9px] text-sm transition-colors duration-150 ${
+        active ? 'bg-[#0071e3]/[0.10] text-[#0071e3] font-medium' : 'text-gray-600 hover:bg-black/[0.04] hover:text-gray-900'
       }`}
     >
       <span className="truncate">{children}</span>

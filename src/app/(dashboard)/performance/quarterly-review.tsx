@@ -89,7 +89,7 @@ export function QuarterlyReview({
   const renderFace = (which: 'front' | 'back') => {
     const c = which === 'front' ? FRONT : BACK
     return (
-      <div className="absolute inset-0 overflow-auto rounded-xl border border-gray-200 bg-white"
+      <div className="absolute inset-0 overflow-auto rounded-2xl border border-black/[0.06] bg-white"
            style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: which === 'back' ? 'rotateY(180deg)' : undefined }}>
         <div className={`sticky top-0 z-10 px-4 py-2.5 text-sm font-semibold border-b border-gray-200 ${which === 'front' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
           {which === 'front' ? `📝 Quarter Progress — ${countryCode} ${year} Q${quarter}` : `📋 Action Plan — ${countryCode} ${nextY} Q${nextQ}`}
@@ -97,13 +97,13 @@ export function QuarterlyReview({
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-gray-50">
-              <th className="sticky left-0 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b border-r border-gray-200" style={{ minWidth: 120 }}>Channel</th>
+              <th className="sticky left-0 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-r border-gray-200" style={{ minWidth: 120 }}>Channel</th>
               {which === 'front' && (
-                <th className="px-3 py-2 text-left text-xs font-semibold text-indigo-500 uppercase border-b border-r border-gray-200 bg-indigo-50/60" style={{ minWidth: 140 }}>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-indigo-500 border-b border-r border-gray-200 bg-indigo-50/60" style={{ minWidth: 140 }}>
                   Last Q Target{prevQuarterLabel ? <span className="ml-1 normal-case font-normal text-indigo-300">({prevQuarterLabel})</span> : null}
                 </th>
               )}
-              {c.map(([, label]) => <th key={label} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b border-r border-gray-200">{label}</th>)}
+              {c.map(([, label]) => <th key={label} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-r border-gray-200">{label}</th>)}
               <th className="w-8 border-b border-gray-200" />
             </tr>
           </thead>

@@ -281,7 +281,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
 
       {/* Monthly volume + Customer ranking */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-2xl border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] p-4">
           <div className="flex items-center justify-between gap-2 mb-1">
             <div className="text-sm font-semibold text-gray-700">📈 Monthly order {monthMetric === 'value' ? 'value · by PO date' : 'volume · by PO date'}</div>
             {metricTag(monthMetric, setMonthMetric)}
@@ -309,7 +309,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-2xl border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] p-4">
           <div className="flex items-center justify-between gap-2 mb-1">
             <div className="text-sm font-semibold text-gray-700">🏢 Customer order ranking</div>
             {metricTag(rankMetric, setRankMetric)}
@@ -335,7 +335,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
       </div>
 
       {/* SKU trend (by product name) */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-5">
+      <div className="bg-white rounded-2xl border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] p-4 mb-5">
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="text-sm font-semibold text-gray-700">📊 SKU order {skuMetric === 'value' ? 'value' : 'volume'} <span className="ml-2 text-xs text-gray-400">· {currentCountryLabel} · {dMonth === 'ALL' ? 'All months' : monthShort(dMonth)}{skuMetric === 'value' ? ` · € (PLN×${plnToEur.toFixed(4)})` : ''}</span></div>
           <div className="flex items-center gap-2">
@@ -367,7 +367,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
       </div>
 
       {/* Aggregation detail (independent filters) */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="bg-white rounded-2xl border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] p-4">
         <div className="text-base font-semibold text-gray-900 mb-1">📋 Order aggregation — Month × SKU × KA</div>
         <div className="text-xs text-gray-400 mb-3">Filters below are independent — they only affect this table, not the charts above.</div>
         <div className="flex gap-3 flex-wrap items-center mb-3">
@@ -389,11 +389,11 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
                 <FilterTh col="country_code" label="Country" sc={sortCol} sd={sortDir} on={toggleSort} value={tCountry} onPick={setTCountry} options={options.countries} />
                 <FilterTh col="category" label="Category" sc={sortCol} sd={sortDir} on={toggleSort} value={tCat} onPick={setTCat} options={options.cats} />
                 <FilterTh col="qty" label="Qty" sc={sortCol} sd={sortDir} on={toggleSort} align="right" />
-                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="FD buying price = turnover / qty (original currency, not converted)">FD Price</th>
-                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="Total Subtotal / turnover (original currency, as reported by the channel; EUR and PLN not mixed)">Turnover</th>
-                <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600 uppercase">Shipped</th>
-                <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="Lines counted as shipped only via Delivery Date (Ship Date was blank)">Via Delivery</th>
-                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 uppercase">Count</th>
+                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 whitespace-nowrap" title="FD buying price = turnover / qty (original currency, not converted)">FD Price</th>
+                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 whitespace-nowrap" title="Total Subtotal / turnover (original currency, as reported by the channel; EUR and PLN not mixed)">Turnover</th>
+                <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600">Shipped</th>
+                <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600 whitespace-nowrap" title="Lines counted as shipped only via Delivery Date (Ship Date was blank)">Via Delivery</th>
+                <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600">Count</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -404,9 +404,9 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
                     <td className="px-4 py-2 font-semibold text-xs text-gray-700 whitespace-nowrap">{newMonth ? r.month : ''}</td>
                     <td className="px-4 py-2 font-mono text-xs text-gray-700">{r.sku_code}</td>
                     <td className="px-4 py-2 text-gray-600 truncate max-w-xs">{r.sku_name || '-'}</td>
-                    <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">{r.ka_name}</span></td>
-                    <td className="px-4 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_code}</span></td>
-                    <td className="px-4 py-2">{r.category ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">{r.category}</span> : <span className="text-gray-300">-</span>}</td>
+                    <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{r.ka_name}</span></td>
+                    <td className="px-4 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{r.country_flag} {r.country_code}</span></td>
+                    <td className="px-4 py-2">{r.category ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-600">{r.category}</span> : <span className="text-gray-300">-</span>}</td>
                     <td className="px-4 py-2 text-right font-medium tabular-nums">{fmtNum(r.qty)}</td>
                     <td className="px-4 py-2 text-right text-gray-500 tabular-nums whitespace-nowrap">{r.fdPrice != null ? fmtMoney(r.fdPrice, r.currency) : (r.qty ? fmtMoney(r.turnover / r.qty, r.currency) : '–')}</td>
                     <td className="px-4 py-2 text-right font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fmtMoney(r.turnover, r.currency)}</td>
@@ -430,7 +430,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
 // 聚合行的发货状态徽章：全发 Yes / 全未发 No / 部分 Partial
 function ShippedBadge({ shipped, total }: { shipped: number; total: number }) {
   if (total > 0 && shipped === total) return <span className="inline-block px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">Yes</span>
-  if (shipped === 0) return <span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">No</span>
+  if (shipped === 0) return <span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">No</span>
   return <span className="inline-block px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700" title={`${shipped}/${total} lines shipped`}>Partial {shipped}/{total}</span>
 }
 
@@ -515,17 +515,17 @@ function UnshippedTable({ rows, plnToEur }: { rows: UnRow[]; plnToEur: number })
         <table className="w-full text-sm">
           <thead className="bg-amber-50 border-b sticky top-0 z-10">
             <tr>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">Country</th>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">KA</th>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">PO Date</th>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">PO #</th>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">SKU</th>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">Product</th>
-              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
-              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="FD buying price (original currency)">Unit Price</th>
-              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="Turnover (original currency)">Turnover</th>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase" style={{ minWidth: 280 }}>Notes — why not shipped?</th>
-              <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap" title="Shipped / Partial / Cancel — moves the row to the matching table">Action</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600">Country</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600">KA</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">PO Date</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600">PO #</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600">SKU</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600">Product</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600">Qty</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 whitespace-nowrap" title="FD buying price (original currency)">Unit Price</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 whitespace-nowrap" title="Turnover (original currency)">Turnover</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600" style={{ minWidth: 280 }}>Notes — why not shipped?</th>
+              <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 whitespace-nowrap" title="Shipped / Partial / Cancel — moves the row to the matching table">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -533,8 +533,8 @@ function UnshippedTable({ rows, plnToEur }: { rows: UnRow[]; plnToEur: number })
               const dirty = (draft[r.id] ?? '') !== (r.notes ?? '')
               return (
                 <tr key={r.id} className="hover:bg-amber-50/40 align-top">
-                  <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_code}</span></td>
-                  <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">{r.ka_name ?? '-'}</span></td>
+                  <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{r.country_flag} {r.country_code}</span></td>
+                  <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{r.ka_name ?? '-'}</span></td>
                   <td className="px-3 py-2 font-mono text-xs text-gray-600 whitespace-nowrap">{r.po_date}</td>
                   <td className="px-3 py-2 font-mono text-[11px] text-gray-500 whitespace-nowrap">{r.po_number ?? '-'}</td>
                   <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{r.sku_code}</td>
@@ -643,18 +643,18 @@ function ActionedTable({ rows, mode, plnToEur, viewerIsAdmin }: { rows: UnRow[];
           <table className="w-full text-sm">
             <thead className={`${theme.head} border-b sticky top-0 z-10`}>
               <tr>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">Country</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">KA</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">PO Date</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">PO #</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">SKU</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">Product</th>
-                <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase">{isPartial ? 'Ordered' : 'Qty'}</th>
-                {isPartial && <th className="px-3 py-2.5 text-right text-xs font-semibold text-emerald-600 uppercase">Delivered</th>}
-                {isPartial && <th className="px-3 py-2.5 text-right text-xs font-semibold text-amber-600 uppercase">Remaining</th>}
-                <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase">Turnover</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase" style={{ minWidth: 220 }}>Notes</th>
-                {viewerIsAdmin && <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase">Reopen</th>}
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600">Country</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600">KA</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">PO Date</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600">PO #</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600">SKU</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600">Product</th>
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600">{isPartial ? 'Ordered' : 'Qty'}</th>
+                {isPartial && <th className="px-3 py-2.5 text-right text-xs font-semibold text-emerald-600">Delivered</th>}
+                {isPartial && <th className="px-3 py-2.5 text-right text-xs font-semibold text-amber-600">Remaining</th>}
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600">Turnover</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600" style={{ minWidth: 220 }}>Notes</th>
+                {viewerIsAdmin && <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600">Reopen</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -663,8 +663,8 @@ function ActionedTable({ rows, mode, plnToEur, viewerIsAdmin }: { rows: UnRow[];
                 const remaining = r.qty - (r.delivered_qty ?? 0)
                 return (
                   <tr key={r.id} className="hover:bg-gray-50/60 align-top">
-                    <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">{r.country_flag} {r.country_code}</span></td>
-                    <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">{r.ka_name ?? '-'}</span></td>
+                    <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{r.country_flag} {r.country_code}</span></td>
+                    <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{r.ka_name ?? '-'}</span></td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600 whitespace-nowrap">{r.po_date}</td>
                     <td className="px-3 py-2 font-mono text-[11px] text-gray-500 whitespace-nowrap">{r.po_number ?? '-'}</td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{r.sku_code}</td>
@@ -714,12 +714,12 @@ function ActionedTable({ rows, mode, plnToEur, viewerIsAdmin }: { rows: UnRow[];
 }
 
 function KpiCard({ label, value, hint, color }: { label: string; value: string; hint?: string; color?: string }) {
-  const cMap: Record<string, string> = { blue: 'text-blue-600', amber: 'text-amber-600', purple: 'text-purple-600', green: 'text-green-600' }
+  const cMap: Record<string, string> = { blue: 'text-blue-600', amber: 'text-amber-600', purple: 'text-purple-600', green: 'text-emerald-600' }
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
-      <div className={`text-2xl font-bold mt-1 ${color ? cMap[color] : 'text-gray-900'} tabular-nums`}>{value}</div>
-      {hint && <div className="text-xs text-gray-400 mt-1 leading-snug line-clamp-2">{hint}</div>}
+    <div className="bg-white rounded-2xl border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] p-[18px]">
+      <div className="text-xs font-medium text-gray-400">{label}</div>
+      <div className={`text-[26px] font-semibold mt-1.5 tracking-tight tabular-nums ${color ? cMap[color] : 'text-gray-900'}`}>{value}</div>
+      {hint && <div className="text-xs text-gray-400 mt-1.5 leading-snug line-clamp-2">{hint}</div>}
     </div>
   )
 }
@@ -757,7 +757,7 @@ function FilterTh({ col, label, sc, sd, on, align, value, onPick, options }:
   const active = col === sc
   return (
     <th className={`px-3 py-2 align-top whitespace-nowrap ${align === 'right' ? 'text-right' : 'text-left'}`}>
-      <div onClick={() => on(col)} className="text-xs font-semibold text-gray-600 uppercase cursor-pointer hover:text-gray-900 select-none">
+      <div onClick={() => on(col)} className="text-xs font-semibold text-gray-600 cursor-pointer hover:text-gray-900 select-none">
         {label}{active && <span className="ml-1 text-blue-600">{sd === 'asc' ? '▲' : '▼'}</span>}
       </div>
       {options && onPick && (

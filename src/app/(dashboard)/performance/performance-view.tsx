@@ -92,20 +92,20 @@ export function PerformanceView({
   )
 
   const td = 'px-2 py-1.5 text-right text-xs tabular-nums border-b border-gray-100'
-  const th = 'px-2 py-1.5 text-center text-[11px] font-bold uppercase border-b border-gray-200'
+  const th = 'px-2 py-1.5 text-center text-[11px] font-bold border-b border-gray-200'
   const numOr = (v: number) => (v > 0 ? fmtNum(v) : <span className="text-gray-300">0</span>)
 
   return (
     <div className="p-6 max-w-[1700px] mx-auto">
       <div className="mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">🏆 Performance — Quarterly KPI</h1>
+        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">🏆 Performance — Quarterly KPI</h1>
         <p className="text-sm text-gray-500 mt-1">
           Forecast (cross-cycle average) vs Achieve (customer PO — Qty Ordered) vs Attainment % · {viewerIsAdmin ? 'all countries' : 'your assigned countries only'}
         </p>
       </div>
 
       {/* 选择器 */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5 flex items-center gap-3 flex-wrap">
+      <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-4 mb-5 flex items-center gap-3 flex-wrap">
         <label className="text-sm text-gray-600 font-medium">📅 Quarter:</label>
         <select value={selectedYear} onChange={(e) => go(Number(e.target.value), selectedQuarter)}
           className="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium">
@@ -145,7 +145,7 @@ export function PerformanceView({
 
       {tab === 'kpi' && (<>
       {/* 评分标准（可折叠下拉，默认收起）*/}
-      <details className="group bg-white border border-gray-200 rounded-xl mb-5">
+      <details className="group bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl mb-5">
         <summary className="list-none cursor-pointer select-none px-4 py-3 text-sm font-medium text-gray-700 flex items-center gap-2 hover:bg-gray-50 rounded-xl [&::-webkit-details-marker]:hidden">
           <span className="text-gray-400 transition-transform group-open:rotate-90">▶</span>
           📏 Scoring standard — how the Score is calculated
@@ -177,13 +177,13 @@ export function PerformanceView({
       </details>
 
       {/* 记分卡 */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl overflow-hidden">
         <div className="overflow-auto max-h-[700px]">
           <table className="text-sm border-collapse" style={{ minWidth: 1000 }}>
             <thead>
               <tr>
-                <th className="sticky left-0 top-0 z-30 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r border-gray-200" rowSpan={2} style={{ minWidth: 90, maxWidth: 90 }}>Model</th>
-                <th className="sticky top-0 z-30 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-r-2 border-gray-300" rowSpan={2} style={{ left: 90, minWidth: 180, maxWidth: 180 }}>Product Name</th>
+                <th className="sticky left-0 top-0 z-30 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b-2 border-r border-gray-200" rowSpan={2} style={{ minWidth: 90, maxWidth: 90 }}>Model</th>
+                <th className="sticky top-0 z-30 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b-2 border-r-2 border-gray-300" rowSpan={2} style={{ left: 90, minWidth: 180, maxWidth: 180 }}>Product Name</th>
                 <th className={`sticky top-0 z-20 bg-slate-100 text-slate-700 border-b border-r-2 border-gray-300 ${th}`} colSpan={M + 1}>FCST</th>
                 <th className={`sticky top-0 z-20 bg-emerald-100 text-emerald-800 border-b border-r-2 border-gray-300 ${th}`} colSpan={M + 1}>Achieve</th>
                 <th className={`sticky top-0 z-20 bg-amber-100 text-amber-800 border-b border-r border-gray-300 ${th}`} colSpan={M + 1}>Achieve&nbsp;%</th>
@@ -214,7 +214,7 @@ export function PerformanceView({
             {visible.length > 0 && (
               <tfoot>
                 <tr className="font-bold">
-                  <td className="sticky left-0 z-10 bg-gray-100 text-gray-700 px-3 py-2 text-xs uppercase border-t-2 border-r border-gray-300" style={{ minWidth: 90, maxWidth: 90 }}>TTL</td>
+                  <td className="sticky left-0 z-10 bg-gray-100 text-gray-700 px-3 py-2 text-xs border-t-2 border-r border-gray-300" style={{ minWidth: 90, maxWidth: 90 }}>TTL</td>
                   <td className="sticky z-10 bg-gray-100 text-gray-700 px-3 py-2 text-xs border-t-2 border-r-2 border-gray-300" style={{ left: 90, minWidth: 180, maxWidth: 180 }}>All SKUs</td>
                   {ttl.fc.map((v, i) => <td key={`tf${i}`} className={`${td} border-t-2 border-gray-300 bg-slate-100 text-slate-800`}>{fmtNum(v)}</td>)}
                   <td className={`${td} border-t-2 border-r-2 border-gray-300 bg-slate-200 text-slate-900`}>{fmtNum(ttl.fcTot)}</td>
@@ -225,7 +225,7 @@ export function PerformanceView({
                 </tr>
                 {/* SCORE — 按 TTL 达成率分档（每月 + 整季）*/}
                 <tr className="font-bold">
-                  <td className="sticky left-0 z-10 bg-amber-50 text-amber-800 px-3 py-2 text-xs uppercase border-t border-r border-amber-200" style={{ minWidth: 90, maxWidth: 90 }}>Score</td>
+                  <td className="sticky left-0 z-10 bg-amber-50 text-amber-800 px-3 py-2 text-xs border-t border-r border-amber-200" style={{ minWidth: 90, maxWidth: 90 }}>Score</td>
                   <td className="sticky z-10 bg-amber-50 text-amber-600 px-3 py-2 text-[11px] border-t border-r-2 border-amber-200" style={{ left: 90, minWidth: 180, maxWidth: 180 }}>by overall attainment</td>
                   <td colSpan={(M + 1) * 2} className="border-t border-r-2 border-gray-300 bg-gray-50"></td>
                   {[...ttl.fc.map((fc, i) => scoreFor(fc, ttl.ach[i])), scoreFor(ttl.fcTot, ttl.achTot)].map((s, i, arr) => (
@@ -241,7 +241,7 @@ export function PerformanceView({
       </div>
 
       {/* 月度 TTL 折线图：预测 vs 达成 */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 mt-5">
+      <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-4 mt-5">
         <h2 className="text-sm font-semibold text-gray-700">📈 Monthly TTL — Forecast vs Achieve · {country?.flag_emoji} {country?.code} · {selectedYear} {qLabel}</h2>
         <p className="text-xs text-gray-400 mb-3">Monthly total across all SKUs — forecast vs customer PO (Qty Ordered) for this country</p>
         <ResponsiveContainer width="100%" height={320}>

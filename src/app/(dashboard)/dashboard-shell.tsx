@@ -35,20 +35,20 @@ export function DashboardShell({ me, buildId, children }: Props) {
       : 'No country assigned'
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      <aside className="w-60 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-5 border-b">
-          <div className="flex items-center gap-2">
+    <div className="flex h-screen bg-[#f5f5f7]">
+      <aside className="w-60 bg-white border-r border-black/[0.06] flex flex-col">
+        <div className="p-5 border-b border-black/[0.06]">
+          <div className="flex items-center gap-2.5">
             <span className="text-2xl">📦</span>
             <div>
-              <div className="font-bold text-gray-900">INIU EMEA</div>
-              <div className="text-xs text-gray-500">ERP System</div>
+              <div className="font-semibold text-[15px] text-gray-900 tracking-tight leading-tight">INIU EMEA</div>
+              <div className="text-xs text-gray-400">ERP System</div>
             </div>
           </div>
         </div>
 
         <nav className="flex-1 p-3">
-          <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2">Sales</div>
+          <div className="text-[11px] font-semibold text-gray-400 px-3 py-2">Sales</div>
           {/* Shipments 与 PO 高度重合，暂时隐藏入口（页面 /shipments 仍保留，可随时恢复） */}
           <NavLink href="/po">🧾 PO (Orders)</NavLink>
           <NavLink href="/forecast">📈 Demand Forecast</NavLink>
@@ -57,7 +57,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
 
           {me.isAdmin && (
             <>
-              <div className="text-xs font-semibold text-gray-400 uppercase px-3 py-2 mt-4">Admin only</div>
+              <div className="text-[11px] font-semibold text-gray-400 px-3 py-2 mt-4">Admin only</div>
               <NavLink href="/admin/sku">⚙️ SKU Master Data</NavLink>
               <NavLink href="/admin/sales">👤 Sales Reps</NavLink>
               <NavLink href="/admin/ka">🗺️ KA Channel Map</NavLink>
@@ -68,7 +68,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
           )}
         </nav>
 
-        <div className="border-t p-3">
+        <div className="border-t border-black/[0.06] p-3">
           <div className="flex items-center gap-3 px-2 py-2">
             <div
               className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-sm"
