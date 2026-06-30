@@ -10,7 +10,6 @@ const PHASE_DEF = [
   { key: 'dev', name: '2 · 研发 Development', color: '#5e5ce6' },
   { key: 'active', name: '3 · 在售 On Sale', color: '#0071e3' },
   { key: 'eol', name: '4 · 退市清库 EOL', color: '#c77800' },
-  { key: 'disc', name: '5 · 停产退市 Discontinued', color: '#e35d6a' },
 ] as const
 const TYPES: Record<string, { icon: string; color: string; label: string }> = {
   win: { icon: '🏆', color: '#1d7a3d', label: '商务/中标' },
@@ -18,6 +17,31 @@ const TYPES: Record<string, { icon: string; color: string; label: string }> = {
   delay: { icon: '⏳', color: '#e35d6a', label: '研发延期 Delay' },
 }
 const PRICE_PHASES = ['active', 'eol']
+
+// 分渠道价签轨道（实时从 PO 算，不存库）
+type PoRow = { date: string; price: number | null; currency: string; channel: string }
+type PSeg = { start: string; end: string; price: number; currency: string }
+const CH_PALETTE = ['#5e5ce6', '#0071e3', '#1d7a3d', '#c77800', '#e35d6a', '#0a84c9', '#9333ea', '#0d9488', '#b45309', '#d6536d']
+const CCY_SYM: Record<string, string> = { EUR: '€', PLN: 'zł' }
+const chColor = (name: string) => { let h = 0; for (let i = 0; i < name.length; i++) h += name.charCodeAt(i); return CH_PALETTE[h % CH_PALETTE.length] }
+// 每渠道一条轨道：按时间合并价格段（变动 <5% 视作同段，币种变/≥5% 切新段；近 0 促销价剔除）
+function buildChannelTracks(pos: PoRow[]): { channel: string; color: string; segs: PSeg[] }[] {
+  const byCh: Record<string, PoRow[]> = {}
+  pos.forEach(r => { if (r.price == null || r.price < 1) return; (byCh[r.channel] ??= []).push(r) })
+  return Object.keys(byCh)
+    .sort((a, b) => byCh[b].length - byCh[a].length)
+    .map(ch => {
+      const rows = byCh[ch].slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      const segs: PSeg[] = []
+      rows.forEach(r => {
+        const last = segs[segs.length - 1]
+        const changed = !last || last.currency !== r.currency || Math.abs((r.price as number) / last.price - 1) >= 0.05
+        if (changed) { if (last) last.end = r.date; segs.push({ start: r.date, end: r.date, price: r.price as number, currency: r.currency }) }
+        else last.end = r.date
+      })
+      return { channel: ch, color: chColor(ch), segs }
+    })
+}
 
 type Phase = { key: string; name: string; color: string; start: string | null; end: string | null }
 type Kf = { id: number; type: string; date: string; title: string; note: string; price: number | null; phase: string }
@@ -52,15 +76,17 @@ const GANTT_CSS = `
 .lc-pop{animation:lcPop .2s ${EASE};transform-origin:top center}
 `
 
-export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycle }: {
-  modelCode: string; modelName: string; subtitle: string; currentLifecycle: string
+export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycle, skuIds }: {
+  modelCode: string; modelName: string; subtitle: string; currentLifecycle: string; skuIds: number[]
 }) {
+  const skuKey = skuIds.join(',')
   const supabase = useRef(createClient()).current
   const ganttRef = useRef<HTMLDivElement>(null)
   const [loaded, setLoaded] = useState(false)
   const [phases, setPhases] = useState<Phase[]>(PHASE_DEF.map(d => ({ ...d, start: null, end: null })))
   const [initialPrice, setInitialPrice] = useState<number | null>(null)
   const [kfs, setKfs] = useState<Kf[]>([])
+  const [tracks, setTracks] = useState<{ channel: string; color: string; segs: PSeg[] }[]>([])
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [cascade, setCascade] = useState(false)
@@ -71,21 +97,28 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const [{ data: pl }, { data: kf }] = await Promise.all([
+      const [{ data: pl }, { data: kf }, { data: po }] = await Promise.all([
         supabase.from('product_lifecycle').select('*').eq('model_code', modelCode).maybeSingle(),
         supabase.from('product_keyframe').select('*').eq('model_code', modelCode).order('kf_date'),
+        skuIds.length
+          ? supabase.from('channel_po').select('po_date, fd_buying_price, currency, ka:ka_id(name)').in('sku_id', skuIds).order('po_date')
+          : Promise.resolve({ data: [] as any[] }),
       ])
       if (!alive) return
       setPhases(PHASE_DEF.map(d => ({ ...d, start: (pl as any)?.[d.key + '_start'] ?? null, end: (pl as any)?.[d.key + '_end'] ?? null })))
       setInitialPrice((pl as any)?.initial_price ?? null)
       setKfs((kf ?? []).map((k: any) => ({ id: k.id, type: k.kf_type, date: k.kf_date, title: k.title ?? '', note: k.note ?? '', price: k.price, phase: k.phase })))
+      setTracks(buildChannelTracks((po ?? []).map((r: any) => {
+        const ka = Array.isArray(r.ka) ? r.ka[0] : r.ka
+        return { date: r.po_date, price: r.fd_buying_price == null ? null : Number(r.fd_buying_price), currency: r.currency, channel: ka?.name ?? '—' }
+      })))
       setLoaded(true)
     })()
     return () => { alive = false }
-  }, [modelCode, supabase])
+  }, [modelCode, supabase, skuKey])
 
   // ---- time window ----
-  const dates = [...phases.flatMap(p => [p.start, p.end]).filter(Boolean) as string[], ...kfs.map(k => k.date)]
+  const dates = [...phases.flatMap(p => [p.start, p.end]).filter(Boolean) as string[], ...kfs.map(k => k.date), ...tracks.flatMap(t => t.segs.flatMap(s => [s.start, s.end]))]
   let T0 = new Date(), T1 = new Date()
   if (dates.length) {
     const ds = dates.map(d => +new Date(d))
@@ -316,6 +349,33 @@ export function LifecycleGantt({ modelCode, modelName, subtitle, currentLifecycl
             </div>
           )
         })}
+
+        {/* 分渠道价签轨道（来自 PO，实时） */}
+        {tracks.length > 0 && (
+          <div className="flex border-b border-gray-100" style={{ background: '#fafafb' }}>
+            <div className="flex-none border-r border-gray-200" style={{ width: 180, padding: '5px 12px', fontSize: 10, fontWeight: 600, color: '#86868b' }}>💶 渠道价格 · 来自 PO</div>
+            <div className="flex-1" style={{ minHeight: 6 }} />
+          </div>
+        )}
+        {tracks.map(t => (
+          <div key={t.channel} className="flex border-b border-gray-100" style={{ minHeight: 28 }}>
+            <div className="flex-none border-r border-gray-200 flex items-center gap-1.5" style={{ width: 180, padding: '4px 12px', fontSize: 10.5, color: '#52525b' }}>
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: t.color, flex: '0 0 auto' }} /><span className="truncate">{t.channel}</span>
+            </div>
+            <div className="relative flex-1" style={{ height: 28 }}>
+              {t.segs.map((sg, i) => {
+                const left = clamp(pct(sg.start)), w = Math.max(clamp(pct(sg.end)) - left, 0)
+                return (
+                  <div key={i} title={`${t.channel} · ${sg.start}${sg.end !== sg.start ? ' → ' + sg.end : ''} · ${(CCY_SYM[sg.currency] || sg.currency + ' ')}${sg.price}`}
+                    style={{ position: 'absolute', top: 7, left: left + '%', width: w + '%', minWidth: 34, height: 14, borderRadius: 4, background: t.color + '1f', border: '1px solid ' + t.color + '59', color: t.color, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap', padding: '0 3px', overflow: 'hidden' }}>
+                    {(CCY_SYM[sg.currency] || sg.currency + ' ') + sg.price}
+                  </div>
+                )
+              })}
+              <div style={{ position: 'absolute', left: tx + '%', top: 0, bottom: 0, width: 2, background: '#f0617c', opacity: 0.45 }} />
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* popups */}
