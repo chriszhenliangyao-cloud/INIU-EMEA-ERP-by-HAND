@@ -356,13 +356,14 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
         </ResponsiveContainer>
       </div>
 
-      {/* Unshipped POs (no ship date) — editable notes */}
-      <UnshippedTable rows={unshipped} plnToEur={plnToEur} />
+      {/* Unshipped POs (no ship date) — operations worklist with mark actions; admin-only.
+          销售视角不需要这张待办表（也无标记权），只看下方 Cancelled / Partial 状态 + 上方聚合表即可。 */}
+      {viewerIsAdmin && <UnshippedTable rows={unshipped} plnToEur={plnToEur} />}
 
-      {/* 部分发货 / 已取消 —— 从 Unshipped 标记后转入（并排一行） */}
+      {/* Partially delivered / Cancelled —— 销售也可见（只读，无 Reopen） */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ActionedTable rows={partialRows} mode="partial" plnToEur={plnToEur} />
-        <ActionedTable rows={cancelledRows} mode="cancelled" plnToEur={plnToEur} />
+        <ActionedTable rows={partialRows} mode="partial" plnToEur={plnToEur} viewerIsAdmin={viewerIsAdmin} />
+        <ActionedTable rows={cancelledRows} mode="cancelled" plnToEur={plnToEur} viewerIsAdmin={viewerIsAdmin} />
       </div>
 
       {/* Aggregation detail (independent filters) */}
@@ -596,7 +597,7 @@ function UnshippedTable({ rows, plnToEur }: { rows: UnRow[]; plnToEur: number })
 }
 
 // 已取消 / 部分发货 的 PO 表 —— 从 Unshipped 标记后转入。notes 可编辑；Reopen 退回待发。
-function ActionedTable({ rows, mode, plnToEur }: { rows: UnRow[]; mode: 'cancelled' | 'partial'; plnToEur: number }) {
+function ActionedTable({ rows, mode, plnToEur, viewerIsAdmin }: { rows: UnRow[]; mode: 'cancelled' | 'partial'; plnToEur: number; viewerIsAdmin: boolean }) {
   const supabase = useRef(createClient()).current
   const router = useRouter()
   const [draft, setDraft] = useState<Record<number, string>>(() => Object.fromEntries(rows.map(r => [r.id, r.notes ?? ''])))
@@ -653,7 +654,7 @@ function ActionedTable({ rows, mode, plnToEur }: { rows: UnRow[]; mode: 'cancell
                 {isPartial && <th className="px-3 py-2.5 text-right text-xs font-semibold text-amber-600 uppercase">Remaining</th>}
                 <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase">Turnover</th>
                 <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase" style={{ minWidth: 220 }}>Notes</th>
-                <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase">Reopen</th>
+                {viewerIsAdmin && <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase">Reopen</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -683,12 +684,14 @@ function ActionedTable({ rows, mode, plnToEur }: { rows: UnRow[]; mode: 'cancell
                         </button>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-center">
-                      <button onClick={() => reopen(r.id)} disabled={busyId === r.id}
-                        className="px-2 py-1 text-[11px] rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 transition disabled:opacity-60" title="Move back to Unshipped">
-                        {busyId === r.id ? '…' : '↩ Reopen'}
-                      </button>
-                    </td>
+                    {viewerIsAdmin && (
+                      <td className="px-3 py-2 text-center">
+                        <button onClick={() => reopen(r.id)} disabled={busyId === r.id}
+                          className="px-2 py-1 text-[11px] rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 transition disabled:opacity-60" title="Move back to Unshipped">
+                          {busyId === r.id ? '…' : '↩ Reopen'}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 )
               })}
@@ -700,7 +703,7 @@ function ActionedTable({ rows, mode, plnToEur }: { rows: UnRow[]; mode: 'cancell
                 {isPartial && <td className="px-3 py-2 text-right text-sm font-bold text-emerald-700 tabular-nums">{fmtNum(totalDelivered)}</td>}
                 {isPartial && <td className="px-3 py-2 text-right text-sm font-bold text-amber-700 tabular-nums">{fmtNum(totalOrdered - totalDelivered)}</td>}
                 <td className="px-3 py-2 text-right text-sm font-bold tabular-nums whitespace-nowrap" title={`In EUR · PLN×${plnToEur.toFixed(4)}`}>€{fmtNum(Math.round(totalValEUR))}</td>
-                <td className="px-3 py-2" colSpan={2}></td>
+                <td className="px-3 py-2" colSpan={viewerIsAdmin ? 2 : 1}></td>
               </tr>
             </tfoot>
           </table>
