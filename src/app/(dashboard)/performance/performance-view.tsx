@@ -51,6 +51,7 @@ export function PerformanceView({
   const qLabel = `Q${selectedQuarter}`
   const go = (y: number, q: number) => router.push(`/performance?year=${y}&q=${q}&country=${countryCode}`)
 
+
   const pct = (fc: number, ach: number): number | null => (fc > 0 ? Math.round((ach / fc) * 100) : (ach > 0 ? null : 0))
   const pctText = (fc: number, ach: number) => { const p = pct(fc, ach); return p === null ? '∞' : `${p}%` }
 
@@ -106,8 +107,8 @@ export function PerformanceView({
         </p>
       </div>
 
-      {/* 选择器 — 仅 KPI Scorecard 用；Quarterly / Yearly Review 有各自专属的 filter */}
-      {tab === 'kpi' && (
+      {/* 选择器 — KPI Scorecard / Quarterly Review 共用；Yearly Review 有自己的国家胶囊 */}
+      {tab !== 'yearly' && (
       <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-4 mb-5 flex items-center gap-3 flex-wrap">
         <label className="text-sm text-gray-600 font-medium">📅 Quarter:</label>
         <select value={selectedYear} onChange={(e) => go(Number(e.target.value), selectedQuarter)}
@@ -266,32 +267,7 @@ export function PerformanceView({
       </p>
       </>)}
 
-      {tab === 'review' && (<>
-        {/* Quarterly Review 专属 filter：国家胶囊（同 Yearly）+ Year + Quarter */}
-        <div className="flex items-center justify-between flex-wrap gap-2.5 mb-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="inline-flex bg-black/[0.05] rounded-[11px] p-[3px]">
-              {years.map(y => (
-                <button key={y} onClick={() => go(y, selectedQuarter)}
-                  className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition ${y === selectedYear ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>{y}</button>
-              ))}
-            </div>
-            <div className="inline-flex bg-black/[0.05] rounded-[11px] p-[3px]">
-              {[1, 2, 3, 4].map(q => (
-                <button key={q} onClick={() => go(selectedYear, q)}
-                  className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition ${q === selectedQuarter ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>Q{q}</button>
-              ))}
-            </div>
-            <span className="mx-1 text-gray-300">|</span>
-            <div className="inline-flex bg-black/[0.05] rounded-[11px] p-[3px] flex-wrap">
-              {countries.map(c => (
-                <button key={c.id} onClick={() => setCountryCode(c.code)}
-                  className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition ${c.code === countryCode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>{c.flag_emoji} {c.code}</button>
-              ))}
-            </div>
-          </div>
-          <span className="text-xs font-semibold text-gray-500 bg-white border border-black/[0.06] px-2.5 py-1.5 rounded-full">{selectedYear} Q{selectedQuarter} · {countryCode} · Channel Review</span>
-        </div>
+      {tab === 'review' && (
         <QuarterlyReview
           key={`${countryCode}-${selectedYear}-Q${selectedQuarter}`}
           channels={channels.filter(ch => ch.country_id === country?.id)}
@@ -303,7 +279,7 @@ export function PerformanceView({
           countryCode={countryCode}
           countryId={country?.id}
         />
-      </>)}
+      )}
 
       {tab === 'yearly' && (
         <YearlyReview year={2026} data={yearly} />
