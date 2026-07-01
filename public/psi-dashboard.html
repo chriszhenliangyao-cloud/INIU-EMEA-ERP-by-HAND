@@ -1249,13 +1249,13 @@ function getDistDisplay(name) { return name === 'MEX' ? 'Media Expert' : name; }
 
 function channelFlowAvailable() {
   if (state.viewMode === 'retailer') {
-    // retailer：所选渠道当周(最新选定周) × 各产品 SO —— 只要当周有 SO 数据即可用
-    var wk = WEEKS_ALL[state.weekTo]; if (!wk) return false;
+    // retailer：所选周范围内任一周有 SO 即可用（卡内可再选具体周）
+    var rweeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1); if (!rweeks.length) return false;
     return DB.weeklyPSI.some(function(r) {
       return r.Metric === 'SO' && !DISTRIBUTOR_SET[r.Retailer] &&
         (summaryCountry === 'All' || r.Country === summaryCountry) &&
         (summaryRetailer === 'All' || r.Retailer === summaryRetailer) &&
-        r[wk] != null && r[wk] !== '' && Number(r[wk]) > 0;
+        rweeks.some(function(w) { return r[w] != null && r[w] !== '' && Number(r[w]) > 0; });
     });
   }
   if (state.viewMode !== 'fd') return false;
@@ -1310,8 +1310,8 @@ function toggleChannelFlip() {
 
 var channelSelectedRetailer = null;
 function selectChannelRetailer(name) { channelSelectedRetailer = name; renderChannelFlow(); }
-var retailerCfMode = 'current';  // 'current'=仅当周 · 'weekly'=逐周
-function setRetailerCfMode(m) { retailerCfMode = m; renderChannelFlow(); }
+var retailerCfWeek = null;  // retailer 渠道流向：当前查看的具体周
+function setRetailerCfWeek(w) { retailerCfWeek = w; renderChannelFlow(); }
 
 function renderChannelFlow() {
   if (state.viewMode === 'retailer') { renderRetailerChannelFlow(); return; }
@@ -1420,51 +1420,54 @@ function renderChannelFlow() {
   });
 }
 
-// Retailer 版渠道流向：所选渠道(pill) × 各产品 SO
-//  · 仅当周(current)：最新选定周单周，一根一产品
-//  · 逐周(weekly)：选定周范围内 (周×产品) 扁平柱 + 周分隔线
+// Retailer 版渠道流向：选具体周(周 pill) × 所选渠道(pill) × 各产品 SO 单周柱
 function renderRetailerChannelFlow() {
   var canvas = document.getElementById('cf-canvas'); if (!canvas) return;
   var emptyEl = document.getElementById('cf-empty');
   var pillsEl = document.getElementById('cf-pills');
   var nameEl = document.getElementById('cf-dist-name');
-  var weekly = retailerCfMode === 'weekly';
   var titleEl = document.getElementById('cf-title'); if (titleEl) titleEl.textContent = 'Channel Sell-Out';
-  var subEl = document.getElementById('cf-subtitle'); if (subEl) subEl.textContent = weekly ? '所选渠道各产品逐周 SO · 点下方 pill 切换渠道' : '所选渠道当周各产品 SO · 点下方 pill 切换渠道';
-  var rmodeEl = document.getElementById('cf-rmode');
-  if (rmodeEl) {
-    rmodeEl.style.display = 'flex';
-    var b1 = document.getElementById('cf-rmode-current'), b2 = document.getElementById('cf-rmode-weekly');
-    if (b1) b1.classList.toggle('active', !weekly);
-    if (b2) b2.classList.toggle('active', weekly);
-  }
-
-  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
-  var wk = WEEKS_ALL[state.weekTo];
-  if (nameEl) nameEl.textContent = weekly
-    ? (weeks.length ? '— ' + weekDisplay(weeks[0]) + '–' + weekDisplay(weeks[weeks.length - 1]) : '')
-    : (wk ? '— ' + weekDisplay(wk) : '');
+  var subEl = document.getElementById('cf-subtitle'); if (subEl) subEl.textContent = '所选周各产品 SO · 上方选周、下方 pill 切换渠道';
   var num = function(v) { return (v == null || v === '') ? 0 : Number(v); };
 
+  var weeks = WEEKS_ALL.slice(state.weekFrom, state.weekTo + 1);
   var base = DB.weeklyPSI.filter(function(r) {
     return r.Metric === 'SO' && !DISTRIBUTOR_SET[r.Retailer] &&
       (summaryCountry === 'All' || r.Country === summaryCountry) &&
       (summaryRetailer === 'All' || r.Retailer === summaryRetailer);
   });
+  var weekHas = {}; weeks.forEach(function(w) { weekHas[w] = base.some(function(r) { return num(r[w]) > 0; }); });
+
+  // 校验/默认选中周：不在范围则取范围内「最新有数据」的周
+  if (weeks.indexOf(retailerCfWeek) < 0) {
+    var def = null;
+    for (var i = weeks.length - 1; i >= 0; i--) { if (weekHas[weeks[i]]) { def = weeks[i]; break; } }
+    retailerCfWeek = def || weeks[weeks.length - 1] || null;
+  }
+  var wk = retailerCfWeek;
+  if (nameEl) nameEl.textContent = wk ? '— ' + weekDisplay(wk) : '';
+
+  // 周 pills（有数据可点，无数据置灰）
+  var rmodeEl = document.getElementById('cf-rmode'); if (rmodeEl) rmodeEl.style.display = 'flex';
+  var wpEl = document.getElementById('cf-week-pills');
+  if (wpEl) {
+    wpEl.innerHTML = weeks.map(function(w) {
+      var on = w === wk, has = weekHas[w];
+      return '<button type="button" class="cf-pill' + (on ? ' active' : '') + '"' + (has ? '' : ' disabled style="opacity:.4;cursor:not-allowed;"') +
+        ' onclick="setRetailerCfWeek(\'' + w + '\')">' + weekDisplay(w) + '</button>';
+    }).join('');
+  }
 
   if (channelChart) { channelChart.destroy(); channelChart = null; }
+  if (!wk) { canvas.style.display = 'none'; if (pillsEl) pillsEl.innerHTML = ''; if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.textContent = '暂无 SO 数据。'; } return; }
 
-  // 渠道 pills（当周 or 周范围合计，降序），默认选最大
-  var retTot = {};
-  base.forEach(function(r) {
-    var t = weekly ? weeks.reduce(function(s, w) { return s + num(r[w]); }, 0) : num(r[wk]);
-    if (t > 0) retTot[r.Retailer] = (retTot[r.Retailer] || 0) + t;
-  });
+  // 渠道 pills（选中周合计，降序），默认选最大
+  var retTot = {}; base.forEach(function(r) { var v = num(r[wk]); if (v > 0) retTot[r.Retailer] = (retTot[r.Retailer] || 0) + v; });
   var retailers = Object.keys(retTot).sort(function(a, b) { return retTot[b] - retTot[a]; });
   if (!retailers.length) {
     canvas.style.display = 'none';
     if (pillsEl) pillsEl.innerHTML = '';
-    if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.textContent = weekly ? '选定周范围内暂无 SO 数据。' : '当周暂无 SO 数据。'; }
+    if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.textContent = weekDisplay(wk) + ' 暂无 SO 数据。'; }
     return;
   }
   canvas.style.display = 'block';
@@ -1477,75 +1480,33 @@ function renderRetailerChannelFlow() {
         ret + ' <span style="opacity:.55; font-weight:500;">' + formatMetricValue(retTot[ret]) + '</span></button>';
     }).join('');
   }
+
+  // 选中渠道 × 选中周 × 各产品 SO（一根一产品，按量降序）
   var rrows = base.filter(function(r) { return r.Retailer === channelSelectedRetailer; });
+  var prodTot = {}; rrows.forEach(function(r) { var v = num(r[wk]); if (v > 0) prodTot[r['Product Name']] = (prodTot[r['Product Name']] || 0) + v; });
+  var products = Object.keys(prodTot).sort(function(a, b) { return prodTot[b] - prodTot[a]; });
 
-  var commonPlugins = {
-    legend: { display: false },
-    datalabels: { anchor: 'end', align: 'end', clamp: true, font: { size: 9, weight: '700' }, color: '#334155',
-      display: function(ctx) { var v = ctx.dataset.data[ctx.dataIndex]; return v != null && v > 0; },
-      formatter: function(v) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v; } }
-  };
-  var yScale = { beginAtZero: true, title: { display: true, text: 'Sell-Out', font: { size: 10 }, color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.15)' }, ticks: { font: { size: 10 }, color: '#94a3b8' } };
-  var xTicks = { autoSkip: false, maxRotation: 55, minRotation: 55, font: { size: 9 }, color: '#64748b',
-    callback: function(val) { var l = this.getLabelForValue(val); return l.length > 26 ? l.slice(0, 25) + '…' : l; } };
-
-  if (!weekly) {
-    // 仅当周：一根一产品
-    var prodTot = {}; rrows.forEach(function(r) { var v = num(r[wk]); if (v > 0) prodTot[r['Product Name']] = (prodTot[r['Product Name']] || 0) + v; });
-    var products = Object.keys(prodTot).sort(function(a, b) { return prodTot[b] - prodTot[a]; });
-    channelChart = new Chart(canvas, {
-      type: 'bar',
-      data: { labels: products, datasets: [{ label: 'Sell-Out', yAxisID: 'y', categoryPercentage: 0.8, barPercentage: 0.9,
-        data: products.map(function(p) { return prodTot[p]; }), backgroundColor: products.map(function(p) { return getGroupColor(p); }) }] },
-      options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
-        scales: { x: { grid: { display: false }, ticks: xTicks }, y: yScale },
-        plugins: Object.assign({}, commonPlugins, {
-          tooltip: { backgroundColor: 'rgba(15,23,42,0.92)', cornerRadius: 8, padding: 10,
-            callbacks: { title: function(items) { return products[items[0].dataIndex]; }, label: function(item) { return 'SO: ' + item.parsed.y; } } }
-        }) },
-      plugins: (window.ChartDataLabels ? [window.ChartDataLabels] : [])
-    });
-    return;
-  }
-
-  // 逐周：扁平 (周×产品) 柱 + 周分隔线（同 FD 版式）
-  var prodTot2 = {}; rrows.forEach(function(r) { weeks.forEach(function(w) { var v = num(r[w]); if (v > 0) prodTot2[r['Product Name']] = (prodTot2[r['Product Name']] || 0) + v; }); });
-  var products2 = Object.keys(prodTot2).sort(function(a, b) { return prodTot2[b] - prodTot2[a]; });
-  var soMap = {}; rrows.forEach(function(r) { weeks.forEach(function(w) { var v = num(r[w]); if (v > 0) soMap[w + '|' + r['Product Name']] = (soMap[w + '|' + r['Product Name']] || 0) + v; }); });
-  var cats = [], weekGroups = [];
-  weeks.forEach(function(w) {
-    var start = cats.length;
-    products2.forEach(function(p) { if (soMap[w + '|' + p]) cats.push({ w: w, prod: p }); });
-    if (cats.length === start) return;
-    weekGroups.push({ week: w, start: start, end: cats.length - 1 });
-  });
-  var cfDecor = {
-    id: 'cfDecor',
-    afterDatasetsDraw: function(chart) {
-      var xs = chart.scales.x; if (!xs) return;
-      var ctx = chart.ctx, top = chart.chartArea.top, bottom = chart.chartArea.bottom;
-      var catW = cats.length > 1 ? Math.abs(xs.getPixelForValue(1) - xs.getPixelForValue(0)) : xs.width;
-      ctx.save();
-      weekGroups.forEach(function(g, i) {
-        if (i > 0) { var bx = xs.getPixelForValue(g.start) - catW / 2; ctx.strokeStyle = 'rgba(148,163,184,0.25)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(bx, top); ctx.lineTo(bx, bottom); ctx.stroke(); }
-        var cx = (xs.getPixelForValue(g.start) + xs.getPixelForValue(g.end)) / 2;
-        ctx.fillStyle = '#334155'; ctx.font = '700 12px "Segoe UI",Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.fillText(weekDisplay(g.week), cx, top - 5);
-      });
-      ctx.restore();
-    }
-  };
   channelChart = new Chart(canvas, {
     type: 'bar',
-    data: { labels: cats.map(function(c) { return c.prod; }), datasets: [{ label: 'Sell-Out', yAxisID: 'y', categoryPercentage: 0.92, barPercentage: 0.9,
-      data: cats.map(function(c) { return soMap[c.w + '|' + c.prod] || 0; }), backgroundColor: cats.map(function(c) { return getGroupColor(c.prod); }) }] },
-    options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 28 } },
-      scales: { x: { grid: { display: false }, ticks: xTicks }, y: yScale },
-      plugins: Object.assign({}, commonPlugins, {
+    data: { labels: products, datasets: [{ label: 'Sell-Out', yAxisID: 'y', categoryPercentage: 0.8, barPercentage: 0.9,
+      data: products.map(function(p) { return prodTot[p]; }), backgroundColor: products.map(function(p) { return getGroupColor(p); }) }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
+      scales: {
+        x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 55, minRotation: 55, font: { size: 9 }, color: '#64748b',
+          callback: function(val) { var l = this.getLabelForValue(val); return l.length > 26 ? l.slice(0, 25) + '…' : l; } } },
+        y: { beginAtZero: true, title: { display: true, text: 'Sell-Out', font: { size: 10 }, color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.15)' }, ticks: { font: { size: 10 }, color: '#94a3b8' } }
+      },
+      plugins: {
+        legend: { display: false },
+        datalabels: { anchor: 'end', align: 'end', clamp: true, font: { size: 9, weight: '700' }, color: '#334155',
+          display: function(ctx) { var v = ctx.dataset.data[ctx.dataIndex]; return v != null && v > 0; },
+          formatter: function(v) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v; } },
         tooltip: { backgroundColor: 'rgba(15,23,42,0.92)', cornerRadius: 8, padding: 10,
-          callbacks: { title: function(items) { return weekDisplay(cats[items[0].dataIndex].w); }, label: function(item) { return cats[item.dataIndex].prod + ': ' + item.parsed.y; } } }
-      }) },
-    plugins: (window.ChartDataLabels ? [window.ChartDataLabels, cfDecor] : [cfDecor])
+          callbacks: { title: function(items) { return products[items[0].dataIndex]; }, label: function(item) { return 'SO: ' + item.parsed.y; } } }
+      }
+    },
+    plugins: (window.ChartDataLabels ? [window.ChartDataLabels] : [])
   });
 }
 
@@ -3134,9 +3095,9 @@ document.addEventListener('DOMContentLoaded', initApp);
           <h2 style="font-size:14px; font-weight:700;"><span id="cf-title">Channel Sell-Through</span> <span id="cf-dist-name" style="color:#9ca3af; font-weight:600; font-size:12px;"></span></h2>
           <p id="cf-subtitle" style="font-size:12px; color:#9ca3af;">选中渠道的各产品逐周 sell-through · 点下方 pill 切换渠道</p>
         </div>
-        <div id="cf-rmode" style="display:none; gap:6px; margin-bottom:10px;">
-          <button type="button" id="cf-rmode-current" class="cf-pill active" onclick="setRetailerCfMode('current')">仅当周 Current</button>
-          <button type="button" id="cf-rmode-weekly" class="cf-pill" onclick="setRetailerCfMode('weekly')">逐周 Per week</button>
+        <div id="cf-rmode" style="display:none; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+          <span style="font-size:11px; color:#94a3b8; font-weight:700;">周 Week</span>
+          <span id="cf-week-pills" style="display:inline-flex; gap:6px; flex-wrap:wrap;"></span>
         </div>
         <div id="cf-pills" class="cf-pills"></div>
         <div style="flex:1; min-height:300px; position:relative;"><canvas id="cf-canvas"></canvas></div>
