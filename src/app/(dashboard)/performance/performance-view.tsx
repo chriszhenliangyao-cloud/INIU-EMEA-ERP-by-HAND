@@ -106,7 +106,8 @@ export function PerformanceView({
         </p>
       </div>
 
-      {/* 选择器 */}
+      {/* 选择器 — 仅 KPI Scorecard / Quarterly Review 用；Yearly Review 有自己的国家胶囊 */}
+      {tab !== 'yearly' && (
       <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-4 mb-5 flex items-center gap-3 flex-wrap">
         <label className="text-sm text-gray-600 font-medium">📅 Quarter:</label>
         <select value={selectedYear} onChange={(e) => go(Number(e.target.value), selectedQuarter)}
@@ -134,6 +135,7 @@ export function PerformanceView({
           Hide empty SKUs
         </label>
       </div>
+      )}
 
       {/* Tab 切换 */}
       <div className="flex gap-2 mb-5 border-b border-gray-200">
