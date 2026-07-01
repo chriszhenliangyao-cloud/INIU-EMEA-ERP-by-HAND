@@ -233,7 +233,7 @@ function CreateRunModal({
   })()
 
   const [periodMonth, setPeriodMonth] = useState(defaultPeriod)
-  const [mode, setMode] = useState<'blank' | 'clone'>(allRuns.length > 0 ? 'clone' : 'blank')
+  const [mode, setMode] = useState<'blank' | 'clone'>('blank')
   const [cloneFromId, setCloneFromId] = useState<number>(
     allRuns.length > 0 ? allRuns[0].id : 0
   )
@@ -290,8 +290,8 @@ function CreateRunModal({
                 className="mt-1"
               />
               <div>
-                <div className="font-medium text-sm">📋 Start blank</div>
-                <div className="text-xs text-gray-500 mt-0.5">Empty grid — fill from scratch</div>
+                <div className="font-medium text-sm">📋 Roll over previous cycle <span className="text-blue-600">· recommended</span></div>
+                <div className="text-xs text-gray-500 mt-0.5">Carries the previous cycle&apos;s <strong>same calendar month</strong> values in as a grey reference (Aug←Aug, Sep←Sep). The newly-added leading month starts empty. First cycle = blank grid.</div>
               </div>
             </label>
 
@@ -306,9 +306,9 @@ function CreateRunModal({
                 className="mt-1"
               />
               <div className="flex-1">
-                <div className="font-medium text-sm">📑 Clone from existing</div>
+                <div className="font-medium text-sm">📑 Clone &amp; shift months</div>
                 <div className="text-xs text-gray-500 mt-0.5 mb-2">
-                  Copy all cells from source cycle, months auto-shifted by the offset
+                  Copies every cell and <strong>shifts it forward</strong> by the month offset — e.g. the source&apos;s Sep becomes the new Oct. Use only to duplicate a whole plan; not for normal rolling.
                 </div>
                 {mode === 'clone' && (
                   <select
@@ -342,7 +342,7 @@ function CreateRunModal({
             disabled={busy || wouldConflict || (mode === 'clone' && !cloneFromId)}
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {busy ? 'Creating...' : (mode === 'clone' ? '📑 Clone & create' : '📋 Create blank')}
+            {busy ? 'Creating...' : (mode === 'clone' ? '📑 Clone & create' : '📋 Roll over & create')}
           </button>
         </div>
       </div>
