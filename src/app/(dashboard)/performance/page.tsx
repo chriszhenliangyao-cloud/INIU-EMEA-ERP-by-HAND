@@ -94,6 +94,53 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     ;((achieve[p.country_id] ??= {})[p.sku_id] ??= Array(M).fill(0))[mi] += Number(p.qty_ordered) || 0
   })
 
+  // ── Yearly Review：annual_plan(FCST，销售填的年度预测) vs channel_po(实际达成，按计划单价估值成 EUR) ──
+  const COLOR_WORDS = new Set(['Black', 'White', 'Orange', 'Blue', 'Titan', 'DesertTitan', 'Red', 'LB'])
+  const stripColor = (code: string) => { const i = code.lastIndexOf('-'); return i > 0 && COLOR_WORDS.has(code.slice(i + 1)) ? code.slice(0, i) : code }
+  const [{ data: planRows }, { data: yPos }, { data: skuAll }] = await Promise.all([
+    supabase.from('annual_plan').select('country_id, quarter, ka_id, customer_raw, model_code, product_name, category, si_qty, so_qty, iniu_si_value, ka_si_value, gp, net_profit').eq('year', 2026).range(0, 9999),
+    supabase.from('channel_po').select('country_id, ka_id, sku_id, po_date, qty_ordered').gte('po_date', '2026-01-01').lt('po_date', '2027-01-01').range(0, 49999),
+    supabase.from('sku').select('id, code').range(0, 9999),
+  ])
+  const skuCode: Record<number, string> = {}; (skuAll ?? []).forEach((s: any) => { skuCode[s.id] = s.code })
+  const kaName2: Record<number, string> = {}; (kas ?? []).forEach((k: any) => { kaName2[k.id] = k.name })
+  const newAgg = () => ({ qty: 0, val: 0, gp: 0, np: 0, kaSi: 0, byQuarter: {} as any, byCategory: {} as any, _ka: {} as any, _md: {} as any })
+  const yc: Record<number, { fcst: any; ach: any }> = {}
+  const planUnit: Record<number, Record<string, { val: number; gp: number; np: number; kaSi: number; q: number }>> = {}
+  const modelCat: Record<string, string> = {}; const modelName: Record<string, string> = {}
+  ;(planRows ?? []).forEach((r: any) => {
+    const cid = r.country_id; const f = (yc[cid] ??= { fcst: newAgg(), ach: newAgg() }).fcst
+    const val = Number(r.iniu_si_value) || 0, q = Number(r.si_qty) || 0, gp = Number(r.gp) || 0, np = Number(r.net_profit) || 0, kaSi = Number(r.ka_si_value) || 0
+    f.qty += q; f.val += val; f.gp += gp; f.np += np; f.kaSi += kaSi
+    ;(f.byQuarter[r.quarter] ??= { val: 0, qty: 0 }).val += val; f.byQuarter[r.quarter].qty += q
+    if (r.category) f.byCategory[r.category] = (f.byCategory[r.category] || 0) + val
+    const kaKey = r.ka_id != null ? (kaName2[r.ka_id] || r.customer_raw || '—') : (r.customer_raw || '—')
+    ;(f._ka[kaKey] ??= { name: kaKey, val: 0, qty: 0 }).val += val; f._ka[kaKey].qty += q
+    const mc = r.model_code || '—'
+    ;(f._md[mc] ??= { code: mc, name: r.product_name || mc, val: 0, qty: 0 }).val += val; f._md[mc].qty += q
+    const pu = ((planUnit[cid] ??= {})[mc] ??= { val: 0, gp: 0, np: 0, kaSi: 0, q: 0 })
+    pu.val += val; pu.gp += gp; pu.np += np; pu.kaSi += kaSi; pu.q += q
+    if (r.category) modelCat[mc] = r.category; modelName[mc] = r.product_name || mc
+  })
+  ;(yPos ?? []).forEach((p: any) => {
+    const cid = p.country_id; const b = (yc[cid] ??= { fcst: newAgg(), ach: newAgg() }).ach
+    const code = skuCode[p.sku_id]; if (!code) return; const mc = stripColor(code)
+    const q = Number(p.qty_ordered) || 0; const m = Number(String(p.po_date).slice(5, 7)); const qu = 'Q' + (Math.floor((m - 1) / 3) + 1)
+    const pu = planUnit[cid]?.[mc]; const rate = pu && pu.q > 0 ? { val: pu.val / pu.q, gp: pu.gp / pu.q, np: pu.np / pu.q, kaSi: pu.kaSi / pu.q } : { val: 0, gp: 0, np: 0, kaSi: 0 }
+    const val = q * rate.val
+    b.qty += q; b.val += val; b.gp += q * rate.gp; b.np += q * rate.np; b.kaSi += q * rate.kaSi
+    ;(b.byQuarter[qu] ??= { val: 0, qty: 0 }).val += val; b.byQuarter[qu].qty += q
+    const cat = modelCat[mc]; if (cat) b.byCategory[cat] = (b.byCategory[cat] || 0) + val
+    const kaKey = p.ka_id != null ? (kaName2[p.ka_id] || '—') : '—'
+    ;(b._ka[kaKey] ??= { name: kaKey, val: 0, qty: 0 }).val += val; b._ka[kaKey].qty += q
+    ;(b._md[mc] ??= { code: mc, name: modelName[mc] || mc, val: 0, qty: 0 }).val += val; b._md[mc].qty += q
+  })
+  const cMeta: Record<number, any> = {}; countries.forEach((c: any) => { cMeta[c.id] = c })
+  const fin = (a: any) => ({ qty: a.qty, val: a.val, gp: a.gp, np: a.np, kaSi: a.kaSi, byQuarter: a.byQuarter, byCategory: a.byCategory, byKa: (Object.values(a._ka) as any[]).sort((x: any, y: any) => y.val - x.val), byModel: (Object.values(a._md) as any[]).sort((x: any, y: any) => y.val - x.val) })
+  const yearly = Object.keys(yc).map(Number).filter(cid => cMeta[cid]).map(cid => ({
+    code: cMeta[cid].code, name: cMeta[cid].name_en, flag: cMeta[cid].flag_emoji, fcst: fin(yc[cid].fcst), ach: fin(yc[cid].ach),
+  })).sort((a, b) => a.code.localeCompare(b.code))
+
   const initialCountryCode = (searchParams?.country && countries.some((c: any) => c.code === searchParams.country))
     ? searchParams.country : (countries[0] as any)?.code ?? ''
 
@@ -114,6 +161,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       initialCountryCode={initialCountryCode}
       viewerName={me.displayName}
       viewerIsAdmin={me.isAdmin}
+      yearly={yearly}
     />
   )
 }

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { fmtNum } from '@/lib/utils'
 import { QuarterlyReview, type ReviewRow } from './quarterly-review'
+import { YearlyReview, type YCountry } from './yearly-review'
 
 type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number }
@@ -22,7 +23,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly,
 }: {
   years: number[]
   selectedYear: number
@@ -39,11 +40,12 @@ export function PerformanceView({
   initialCountryCode: string
   viewerName: string
   viewerIsAdmin: boolean
+  yearly: YCountry[]
 }) {
   const router = useRouter()
   const [countryCode, setCountryCode] = useState(initialCountryCode)
   const [hideZero, setHideZero] = useState(true)
-  const [tab, setTab] = useState<'kpi' | 'review'>('kpi')
+  const [tab, setTab] = useState<'kpi' | 'review' | 'yearly'>('kpi')
   const country = useMemo(() => countries.find(c => c.code === countryCode) ?? countries[0], [countries, countryCode])
   const M = monthsIso.length
   const qLabel = `Q${selectedQuarter}`
@@ -135,7 +137,7 @@ export function PerformanceView({
 
       {/* Tab 切换 */}
       <div className="flex gap-2 mb-5 border-b border-gray-200">
-        {([['kpi', '📊 KPI Scorecard'], ['review', '📝 Quarterly Review']] as const).map(([t, label]) => (
+        {([['kpi', '📊 KPI Scorecard'], ['review', '📝 Quarterly Review'], ['yearly', '📅 Yearly Review']] as const).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition ${tab === t ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
             {label}
@@ -274,6 +276,10 @@ export function PerformanceView({
           countryCode={countryCode}
           countryId={country?.id}
         />
+      )}
+
+      {tab === 'yearly' && (
+        <YearlyReview year={2026} data={yearly} />
       )}
     </div>
   )
