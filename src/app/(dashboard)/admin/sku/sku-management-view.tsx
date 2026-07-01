@@ -45,8 +45,19 @@ type Sku = {
 
 type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number }
 
-export function SkuManagementView({ allSkus, viewerName }: { allSkus: Sku[]; viewerName: string }) {
+type Warehouse = { name: string; location: string }
+export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses, stockAsOf }: {
+  allSkus: Sku[]; viewerName: string
+  stockBySku: Record<number, Record<string, number>>
+  warehouses: Warehouse[]
+  stockAsOf: string
+}) {
   const router = useRouter()
+  // 库存列：HQ 短名 + 数字格式化；行合计 = 各仓相加
+  const shortWh = (name: string) => name === '生产部' ? 'HQ' : name.replace('国仓', '').replace('仓', '')
+  const fmtQty = (n?: number) => (n && n > 0 ? n.toLocaleString() : null)
+  const rowTotal = (id: number) => warehouses.reduce((sum, w) => sum + (stockBySku[id]?.[w.name] ?? 0), 0)
+  const CODE_W = 150, NAME_W = 210
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
@@ -189,29 +200,36 @@ export function SkuManagementView({ allSkus, viewerName }: { allSkus: Sku[]; vie
 
       {/* 主表 */}
       <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-2.5 text-xs text-gray-500 border-b border-black/[0.06]">
+          <span>📦 <b className="text-gray-700 font-semibold">Inventory</b> · HQ = 生产部 · 海外仓相加 · 只读（随供应链快照更新）</span>
+          {stockAsOf && <span className="ml-auto text-[11px] font-semibold bg-[#e3eefc] text-[#1a56b3] px-2.5 py-1 rounded-full">as of {stockAsOf}</span>}
+        </div>
         <div className="overflow-auto max-h-[750px]">
-          <table className="w-full text-sm border-collapse" style={{ minWidth: 1100 }}>
+          <table className="w-full text-sm border-collapse" style={{ minWidth: CODE_W + NAME_W + 440 + warehouses.length * 84 + 90 + 260 }}>
             <thead>
               <tr className="bg-white">
-                {[
-                  ['Code', 'left'], ['Name', 'left'], ['Category', 'left'],
-                  ['Series', 'left'], ['Family', 'left'], ['Lifecycle', 'left'],
-                  ['Sort', 'right'], ['Status', 'center'], ['Actions', 'right'],
-                ].map(([h, align]) => (
-                  <th key={h} className={`sticky top-0 bg-white z-10 px-3 py-2.5 text-${align} text-[11px] font-medium text-gray-400 border-b border-black/[0.06]`}>
-                    {h}
-                  </th>
+                <th className="sticky top-0 left-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]" style={{ minWidth: CODE_W, width: CODE_W }}>Code</th>
+                <th className="sticky top-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>Name</th>
+                {[['Category', 'left'], ['Series', 'left'], ['Family', 'left'], ['Lifecycle', 'left']].map(([h, align]) => (
+                  <th key={h} className={`sticky top-0 z-20 bg-white px-3 py-2.5 text-${align} text-[11px] font-medium text-gray-400 border-b border-black/[0.06]`}>{h}</th>
+                ))}
+                {warehouses.map((w, i) => (
+                  <th key={w.name} title={w.name} className={`sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-semibold text-[#1a56b3] bg-[#e3eefc] border-b border-black/[0.06] ${i === 0 ? 'border-l-2 border-l-[#cfe0f8]' : ''}`}>{shortWh(w.name)}</th>
+                ))}
+                <th className="sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-bold text-gray-700 bg-[#eef2f7] border-b border-black/[0.06]">汇总</th>
+                {[['Sort', 'right'], ['Status', 'center'], ['Actions', 'right']].map(([h, align]) => (
+                  <th key={h} className={`sticky top-0 z-20 bg-white px-3 py-2.5 text-${align} text-[11px] font-medium text-gray-400 border-b border-black/[0.06]`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filteredSkus.length === 0 && (
-                <tr><td colSpan={9} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
+                <tr><td colSpan={10 + warehouses.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
               )}
               {filteredSkus.map(s => (
-                <tr key={s.id} className={`hover:bg-[#f5f5f7] transition-colors ${!s.is_active ? 'opacity-55' : ''}`}>
-                  <td className="px-3 py-2 font-mono text-xs font-bold text-gray-900 border-b border-black/[0.05]">{s.code}</td>
-                  <td className="px-3 py-2 text-xs text-gray-700 border-b border-black/[0.05]">
+                <tr key={s.id} className={`group hover:bg-[#f5f5f7] transition-colors ${!s.is_active ? 'opacity-55' : ''}`}>
+                  <td className="sticky left-0 z-10 bg-white group-hover:bg-[#f5f5f7] px-3 py-2 font-mono text-xs font-bold text-gray-900 border-b border-black/[0.05]" style={{ left: 0, minWidth: CODE_W, width: CODE_W }}>{s.code}</td>
+                  <td className="sticky z-10 bg-white group-hover:bg-[#f5f5f7] px-3 py-2 text-xs text-gray-700 border-b border-r-2 border-black/[0.05]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>
                     {s.name}
                     {s.name_zh && <span className="text-gray-400 ml-1">· {s.name_zh}</span>}
                   </td>
@@ -222,6 +240,17 @@ export function SkuManagementView({ allSkus, viewerName }: { allSkus: Sku[]; vie
                     <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${lifecycleBadge(s.lifecycle)}`}>
                       {s.lifecycle || '-'}
                     </span>
+                  </td>
+                  {warehouses.map((w, i) => {
+                    const q = fmtQty(stockBySku[s.id]?.[w.name])
+                    return (
+                      <td key={w.name} className={`px-3 py-2 text-xs text-right tabular-nums border-b border-black/[0.05] bg-[#f0f6ff] group-hover:bg-[#e9f2ff] ${i === 0 ? 'border-l-2 border-l-[#eaf1fb]' : ''}`}>
+                        {q ? <span className="text-gray-800">{q}</span> : <span className="text-gray-300">–</span>}
+                      </td>
+                    )
+                  })}
+                  <td className="px-3 py-2 text-xs text-right tabular-nums font-bold border-b border-black/[0.05] bg-[#eef2f7] group-hover:bg-[#e6ebf1]">
+                    {(() => { const t = rowTotal(s.id); return t > 0 ? <span className="text-gray-900">{t.toLocaleString()}</span> : <span className="text-gray-300">–</span> })()}
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-500 text-right border-b border-black/[0.05] tabular-nums">{s.sort_order}</td>
                   <td className="px-3 py-2 text-center border-b border-black/[0.05]">

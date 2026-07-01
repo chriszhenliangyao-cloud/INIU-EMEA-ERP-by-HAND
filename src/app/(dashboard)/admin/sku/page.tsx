@@ -41,10 +41,38 @@ export default async function AdminSkuPage() {
     )
   }
 
+  // 库存：hq_stock 每个 (sku, warehouse) 取最新 as_of_date 一条
+  const { data: hqRaw } = await supabase
+    .from('hq_stock')
+    .select('sku_id, stock_qty, as_of_date, location, warehouse')
+    .not('warehouse', 'is', null)
+    .order('as_of_date', { ascending: false })
+    .range(0, 9999)
+
+  const seen = new Set<string>()
+  const stockBySku: Record<number, Record<string, number>> = {}
+  const whLoc: Record<string, string> = {}
+  let stockAsOf = ''
+  ;(hqRaw ?? []).forEach((r: any) => {
+    const key = `${r.sku_id}|${r.warehouse}`
+    if (seen.has(key)) return               // 已按 as_of desc 排序，首见即最新
+    seen.add(key)
+    ;(stockBySku[r.sku_id] ??= {})[r.warehouse] = Number(r.stock_qty)
+    whLoc[r.warehouse] = r.location
+    const d = String(r.as_of_date)
+    if (d > stockAsOf) stockAsOf = d
+  })
+  const warehouses = Object.keys(whLoc)
+    .sort((a, b) => (whLoc[a] === 'domestic' ? 0 : 1) - (whLoc[b] === 'domestic' ? 0 : 1) || a.localeCompare(b, 'zh'))
+    .map(name => ({ name, location: whLoc[name] }))
+
   return (
     <SkuManagementView
       allSkus={allSkus ?? []}
       viewerName={me.displayName}
+      stockBySku={stockBySku}
+      warehouses={warehouses}
+      stockAsOf={stockAsOf}
     />
   )
 }
