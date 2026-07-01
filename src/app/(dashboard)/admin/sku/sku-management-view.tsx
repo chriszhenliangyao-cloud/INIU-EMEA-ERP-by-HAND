@@ -205,26 +205,23 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
           {stockAsOf && <span className="ml-auto text-[11px] font-semibold bg-[#e3eefc] text-[#1a56b3] px-2.5 py-1 rounded-full">as of {stockAsOf}</span>}
         </div>
         <div className="overflow-auto max-h-[750px]">
-          <table className="w-full text-sm border-collapse" style={{ minWidth: CODE_W + NAME_W + 440 + warehouses.length * 84 + 90 + 260 }}>
+          <table className="w-full text-sm border-collapse" style={{ minWidth: CODE_W + NAME_W + 120 + warehouses.length * 84 + 90 + 150 }}>
             <thead>
               <tr className="bg-white">
                 <th className="sticky top-0 left-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]" style={{ minWidth: CODE_W, width: CODE_W }}>Code</th>
                 <th className="sticky top-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>Name</th>
-                {[['Category', 'left'], ['Series', 'left'], ['Family', 'left'], ['Lifecycle', 'left']].map(([h, align]) => (
-                  <th key={h} className={`sticky top-0 z-20 bg-white px-3 py-2.5 text-${align} text-[11px] font-medium text-gray-400 border-b border-black/[0.06]`}>{h}</th>
-                ))}
+                <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Lifecycle</th>
                 {warehouses.map((w, i) => (
                   <th key={w.name} title={w.name} className={`sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-semibold text-[#1a56b3] bg-[#e3eefc] border-b border-black/[0.06] ${i === 0 ? 'border-l-2 border-l-[#cfe0f8]' : ''}`}>{shortWh(w.name)}</th>
                 ))}
                 <th className="sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-bold text-gray-700 bg-[#eef2f7] border-b border-black/[0.06]">汇总</th>
-                {[['Sort', 'right'], ['Status', 'center'], ['Actions', 'right']].map(([h, align]) => (
-                  <th key={h} className={`sticky top-0 z-20 bg-white px-3 py-2.5 text-${align} text-[11px] font-medium text-gray-400 border-b border-black/[0.06]`}>{h}</th>
-                ))}
+                <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Sort</th>
+                <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Edit</th>
               </tr>
             </thead>
             <tbody>
               {filteredSkus.length === 0 && (
-                <tr><td colSpan={10 + warehouses.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
+                <tr><td colSpan={6 + warehouses.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
               )}
               {filteredSkus.map(s => (
                 <tr key={s.id} className={`group hover:bg-[#f5f5f7] transition-colors ${!s.is_active ? 'opacity-55' : ''}`}>
@@ -233,9 +230,6 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                     {s.name}
                     {s.name_zh && <span className="text-gray-400 ml-1">· {s.name_zh}</span>}
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">{s.category || '-'}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">{s.series || '-'}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">{s.family || '-'}</td>
                   <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">
                     <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${lifecycleBadge(s.lifecycle)}`}>
                       {s.lifecycle || '-'}
@@ -253,23 +247,8 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                     {(() => { const t = rowTotal(s.id); return t > 0 ? <span className="text-gray-900">{t.toLocaleString()}</span> : <span className="text-gray-300">–</span> })()}
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-500 text-right border-b border-black/[0.05] tabular-nums">{s.sort_order}</td>
-                  <td className="px-3 py-2 text-center border-b border-black/[0.05]">
-                    {s.is_active ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 text-emerald-600"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Active</span>
-                    ) : (
-                      <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-medium bg-gray-100 text-gray-400">Inactive</span>
-                    )}
-                  </td>
                   <td className="px-3 py-2 text-right border-b border-black/[0.05] whitespace-nowrap">
                     <button onClick={() => setEditingSku(s)} className="px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-black/[0.04] rounded-md transition">Edit</button>
-                    {s.is_active ? (
-                      <button onClick={() => onDeactivate(s)} disabled={isPending} className="px-2.5 py-1 text-xs font-medium text-orange-600 hover:bg-orange-50 rounded-md transition disabled:opacity-50 ml-1">Deactivate</button>
-                    ) : (
-                      <>
-                        <button onClick={() => onReactivate(s)} disabled={isPending} className="px-2.5 py-1 text-xs font-medium text-green-600 hover:bg-green-50 rounded-md transition disabled:opacity-50 ml-1">Reactivate</button>
-                        <DeleteButton sku={s} disabled={isPending} onDelete={() => onDelete(s)} />
-                      </>
-                    )}
                   </td>
                 </tr>
               ))}
