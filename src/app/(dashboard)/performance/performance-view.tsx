@@ -140,7 +140,11 @@ export function PerformanceView({
 
       {/* Tab 切换 */}
       <div className="flex gap-2 mb-5 border-b border-gray-200">
-        {([['kpi', '📊 KPI Scorecard'], ['review', '📝 Quarterly Review'], ['yearly', '📅 Yearly Review']] as const).map(([t, label]) => (
+        {([
+          ['kpi', '📊 KPI Scorecard'],
+          ['review', '📝 Quarterly Review'],
+          ...(viewerIsAdmin ? [['yearly', '📅 Yearly Review']] : []),  // Yearly Review 暂仅 admin 可见
+        ] as ['kpi' | 'review' | 'yearly', string][]).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition ${tab === t ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
             {label}
@@ -281,7 +285,7 @@ export function PerformanceView({
         />
       )}
 
-      {tab === 'yearly' && (
+      {tab === 'yearly' && viewerIsAdmin && (
         <YearlyReview year={2026} data={yearly} />
       )}
     </div>
