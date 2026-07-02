@@ -181,9 +181,11 @@ export function ForecastEditView({
   // ⚠️ 多国家共享一份 map：因为 cellKey 包含 ka_id（唯一），不同国家的 KA 不会冲突
   const [cellQty, setCellQty] = useState<Record<CellKey, number>>(() => buildQtyMap(allCells))
 
-  // —— dirty cells（修改过未保存的）——
+  // —— dirty cells（改了还没落库的，失焦即存）+ 每格保存状态 + 已存基线 ——
   const [dirtyKeys, setDirtyKeys] = useState<Set<CellKey>>(new Set())
   const [saving, setSaving] = useState(false)
+  const [cellStatus, setCellStatus] = useState<Record<CellKey, 'saving' | 'saved' | 'error'>>({})
+  const savedQty = useRef<Record<CellKey, number>>(buildQtyMap(allCells))
 
   // 注：上期 rollover 预填值与人工值同等显示（销售要求：实体数据、免重复填报）
   // source 字段仅作为来源痕迹保留（admin 的 Forecast Activity 用它区分 人工/预填）
@@ -202,6 +204,8 @@ export function ForecastEditView({
   useEffect(() => {
     setCellQty(buildQtyMap(allCells))
     setDirtyKeys(new Set())
+    savedQty.current = buildQtyMap(allCells)
+    setCellStatus({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allCells, selectedRun.id])
 
@@ -247,6 +251,30 @@ export function ForecastEditView({
     setDirtyKeys(new Set())  // 立即清掉，避免双击保存
     router.refresh()  // 触发服务端重新拉 cells；useEffect 监听到后会重置 cellQty 为新值
   }, [supabase, router, showToast])
+
+  // —— 单格即时保存（失焦/回车触发）：只提交这一格，审计触发器自动记日志；无变化则不保存 ——
+  const saveCell = useCallback(async (sku_id: number, ka_id: number, monthIso: string) => {
+    const key = cellKey(sku_id, ka_id, monthIso)
+    const { cellQty: cq, runId, locked } = stateRef.current
+    if (locked) return
+    const cur = cq[key] ?? 0
+    const base = savedQty.current[key] ?? 0
+    if (cur === base) return  // 值没变 → 不落库、不写日志
+    setCellStatus(s => ({ ...s, [key]: 'saving' }))
+    const { error } = await supabase.rpc('upsert_forecast_cells', {
+      p_run_id: runId,
+      p_cells: [{ sku_id, ka_id, month: monthIso, qty: cur }],
+    })
+    if (error) {
+      setCellStatus(s => ({ ...s, [key]: 'error' }))
+      showToast('error', `保存失败：${error.message}`)
+      return
+    }
+    savedQty.current[key] = cur
+    setDirtyKeys(prev => { const n = new Set(prev); n.delete(key); return n })
+    setCellStatus(s => ({ ...s, [key]: 'saved' }))
+    setTimeout(() => setCellStatus(s => { if (s[key] !== 'saved') return s; const { [key]: _drop, ...rest } = s; return rest }), 1500)
+  }, [supabase, showToast])
 
   // —— 全局 Ctrl/Cmd + S 触发保存 ——
   useEffect(() => {
@@ -459,17 +487,22 @@ export function ForecastEditView({
             <span className="text-xs text-gray-400">({allKasInCountry.filter(k => k.is_active !== false && k.ka_type !== 'group').length})</span>
           </button>
 
-          <button
-            onClick={handleSave}
-            disabled={saving || dirtyKeys.size === 0 || locked}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
-              dirtyKeys.size > 0
-                ? 'bg-green-600 text-white hover:bg-green-700 shadow'
-                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            {saving ? 'Saving...' : dirtyKeys.size > 0 ? `💾 Save (${dirtyKeys.size} change${dirtyKeys.size === 1 ? '' : 's'})` : 'Saved'}
-          </button>
+          {locked ? (
+            <span className="px-3 py-1.5 text-sm font-medium rounded-md bg-gray-100 text-gray-400">🔒 只读</span>
+          ) : (() => {
+            const busy = saving || Object.values(cellStatus).some(v => v === 'saving') || dirtyKeys.size > 0
+            const err = Object.values(cellStatus).some(v => v === 'error')
+            if (err) return (
+              <button onClick={handleSave} className="px-3 py-1.5 text-sm font-medium rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition" title="部分单元格保存失败，点此重试">
+                ⚠️ 重试保存
+              </button>
+            )
+            return (
+              <span className={`px-3 py-1.5 text-sm font-medium rounded-md flex items-center gap-1.5 ${busy ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                {busy ? '⏳ 保存中…' : '✓ 自动保存已开启'}
+              </span>
+            )
+          })()}
         </div>
 
         {/* 表格滚动区 */}
@@ -655,15 +688,19 @@ export function ForecastEditView({
                       monthsIso.map((m, i) => {
                         const key = cellKey(sku.id, ka.id, m)
                         const value = cellQty[key] ?? 0
+                        const st = cellStatus[key]
                         const dirty = dirtyKeys.has(key)
                         const isLast = i === monthsIso.length - 1
+                        const tint = st === 'saving' ? 'bg-blue-50' : st === 'saved' ? 'bg-green-50' : st === 'error' ? 'bg-red-50' : dirty ? 'bg-yellow-50' : ''
                         return (
-                          <td key={key} className={`px-1 py-1 text-right border-b border-gray-100 ${isLast ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'} ${dirty ? 'bg-yellow-50' : ''}`}>
+                          <td key={key} className={`px-1 py-1 text-right border-b border-gray-100 ${isLast ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'} ${tint} transition-colors`}>
                             <input
                               type="text"
                               inputMode="numeric"
                               value={value === 0 ? '' : String(value)}
                               onChange={(e) => updateCell(sku.id, ka.id, m, e.target.value)}
+                              onBlur={() => saveCell(sku.id, ka.id, m)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
                               placeholder="0"
                               disabled={locked}
                               className={`w-full text-xs text-right tabular-nums bg-transparent focus:bg-white focus:ring-2 focus:ring-blue-300 rounded px-1 py-1 outline-none ${value > 0 ? 'text-gray-900 font-medium' : 'text-gray-300'} ${locked ? 'cursor-not-allowed' : ''}`}
@@ -797,8 +834,8 @@ export function ForecastEditView({
 
       {/* 调试提示 */}
       <div className="mt-4 text-xs text-gray-400 text-center">
-        💡 Edited cells show yellow until saved · click Save or press <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">⌘/Ctrl + S</kbd> ·
-        PO (shipment) / SO (PSI) ref = avg of past 3 complete months (excl. current) · You'll be warned before leaving with unsaved changes ·
+        💡 改动<b className="text-gray-500">离开单元格或按回车即自动保存并记入日志</b>（🟦 保存中 · 🟩 已存 · 🟥 失败可重试） · <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">⌘/Ctrl + S</kbd> 可批量补存 ·
+        PO (shipment) / SO (PSI) ref = avg of past 3 complete months (excl. current) ·
         Writes are RLS-protected — out-of-scope writes are auto-rejected
       </div>
     </div>
