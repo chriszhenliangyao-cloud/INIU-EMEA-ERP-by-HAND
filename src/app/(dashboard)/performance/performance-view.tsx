@@ -101,9 +101,9 @@ export function PerformanceView({
   return (
     <div className="p-6 max-w-[1700px] mx-auto">
       <div className="mb-4">
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">🏆 Performance — Quarterly KPI</h1>
+        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">🏆 Performance</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Forecast (cross-cycle average) vs Achieve (customer PO — Qty Ordered) vs Attainment % · {viewerIsAdmin ? 'all countries' : 'your assigned countries only'}
+          Forecast vs Achievement · KPI Scorecard · Quarterly Review · Yearly Review · {viewerIsAdmin ? 'all countries' : 'your assigned countries only'}
         </p>
       </div>
 

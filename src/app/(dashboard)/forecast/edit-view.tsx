@@ -267,7 +267,7 @@ export function ForecastEditView({
     })
     if (error) {
       setCellStatus(s => ({ ...s, [key]: 'error' }))
-      showToast('error', `保存失败：${error.message}`)
+      showToast('error', `Save failed: ${error.message}`)
       return
     }
     savedQty.current[key] = cur
@@ -488,18 +488,18 @@ export function ForecastEditView({
           </button>
 
           {locked ? (
-            <span className="px-3 py-1.5 text-sm font-medium rounded-md bg-gray-100 text-gray-400">🔒 只读</span>
+            <span className="px-3 py-1.5 text-sm font-medium rounded-md bg-gray-100 text-gray-400">🔒 Read-only</span>
           ) : (() => {
             const busy = saving || Object.values(cellStatus).some(v => v === 'saving') || dirtyKeys.size > 0
             const err = Object.values(cellStatus).some(v => v === 'error')
             if (err) return (
-              <button onClick={handleSave} className="px-3 py-1.5 text-sm font-medium rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition" title="部分单元格保存失败，点此重试">
-                ⚠️ 重试保存
+              <button onClick={handleSave} className="px-3 py-1.5 text-sm font-medium rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition" title="Some cells failed to save — click to retry">
+                ⚠️ Retry save
               </button>
             )
             return (
               <span className={`px-3 py-1.5 text-sm font-medium rounded-md flex items-center gap-1.5 ${busy ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
-                {busy ? '⏳ 保存中…' : '✓ 自动保存已开启'}
+                {busy ? '⏳ Saving…' : '✓ Auto-save on'}
               </span>
             )
           })()}
@@ -834,7 +834,7 @@ export function ForecastEditView({
 
       {/* 调试提示 */}
       <div className="mt-4 text-xs text-gray-400 text-center">
-        💡 改动<b className="text-gray-500">离开单元格或按回车即自动保存并记入日志</b>（🟦 保存中 · 🟩 已存 · 🟥 失败可重试） · <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">⌘/Ctrl + S</kbd> 可批量补存 ·
+        💡 Edits <b className="text-gray-500">auto-save on blur or Enter and are logged</b> (🟦 saving · 🟩 saved · 🟥 failed, retryable) · <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">⌘/Ctrl + S</kbd> flushes any pending ·
         PO (shipment) / SO (PSI) ref = avg of past 3 complete months (excl. current) ·
         Writes are RLS-protected — out-of-scope writes are auto-rejected
       </div>
