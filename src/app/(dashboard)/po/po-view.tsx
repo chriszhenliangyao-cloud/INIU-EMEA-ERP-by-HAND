@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import { fmtNum } from '@/lib/utils'
@@ -217,7 +217,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
     return true
   }), [rows, tYear, tCountry, tMonth, tSku, tKa, tCat, tSearch])
 
-  type AggRow = { month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_flag: string; category: string | null; qty: number; count: number; shipped: number; rescued: number; turnover: number; currency: string | null; fdPrice: number | null }
+  type AggRow = { key: string; month: string; sku_code: string; sku_name: string; ka_name: string; country_code: string; country_flag: string; category: string | null; qty: number; count: number; shipped: number; rescued: number; turnover: number; currency: string | null; fdPrice: number | null; pos: FlatRow[] }
   // 靠 delivery_date 兜底的行（有送达日但 ship_date 为空）
   const rescuedBy = (r: FlatRow) => !r.ship_date && !!r.delivery_date
   const aggRows = useMemo<AggRow[]>(() => {
@@ -231,7 +231,8 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
         ex.qty += r.qty; ex.count += 1; if (isShipped(r)) ex.shipped += 1; if (rescuedBy(r)) ex.rescued += 1
         ex.turnover += r.turnover ?? 0; if (!ex.currency) ex.currency = r.currency
         if (ex.fdPrice !== r.fd_buying_price) ex.fdPrice = null  // 组内单价不一致 → 退回加权均价
-      } else map.set(key, { month: ym, sku_code: r.sku_code, sku_name: r.sku_name, ka_name: ka, country_code: r.country_code, country_flag: r.country_flag, category: r.sku_category, qty: r.qty, count: 1, shipped: isShipped(r) ? 1 : 0, rescued: rescuedBy(r) ? 1 : 0, turnover: r.turnover ?? 0, currency: r.currency, fdPrice: r.fd_buying_price })
+        ex.pos.push(r)
+      } else map.set(key, { key, month: ym, sku_code: r.sku_code, sku_name: r.sku_name, ka_name: ka, country_code: r.country_code, country_flag: r.country_flag, category: r.sku_category, qty: r.qty, count: 1, shipped: isShipped(r) ? 1 : 0, rescued: rescuedBy(r) ? 1 : 0, turnover: r.turnover ?? 0, currency: r.currency, fdPrice: r.fd_buying_price, pos: [r] })
     })
     return Array.from(map.values())
   }, [tableFiltered])
@@ -250,6 +251,9 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
   const aggTotal = sortedAgg.reduce((s, r) => s + r.qty, 0)
   const resetTable = () => { setTYear(thisYear); setTCountry('ALL'); setTMonth('ALL'); setTSku('ALL'); setTKa('ALL'); setTCat('ALL'); setTSearch('') }
   const toggleSort = (col: string) => { if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortCol(col); setSortDir('desc') } }
+  // 展开：看该聚合行(月×SKU×KA)下的每一张 PO（含具体日期）
+  const [expandedAgg, setExpandedAgg] = useState<Set<string>>(new Set())
+  const toggleExpand = (k: string) => setExpandedAgg(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto">
@@ -416,10 +420,19 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
             <tbody className="divide-y divide-gray-100">
               {sortedAgg.map((r, i) => {
                 const newMonth = i === 0 || sortedAgg[i - 1].month !== r.month
+                const open = expandedAgg.has(r.key)
+                const poList = open ? [...r.pos].sort((a, b) => (a.po_date ?? '').localeCompare(b.po_date ?? '')) : []
                 return (
-                  <tr key={i} className={`hover:bg-gray-50 ${newMonth ? 'border-t-2 border-gray-200' : ''}`}>
+                  <Fragment key={r.key}>
+                  <tr className={`hover:bg-gray-50 ${newMonth ? 'border-t-2 border-gray-200' : ''}`}>
                     <td className="px-4 py-2 font-semibold text-xs text-gray-700 whitespace-nowrap">{newMonth ? r.month : ''}</td>
-                    <td className="px-4 py-2 font-mono text-xs text-gray-700">{r.sku_code}</td>
+                    <td className="px-4 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">
+                      <button onClick={() => toggleExpand(r.key)} title={`展开查看 ${r.count} 张 PO（含日期）`}
+                        className="mr-1.5 w-4 h-4 inline-flex items-center justify-center text-gray-400 hover:text-gray-700 align-middle">
+                        <span className="inline-block text-[9px] transition-transform" style={{ transform: open ? 'rotate(90deg)' : 'none' }}>▶</span>
+                      </button>
+                      {r.sku_code}
+                    </td>
                     <td className="px-4 py-2 text-gray-600 truncate max-w-xs">{r.sku_name || '-'}</td>
                     <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{r.ka_name}</span></td>
                     <td className="px-4 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{r.country_flag} {r.country_code}</span></td>
@@ -431,6 +444,23 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
                     <td className="px-4 py-2 text-center">{r.rescued > 0 ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-sky-100 text-sky-700" title="Ship date was blank; counted as shipped via delivery date">🚚 {r.rescued}</span> : <span className="text-gray-300">-</span>}</td>
                     <td className="px-4 py-2 text-right text-gray-400">{r.count}</td>
                   </tr>
+                  {poList.map((p, j) => (
+                    <tr key={r.key + '#' + j} className="bg-slate-50/70 text-xs">
+                      <td className="px-4 py-1"></td>
+                      <td className="px-4 py-1 pl-9 text-gray-600 whitespace-nowrap tabular-nums font-medium">🗓 {p.po_date}</td>
+                      <td className="px-4 py-1 text-gray-500 font-mono truncate max-w-xs" title={p.po_number ?? ''}>{p.po_number ?? '—'}</td>
+                      <td className="px-4 py-1"></td>
+                      <td className="px-4 py-1"></td>
+                      <td className="px-4 py-1"></td>
+                      <td className="px-4 py-1 text-right tabular-nums text-gray-700">{fmtNum(p.qty)}</td>
+                      <td className="px-4 py-1 text-right tabular-nums text-gray-400 whitespace-nowrap">{p.fd_buying_price != null ? fmtMoney(p.fd_buying_price, p.currency) : (p.qty ? fmtMoney((p.turnover ?? 0) / p.qty, p.currency) : '–')}</td>
+                      <td className="px-4 py-1 text-right tabular-nums text-gray-600 whitespace-nowrap">{fmtMoney(p.turnover ?? 0, p.currency)}</td>
+                      <td className="px-4 py-1 text-center">{isShipped(p) ? <span className="text-emerald-600 font-medium">Yes</span> : <span className="text-gray-400">No</span>}</td>
+                      <td className="px-4 py-1 text-center">{rescuedBy(p) ? <span title="counted shipped via delivery date">🚚</span> : ''}</td>
+                      <td className="px-4 py-1"></td>
+                    </tr>
+                  ))}
+                  </Fragment>
                 )
               })}
               {!sortedAgg.length && <tr><td colSpan={12} className="py-12 text-center text-gray-400">No matching records</td></tr>}
