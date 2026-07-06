@@ -90,7 +90,7 @@ export function PoShipmentView({ rows, skus, countries, kas }: { rows: OpsRow[];
     <div className="p-6 max-w-[1500px] mx-auto">
       <PosStyle />
       <div className="mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">🚚 PO &amp; Shipment</h1>
+        <h1 className="text-2xl font-bold text-gray-900">🚚 Shipment Workflow</h1>
         <p className="text-sm text-gray-500 mt-1">
           一条履约流水线管完整 PO 生命周期。点左侧阶段 → 右侧展开操作。公开 <span className="font-medium text-gray-700">PO</span> 页为只读看板，此处每次改动即时回流。
         </p>

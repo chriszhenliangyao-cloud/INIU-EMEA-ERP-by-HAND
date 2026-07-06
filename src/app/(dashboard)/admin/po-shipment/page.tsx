@@ -87,4 +87,4 @@ export default async function AdminPoShipmentPage() {
   return <PoShipmentView rows={rows} plnToEur={plnToEur} skus={skus} countries={countries} kas={kas} />
 }
 
-export const metadata = { title: 'PO & Shipment · INIU ERP' }
+export const metadata = { title: 'Shipment Workflow · INIU ERP' }
