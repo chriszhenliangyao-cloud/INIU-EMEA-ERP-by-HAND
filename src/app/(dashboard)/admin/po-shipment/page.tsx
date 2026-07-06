@@ -1,19 +1,21 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/lib/auth/current-user'
-import { PoShipmentView, type OpsRow } from './po-shipment-view'
+import type { OpsRow } from '../../po/_ops'
+import { PoShipmentView, type SkuOpt, type CountryOpt, type KaOpt } from './po-shipment-view'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * /admin/po-shipment — PO & Shipment（admin only）
+ * /admin/po-shipment — PO & Shipment 履约流水线（admin only）
  *
- * 所有 PO 发货操作集中在此：Unshipped（标记发货 / 部分 / 取消 + 备注）、
- * Partially Delivered、Cancelled。公开的 /po 页现在是纯数据看板。
- * 国家隔离仍由 channel_po 的 RLS 兜底（这里 admin 可见全部）。
+ * 一条流水线管完整 PO 生命周期：
+ *   🆕 New PO(po_status='new') → 📦 To Ship(null) → ✈️ Shipped(ship_date) → 📬 Delivered(delivery_date)
+ *   旁支：◑ Partial(po_status='partial') · ✗ Cancelled(po_status='cancelled')
+ * 每周导入的新 PO 因列默认值 'new' 自动落 New PO，供应链 Confirm 后才进 To Ship。
+ * 公开 /po 页现为只读看板；所有发货操作都在这里。国家隔离仍由 channel_po 的 RLS 兜底（admin 可见全部）。
  */
 
-// Value 模式把 PLN 营业额折算成 EUR 的实时汇率（与 /po 同源）。
 async function getPlnToEur(): Promise<number> {
   const WEEK = 60 * 60 * 24 * 7
   const sources: Array<{ url: string; pick: (j: any) => unknown }> = [
@@ -37,15 +39,18 @@ export default async function AdminPoShipmentPage() {
 
   const supabase = createClient()
   const plnToEur = await getPlnToEur()
-  const { data: pos, error } = await supabase
-    .from('channel_po')
-    .select(`
+
+  const [{ data: pos, error }, { data: skuList }, { data: countryList }, { data: kaList }] = await Promise.all([
+    supabase.from('channel_po').select(`
       id, po_number, po_date, qty_ordered, ship_date, delivery_date, notes, fd_buying_price, turnover, currency, po_status, delivered_qty,
       sku:sku_id ( code, name ),
       country:country_id ( code, name_en, flag_emoji ),
       ka:ka_id ( name )
-    `)
-    .order('po_date', { ascending: false })
+    `).order('po_date', { ascending: false }),
+    supabase.from('sku').select('id, code, name').eq('is_active', true).order('code'),
+    supabase.from('country').select('id, code, name_en, flag_emoji').eq('is_active', true).order('sort_order'),
+    supabase.from('ka').select('id, name, country_id').eq('is_active', true).order('name'),
+  ])
 
   if (error) {
     return (
@@ -75,7 +80,11 @@ export default async function AdminPoShipmentPage() {
     ka_name: r.ka?.name ?? null,
   }))
 
-  return <PoShipmentView rows={rows} plnToEur={plnToEur} />
+  const skus: SkuOpt[] = (skuList ?? []).map((s: any) => ({ id: s.id, code: s.code, name: s.name }))
+  const countries: CountryOpt[] = (countryList ?? []).map((c: any) => ({ id: c.id, code: c.code, name: c.name_en, flag: c.flag_emoji }))
+  const kas: KaOpt[] = (kaList ?? []).map((k: any) => ({ id: k.id, name: k.name, country_id: k.country_id }))
+
+  return <PoShipmentView rows={rows} plnToEur={plnToEur} skus={skus} countries={countries} kas={kas} />
 }
 
 export const metadata = { title: 'PO & Shipment · INIU ERP' }
