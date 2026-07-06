@@ -58,6 +58,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
           {me.isAdmin && (
             <>
               <div className="text-[11px] font-semibold text-gray-400 px-3 py-2 mt-4">Admin only</div>
+              <NavLink href="/admin/po-shipment">🚚 PO &amp; Shipment</NavLink>
               <NavLink href="/admin/sku">⚙️ SKU Master Data</NavLink>
               <NavLink href="/admin/sales">👤 Sales Reps</NavLink>
               <NavLink href="/admin/ka">🗺️ KA Channel Map</NavLink>
