@@ -407,13 +407,9 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
                 <FilterTh col="sku_code" label="SKU" sc={sortCol} sd={sortDir} on={toggleSort} value={tSku} onPick={setTSku} options={options.skus} />
                 <FilterTh col="sku_name" label="Product" sc={sortCol} sd={sortDir} on={toggleSort} />
                 <FilterTh col="ka_name" label="KA" sc={sortCol} sd={sortDir} on={toggleSort} value={tKa} onPick={setTKa} options={options.kas} />
-                <FilterTh col="country_code" label="Country" sc={sortCol} sd={sortDir} on={toggleSort} value={tCountry} onPick={setTCountry} options={options.countries} />
-                <FilterTh col="category" label="Category" sc={sortCol} sd={sortDir} on={toggleSort} value={tCat} onPick={setTCat} options={options.cats} />
                 <FilterTh col="qty" label="Qty" sc={sortCol} sd={sortDir} on={toggleSort} align="right" />
                 <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 whitespace-nowrap" title="FD buying price = turnover / qty (original currency, not converted)">FD Price</th>
                 <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 whitespace-nowrap" title="Total Subtotal / turnover (original currency, as reported by the channel; EUR and PLN not mixed)">Turnover</th>
-                <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600">Shipped</th>
-                <th className="px-4 py-2 align-top text-center text-xs font-semibold text-gray-600 whitespace-nowrap" title="Lines counted as shipped only via Delivery Date (Ship Date was blank)">Via Delivery</th>
                 <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600">Count</th>
               </tr>
             </thead>
@@ -433,15 +429,17 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
                       </button>
                       {r.sku_code}
                     </td>
-                    <td className="px-4 py-2 text-gray-600 truncate max-w-xs">{r.sku_name || '-'}</td>
-                    <td className="px-4 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{r.ka_name}</span></td>
-                    <td className="px-4 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{r.country_flag} {r.country_code}</span></td>
-                    <td className="px-4 py-2">{r.category ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-600">{r.category}</span> : <span className="text-gray-300">-</span>}</td>
+                    <td className="px-4 py-2 text-gray-600 truncate max-w-xs">
+                      {r.category && <span className="text-[10px] text-purple-400 mr-1.5 align-middle">{r.category}</span>}
+                      {r.sku_name || '-'}
+                    </td>
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{r.ka_name}</span>
+                      <span className="ml-1.5 align-middle" title={r.country_code}>{r.country_flag}</span>
+                    </td>
                     <td className="px-4 py-2 text-right font-medium tabular-nums">{fmtNum(r.qty)}</td>
                     <td className="px-4 py-2 text-right text-gray-500 tabular-nums whitespace-nowrap">{r.fdPrice != null ? fmtMoney(r.fdPrice, r.currency) : (r.qty ? fmtMoney(r.turnover / r.qty, r.currency) : '–')}</td>
                     <td className="px-4 py-2 text-right font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fmtMoney(r.turnover, r.currency)}</td>
-                    <td className="px-4 py-2 text-center"><ShippedBadge shipped={r.shipped} total={r.count} /></td>
-                    <td className="px-4 py-2 text-center">{r.rescued > 0 ? <span className="inline-block px-2 py-0.5 rounded text-xs bg-sky-100 text-sky-700" title="Ship date was blank; counted as shipped via delivery date">🚚 {r.rescued}</span> : <span className="text-gray-300">-</span>}</td>
                     <td className="px-4 py-2 text-right text-gray-400">{r.count}</td>
                   </tr>
                   {poList.map((p, j) => (
@@ -450,20 +448,16 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
                       <td className="px-4 py-1 pl-9 text-gray-600 whitespace-nowrap tabular-nums font-medium">🗓 {p.po_date}</td>
                       <td className="px-4 py-1 text-gray-500 font-mono truncate max-w-xs" title={p.po_number ?? ''}>{p.po_number ?? '—'}</td>
                       <td className="px-4 py-1"></td>
-                      <td className="px-4 py-1"></td>
-                      <td className="px-4 py-1"></td>
                       <td className="px-4 py-1 text-right tabular-nums text-gray-700">{fmtNum(p.qty)}</td>
                       <td className="px-4 py-1 text-right tabular-nums text-gray-400 whitespace-nowrap">{p.fd_buying_price != null ? fmtMoney(p.fd_buying_price, p.currency) : (p.qty ? fmtMoney((p.turnover ?? 0) / p.qty, p.currency) : '–')}</td>
                       <td className="px-4 py-1 text-right tabular-nums text-gray-600 whitespace-nowrap">{fmtMoney(p.turnover ?? 0, p.currency)}</td>
-                      <td className="px-4 py-1 text-center">{isShipped(p) ? <span className="text-emerald-600 font-medium">Yes</span> : <span className="text-gray-400">No</span>}</td>
-                      <td className="px-4 py-1 text-center">{rescuedBy(p) ? <span title="counted shipped via delivery date">🚚</span> : ''}</td>
                       <td className="px-4 py-1"></td>
                     </tr>
                   ))}
                   </Fragment>
                 )
               })}
-              {!sortedAgg.length && <tr><td colSpan={12} className="py-12 text-center text-gray-400">No matching records</td></tr>}
+              {!sortedAgg.length && <tr><td colSpan={8} className="py-12 text-center text-gray-400">No matching records</td></tr>}
             </tbody>
           </table>
         </div>
