@@ -25,6 +25,7 @@ type Ka = {
   sort_order: number
   is_active: boolean
   notes: string | null
+  vat: number | null
   updated_at: string
 }
 
@@ -539,8 +540,11 @@ function NodeCard({ ka, parentOptions, ship, psi, onSuccess, onError }: {
     } hover:bg-[#fafafa] hover:shadow-sm transition group`}>
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ka.is_active ? 'bg-green-500' : 'bg-gray-300'}`}
         title={ka.is_active ? 'Active' : 'Inactive'} />
-      <span className={`font-medium text-sm truncate ${ka.is_active ? 'text-gray-900' : 'text-gray-400 line-through'}`}>
-        {ka.name}
+      <span className="flex flex-col min-w-0">
+        <span className={`font-medium text-sm truncate ${ka.is_active ? 'text-gray-900' : 'text-gray-400 line-through'}`}>
+          {ka.name}
+        </span>
+        <span className="text-[10px] text-gray-400 leading-tight">（VAT={ka.vat != null ? ka.vat + '%' : '—'}）</span>
       </span>
       <Badge type={ka.ka_type ?? 'retailer'} />
       {ka.notes && (

@@ -152,6 +152,12 @@ npx tsc --noEmit    # TypeScript 类型检查
 npm run build       # 完整构建
 ```
 
+## 手动运营任务
+
+固定但不定时执行的 Codex 任务放在 [`docs/manual-tasks`](./docs/manual-tasks/README.md)。
+
+- [`MEX Gmail SO Import`](./docs/manual-tasks/mex-gmail-so-import.md)：从 Gmail 搜索 Lukasz/Mariusz 的 MEX SO 邮件，并写入 `weekly_psi_v2`。
+
 ---
 
 ## 项目结构

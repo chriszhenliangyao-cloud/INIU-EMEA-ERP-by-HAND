@@ -24,7 +24,7 @@ export default async function AdminKaPage() {
     { data: psiKaIds },
   ] = await Promise.all([
     supabase.from('ka')
-      .select('id, name, country_id, ka_type, parent_ka_id, sort_order, is_active, notes, updated_at')
+      .select('id, name, country_id, ka_type, parent_ka_id, sort_order, is_active, notes, vat, updated_at')
       .order('country_id').order('sort_order').order('name'),
     supabase.from('country')
       .select('id, code, name_en, flag_emoji, sort_order, is_active')

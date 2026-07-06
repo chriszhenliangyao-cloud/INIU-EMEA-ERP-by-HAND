@@ -30,7 +30,11 @@ type FlatRow = {
   country_region: string
   ka_id: number | null
   ka_name: string | null
+  ka_vat: number | null
 }
+
+// 渠道 VAT 小字：（VAT=20%）· 未设为 —
+const fmtVat = (v: number | null | undefined) => `（VAT=${v != null ? v + '%' : '—'}）`
 
 // 发货判定：有 ship_date 或 delivery_date 任一即视为已发（物流偶尔漏填 ship_date，用送达日兜底）
 const isShipped = (r: { ship_date: string | null; delivery_date: string | null }) => !!(r.ship_date || r.delivery_date)
@@ -108,7 +112,9 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
     const poCount = new Set(dashFiltered.filter(r => r.po_number).map(r => r.po_number)).size
     const skuCount = new Set(dashFiltered.map(r => r.sku_code)).size
     const totalValueEUR = dashFiltered.reduce((s, r) => s + toEUR(r.turnover, r.currency, plnToEur), 0)
-    return { totalQty, poCount, skuCount, totalValueEUR }
+    // 含增值税：每行营业额(EUR) × (1 + 该渠道 VAT%)；渠道未设 VAT 视为 0
+    const totalValueInclVatEUR = dashFiltered.reduce((s, r) => s + toEUR(r.turnover, r.currency, plnToEur) * (1 + (r.ka_vat ?? 0) / 100), 0)
+    return { totalQty, poCount, skuCount, totalValueEUR, totalValueInclVatEUR }
   }, [dashFiltered, plnToEur])
 
   const options = useMemo(() => ({
@@ -157,9 +163,9 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
 
   const topKas = useMemo(() => {
     const pick = (r: FlatRow) => rankMetric === 'value' ? toEUR(r.turnover, r.currency, plnToEur) : r.qty
-    const m: Record<string, number> = {}
-    dashFiltered.forEach(r => { const name = r.ka_name ?? 'Unspecified'; m[name] = (m[name] ?? 0) + pick(r) })
-    return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, qty]) => ({ name, qty }))
+    const m: Record<string, number> = {}; const vat: Record<string, number | null> = {}
+    dashFiltered.forEach(r => { const name = r.ka_name ?? 'Unspecified'; m[name] = (m[name] ?? 0) + pick(r); if (!(name in vat)) vat[name] = r.ka_vat })
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, qty]) => ({ name, qty, vat: vat[name] }))
   }, [dashFiltered, rankMetric, plnToEur])
   const rankTotal = topKas.reduce((s, r) => s + r.qty, 0) || 1
   const rankMax = topKas[0]?.qty || 1  // 排名第一 = 满条，其余按比例
@@ -257,9 +263,10 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <KpiCard label="Total Ordered" value={fmtNum(stats.totalQty)} hint="units (Qty Ordered)" />
         <KpiCard label="Total Value" value={'€' + fmtNum(Math.round(stats.totalValueEUR))} hint={`turnover · in EUR (PLN×${plnToEur.toFixed(4)})`} color="green" />
+        <KpiCard label="Total Value (include VAT)" value={'€' + fmtNum(Math.round(stats.totalValueInclVatEUR))} hint="turnover × (1 + channel VAT%) · EUR" color="green" />
         <KpiCard label="Key Accounts" value={fmtNum(kaNames.length)} hint={kaNames.join(' · ') || 'ordering KAs'} color="amber" />
       </div>
 
@@ -326,6 +333,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
                     <td className="w-28 py-2.5 border-b border-black/[0.05] whitespace-nowrap">
                       <span className="inline-block w-2.5 h-2.5 rounded-sm mr-2 align-middle" style={{ background: color }} />
                       <span className="text-[13px] font-medium text-gray-800">{k.name}</span>
+                      <div className="text-[10px] text-gray-400 ml-[18px] leading-tight">{fmtVat(k.vat)}</div>
                     </td>
                     <td className="py-2.5 px-3 border-b border-black/[0.05]">
                       <div className="h-2 rounded-full bg-gray-500/10 overflow-hidden">
