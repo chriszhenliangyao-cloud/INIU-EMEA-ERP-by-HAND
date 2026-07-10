@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/lib/auth/current-user'
-import type { OpsRow } from '../../po/_ops'
+import type { OpsRow, Batch } from '../../po/_ops'
 import { PoShipmentView, type SkuOpt, type CountryOpt, type KaOpt } from './po-shipment-view'
 
 export const dynamic = 'force-dynamic'
@@ -40,13 +40,16 @@ export default async function AdminPoShipmentPage() {
   const supabase = createClient()
   const plnToEur = await getPlnToEur()
 
-  const [{ data: pos, error }, { data: skuList }, { data: countryList }, { data: kaList }] = await Promise.all([
+  const [{ data: pos, error }, { data: shipList }, { data: skuList }, { data: countryList }, { data: kaList }] = await Promise.all([
     supabase.from('channel_po').select(`
       id, po_number, po_date, qty_ordered, ship_date, delivery_date, notes, fd_buying_price, turnover, currency, po_status, delivered_qty,
       sku:sku_id ( code, name ),
       country:country_id ( code, name_en, flag_emoji ),
       ka:ka_id ( name )
     `).order('po_date', { ascending: false }),
+    // 发货批次（唯一事实来源）；父行的日期/已发量由 DB 触发器从这里派生
+    supabase.from('po_shipment').select('id, po_id, qty, ship_date, delivery_date, notes')
+      .order('ship_date', { ascending: true, nullsFirst: true }).order('id'),
     supabase.from('sku').select('id, code, name').eq('is_active', true).order('code'),
     supabase.from('country').select('id, code, name_en, flag_emoji').eq('is_active', true).order('sort_order'),
     supabase.from('ka').select('id, name, country_id').eq('is_active', true).order('name'),
@@ -80,11 +83,16 @@ export default async function AdminPoShipmentPage() {
     ka_name: r.ka?.name ?? null,
   }))
 
+  const batches: Batch[] = (shipList ?? []).map((b: any) => ({
+    id: b.id, po_id: b.po_id, qty: Number(b.qty),
+    ship_date: b.ship_date, delivery_date: b.delivery_date, notes: b.notes,
+  }))
+
   const skus: SkuOpt[] = (skuList ?? []).map((s: any) => ({ id: s.id, code: s.code, name: s.name }))
   const countries: CountryOpt[] = (countryList ?? []).map((c: any) => ({ id: c.id, code: c.code, name: c.name_en, flag: c.flag_emoji }))
   const kas: KaOpt[] = (kaList ?? []).map((k: any) => ({ id: k.id, name: k.name, country_id: k.country_id }))
 
-  return <PoShipmentView rows={rows} plnToEur={plnToEur} skus={skus} countries={countries} kas={kas} />
+  return <PoShipmentView rows={rows} batches={batches} plnToEur={plnToEur} skus={skus} countries={countries} kas={kas} />
 }
 
 export const metadata = { title: 'Shipment Workflow · INIU ERP' }

@@ -29,13 +29,21 @@ export type OpsRow = {
   fd_buying_price: number | null; turnover: number | null; currency: string | null
 }
 
-// 单张 PO 落在哪个履约阶段（互斥）
+// 一次发货批次（po_shipment）。同一 PO 行可分多批发运，各批独立日期/备注。
+export type Batch = {
+  id: number; po_id: number; qty: number
+  ship_date: string | null; delivery_date: string | null; notes: string | null
+}
+
+// 单张 PO 落在哪个履约阶段（互斥）。
+// ⚠️ 判定顺序关键：日期判定必须排在 'new' 之前 —— 每周导入的行 96% 自带 ship/delivery date，
+// 且 po_status 列默认 'new'。若 'new' 抢先，这些既成事实的已发/已达单会涌进 New PO 待确认。
 export type Stage = 'new' | 'toship' | 'shipped' | 'delivered' | 'partial' | 'cancelled'
 export function stageOf(r: OpsRow): Stage {
-  if (r.po_status === 'new') return 'new'
   if (r.po_status === 'cancelled') return 'cancelled'
-  if (r.po_status === 'partial') return 'partial'
+  if (r.po_status === 'partial') return 'partial'   // 尾单未结 → 即使首批已送达也留在 Partial
   if (r.delivery_date) return 'delivered'
   if (r.ship_date) return 'shipped'
+  if (r.po_status === 'new') return 'new'           // 只剩「无发货日的新单」才需要 Confirm
   return 'toship'
 }
