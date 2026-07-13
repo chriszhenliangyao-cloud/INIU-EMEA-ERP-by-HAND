@@ -37,6 +37,7 @@ export function PoShipmentView({ rows, batches, skus, countries, kas }: {
   const [poSearch, setPoSearch] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set())  // 展开的组 / 行
   const [addOpen, setAddOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
 
   const batchesByPo = useMemo(() => {
     const m = new Map<number, Batch[]>()
@@ -128,11 +129,17 @@ export function PoShipmentView({ rows, batches, skus, countries, kas }: {
   return (
     <div className="p-6 max-w-[1560px] mx-auto">
       <PosStyle />
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">🚚 Shipment Workflow</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          一条履约流水线管完整 PO 生命周期。发货记录以<span className="font-medium text-gray-700">批次</span>存储，同一 SKU 可分多次发运、各批独立日期与备注。
-        </p>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">🚚 Shipment Workflow</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            一条履约流水线管完整 PO 生命周期。发货记录以<span className="font-medium text-gray-700">批次</span>存储，同一 SKU 可分多次发运、各批独立日期与备注。
+          </p>
+        </div>
+        <button onClick={() => setExportOpen(true)}
+          className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition">
+          ⬇ 导出 Excel
+        </button>
       </div>
 
       <div className="flex gap-5 items-start">
@@ -187,6 +194,7 @@ export function PoShipmentView({ rows, batches, skus, countries, kas }: {
 
       {addOpen && <AddPoModal today={today} skus={skus} countries={countries} kas={kas} onClose={() => setAddOpen(false)}
         onDone={() => { setAddOpen(false); router.refresh() }} supabase={supabase} />}
+      {exportOpen && <ExportModal rows={rows} batchesByPo={batchesByPo} today={today} onClose={() => setExportOpen(false)} />}
     </div>
   )
 }
@@ -600,6 +608,167 @@ function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch }: {
         {!groups.length && <tr><td colSpan={10} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
       </tbody>
     </table>
+  )
+}
+
+// ===== 导出 Excel：选择 PO → 每 SKU 一行、批次横向展开、未知 ETA 留空可手填 =====
+const STAGE_CN: Record<Stage, string> = { new: 'New PO', toship: 'To Ship', shipped: 'Shipped', delivered: 'Delivered', partial: 'Partial', cancelled: 'Cancelled' }
+const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+function buildXlsHtml(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: string): string {
+  // 选中范围里单个 SKU 的最大批次数 → 决定横向展开几组批次列
+  let maxB = 1
+  groups.forEach(g => g.lines.forEach(l => { maxB = Math.max(maxB, (batchesByPo.get(l.id) ?? []).length) }))
+
+  const th = (t: string, w?: number) => `<th style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;${w ? `width:${w}px;` : ''}">${esc(t)}</th>`
+  // 数字列不设格式（Excel 里保持可求和）；文本/日期列用 mso-number-format:'@' 防止串改（SKU码、PO号、ISO日期）
+  const td = (t: any, opt: { num?: boolean; c?: string; bg?: string } = {}) =>
+    `<td style="border:0.5px solid #cbd5e1;padding:4px 8px;${opt.num ? 'text-align:right;' : "mso-number-format:'\\@';"}${opt.c ? `color:${opt.c};` : ''}${opt.bg ? `background:${opt.bg};` : ''}">${esc(t)}</td>`
+
+  // 表头（两行：批次组用合并表头）
+  const batchGroupTh = Array.from({ length: maxB }, (_, i) =>
+    `<th colspan="3" style="background:#0f766e;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">第 ${i + 1} 批发运</th>`).join('')
+  const batchSubTh = Array.from({ length: maxB }, () =>
+    `${th('数量')}${th('发货日')}${th('到货 ETA')}`).join('')
+
+  const head =
+    `<tr>${['PO #', '国家', 'KA', 'PO 日期', 'SKU', '产品', '状态', '订购', '已发', '剩余']
+      .map(h => `<th rowspan="2" style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">${esc(h)}</th>`).join('')}` +
+    batchGroupTh +
+    `<th rowspan="2" style="background:#b45309;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">尾单 ETA（待填）</th>` +
+    `<th rowspan="2" style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">备注</th></tr>` +
+    `<tr>${batchSubTh}</tr>`
+
+  const body = groups.flatMap(g => g.lines.map(l => {
+    const bs = batchesByPo.get(l.id) ?? []
+    const delivered = bs.reduce((s, b) => s + b.qty, 0)
+    const remaining = l.qty - delivered
+    const stage = STAGE_CN[stageOf(l)]
+    const batchCells = Array.from({ length: maxB }, (_, i) => {
+      const b = bs[i]
+      if (!b) return td('') + td('') + td('')
+      // ETA=送达日；已发未达则留空可手填
+      return td(b.qty, { num: true }) + td(b.ship_date ?? '') + td(b.delivery_date ?? '', { bg: b.delivery_date ? '' : '#fff7ed' })
+    }).join('')
+    return `<tr>` +
+      td(l.po_number ?? '') + td(`${l.country_flag} ${l.country_code}`) + td(l.ka_name ?? '') + td(l.po_date) +
+      td(l.sku_code) + td(l.sku_name) + td(stage) +
+      td(l.qty, { num: true }) + td(delivered, { num: true }) + td(remaining, { num: true, c: remaining > 0 ? '#b45309' : '' }) +
+      batchCells +
+      td('', { bg: remaining > 0 ? '#fff7ed' : '' }) +   // 尾单 ETA 空白可填
+      td(l.notes ?? '') +
+      `</tr>`
+  })).join('')
+
+  const skuLines = groups.reduce((s, g) => s + g.lines.length, 0)
+  const title = `<tr><td colspan="4" style="font-size:15px;font-weight:700;padding:6px 8px;">INIU · PO 发货追踪 (Shipment Tracking)</td>` +
+    `<td colspan="${6 + maxB * 3}" style="padding:6px 8px;color:#64748b;">导出日期 ${today} · ${groups.length} 张 PO · ${skuLines} 个 SKU 行 · 橙色格为可手填 ETA</td></tr>`
+
+  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8">` +
+    `<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>PO Tracking</x:Name>` +
+    `<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->` +
+    `</head><body><table border="0" cellspacing="0" style="font-family:Arial,'Microsoft YaHei',sans-serif;font-size:12px;">` +
+    `<thead>${title}${head}</thead><tbody>${body}</tbody></table></body></html>`
+}
+
+function ExportModal({ rows, batchesByPo, today, onClose }: {
+  rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; today: string; onClose: () => void
+}) {
+  const groups = useMemo(() => groupByPo(rows), [rows])   // 全部 PO，PO 日期倒序
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [q, setQ] = useState('')
+
+  const shown = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    return s ? groups.filter(g => (g.po_number ?? '').toLowerCase().includes(s)) : groups
+  }, [groups, q])
+
+  const allShownSelected = shown.length > 0 && shown.every(g => sel.has(g.key))
+  const toggle = (k: string) => setSel(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const toggleAll = () => setSel(s => {
+    const n = new Set(s)
+    if (allShownSelected) shown.forEach(g => n.delete(g.key))
+    else shown.forEach(g => n.add(g.key))
+    return n
+  })
+
+  const grpStage = (g: Grp) => {
+    const set = new Set(g.lines.map(l => STAGE_CN[stageOf(l)]))
+    return set.size === 1 ? [...set][0] : `混合(${set.size})`
+  }
+  const grpBatches = (g: Grp) => g.lines.reduce((s, l) => s + (batchesByPo.get(l.id) ?? []).length, 0)
+
+  const doExport = () => {
+    const picked = groups.filter(g => sel.has(g.key))
+    if (!picked.length) { alert('请先勾选要导出的 PO。'); return }
+    const html = buildXlsHtml(picked, batchesByPo, today)
+    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `PO发货追踪_${today}.xls`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[860px] p-5 max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-lg font-semibold text-gray-900">⬇ 导出 Excel · 选择 PO</div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="text-xs text-gray-400 mb-3">勾选要导出的 PO（按 PO 日期从近到远）。每 SKU 一行、批次横向展开；未发尾单与未到货批次的 ETA 是<span className="text-amber-600 font-medium">橙色空白格</span>，Excel 里可手填后发客户。</div>
+
+        <div className="flex items-center gap-2 mb-2">
+          <div className="relative flex-1 max-w-[240px]">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">🔍</span>
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search PO #…" className="fld pl-7 pr-3 w-full h-[32px] text-[13px]" />
+          </div>
+          <button onClick={toggleAll} className="btn b-grey" style={{ padding: '6px 12px' }}>{allShownSelected ? '取消全选' : '全选'}（{shown.length}）</button>
+          <span className="ml-auto text-xs text-gray-500">已选 <strong className="text-gray-800">{sel.size}</strong> 张</span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg">
+          <table className="w-full text-[12.5px]">
+            <thead className="sticky top-0 z-10 bg-gray-50 border-b">
+              <tr>
+                <th className="px-3 py-2 w-8"><input type="checkbox" checked={allShownSelected} onChange={toggleAll} /></th>
+                <Th>PO #</Th><Th>国家</Th><Th>KA</Th><Th>PO 日期</Th><Th center>SKU 数</Th><Th right>数量</Th><Th center>批次</Th><Th>状态</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {shown.map(g => {
+                const on = sel.has(g.key)
+                return (
+                  <tr key={g.key} className={`cursor-pointer ${on ? 'bg-emerald-50/50' : 'hover:bg-gray-50/60'}`} onClick={() => toggle(g.key)}>
+                    <td className="px-3 py-2 text-center"><input type="checkbox" checked={on} onChange={() => toggle(g.key)} onClick={e => e.stopPropagation()} /></td>
+                    <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{g.po_number ?? <span className="text-gray-300">（无 PO#）</span>}</td>
+                    <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{g.country_flag} {g.country_code}</span></td>
+                    <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{g.ka_name ?? '-'}</span></td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{g.po_date}</td>
+                    <td className="px-3 py-2 text-center text-gray-500 tabular-nums">{g.lines.length}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtNum(g.qty)}</td>
+                    <td className="px-3 py-2 text-center text-gray-500 tabular-nums">{grpBatches(g)}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600">{grpStage(g)}</td>
+                  </tr>
+                )
+              })}
+              {!shown.length && <tr><td colSpan={9} className="py-10 text-center text-gray-300">没有匹配的 PO</td></tr>}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex justify-between items-center mt-4">
+          <span className="text-xs text-gray-400">导出为 .xls，Excel / WPS 直接打开</span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">取消</button>
+            <button onClick={doExport} disabled={!sel.size}
+              className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">确认导出（{sel.size}）</button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
