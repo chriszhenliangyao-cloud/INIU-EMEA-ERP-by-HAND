@@ -611,77 +611,86 @@ function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch }: {
   )
 }
 
-// ===== 导出 Excel：选择 PO → 每 SKU 一行、批次横向展开、未知 ETA 留空可手填 =====
-const STAGE_CN: Record<Stage, string> = { new: 'New PO', toship: 'To Ship', shipped: 'Shipped', delivered: 'Delivered', partial: 'Partial', cancelled: 'Cancelled' }
+// ===== Export Excel: pick POs → one row per SKU, batches expanded across, unknown ETA left blank to fill =====
+const STAGE_LABEL: Record<Stage, string> = { new: 'New PO', toship: 'To Ship', shipped: 'Shipped', delivered: 'Delivered', partial: 'Partial', cancelled: 'Cancelled' }
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 function buildXlsHtml(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: string): string {
-  // 选中范围里单个 SKU 的最大批次数 → 决定横向展开几组批次列
+  // max batches of any single SKU in the selection → how many batch column-groups to expand
   let maxB = 1
   groups.forEach(g => g.lines.forEach(l => { maxB = Math.max(maxB, (batchesByPo.get(l.id) ?? []).length) }))
 
-  const th = (t: string, w?: number) => `<th style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;${w ? `width:${w}px;` : ''}">${esc(t)}</th>`
-  // 数字列不设格式（Excel 里保持可求和）；文本/日期列用 mso-number-format:'@' 防止串改（SKU码、PO号、ISO日期）
+  const th = (t: string) => `<th style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">${esc(t)}</th>`
+  // numeric cells: no format (stay summable in Excel); text/date cells: mso-number-format '@' to avoid mangling SKU codes / PO#s / ISO dates
   const td = (t: any, opt: { num?: boolean; c?: string; bg?: string } = {}) =>
     `<td style="border:0.5px solid #cbd5e1;padding:4px 8px;${opt.num ? 'text-align:right;' : "mso-number-format:'\\@';"}${opt.c ? `color:${opt.c};` : ''}${opt.bg ? `background:${opt.bg};` : ''}">${esc(t)}</td>`
 
-  // 表头（两行：批次组用合并表头）
+  const fixedCols = ['PO #', 'KA', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
+  const totalCols = fixedCols.length + maxB * 3 + 2   // + batch groups + (Backorder ETA, Notes)
+
   const batchGroupTh = Array.from({ length: maxB }, (_, i) =>
-    `<th colspan="3" style="background:#0f766e;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">第 ${i + 1} 批发运</th>`).join('')
-  const batchSubTh = Array.from({ length: maxB }, () =>
-    `${th('数量')}${th('发货日')}${th('到货 ETA')}`).join('')
+    `<th colspan="3" style="background:#0f766e;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">Batch ${i + 1}</th>`).join('')
+  const batchSubTh = Array.from({ length: maxB }, () => `${th('Qty')}${th('Ship Date')}${th('ETA')}`).join('')
 
   const head =
-    `<tr>${['PO #', '国家', 'KA', 'PO 日期', 'SKU', '产品', '状态', '订购', '已发', '剩余']
-      .map(h => `<th rowspan="2" style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">${esc(h)}</th>`).join('')}` +
+    `<tr>${fixedCols.map(h => `<th rowspan="2" style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">${esc(h)}</th>`).join('')}` +
     batchGroupTh +
-    `<th rowspan="2" style="background:#b45309;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">尾单 ETA（待填）</th>` +
-    `<th rowspan="2" style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">备注</th></tr>` +
+    `<th rowspan="2" style="background:#b45309;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">Backorder ETA (fill in)</th>` +
+    `<th rowspan="2" style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">Notes</th></tr>` +
     `<tr>${batchSubTh}</tr>`
 
-  const body = groups.flatMap(g => g.lines.map(l => {
+  const spacer = `<tr><td colspan="${totalCols}" style="height:7px;border:none;background:#fff;"></td></tr>`
+
+  // one blank row between different POs
+  const body = groups.map(g => g.lines.map(l => {
     const bs = batchesByPo.get(l.id) ?? []
     const delivered = bs.reduce((s, b) => s + b.qty, 0)
     const remaining = l.qty - delivered
-    const stage = STAGE_CN[stageOf(l)]
+    const stage = STAGE_LABEL[stageOf(l)]
     const batchCells = Array.from({ length: maxB }, (_, i) => {
       const b = bs[i]
       if (!b) return td('') + td('') + td('')
-      // ETA=送达日；已发未达则留空可手填
+      // ETA = delivery date; shipped-but-not-delivered → blank orange cell to fill in
       return td(b.qty, { num: true }) + td(b.ship_date ?? '') + td(b.delivery_date ?? '', { bg: b.delivery_date ? '' : '#fff7ed' })
     }).join('')
     return `<tr>` +
-      td(l.po_number ?? '') + td(`${l.country_flag} ${l.country_code}`) + td(l.ka_name ?? '') + td(l.po_date) +
+      td(l.po_number ?? '') + td(l.ka_name ?? '') + td(l.po_date) +
       td(l.sku_code) + td(l.sku_name) + td(stage) +
       td(l.qty, { num: true }) + td(delivered, { num: true }) + td(remaining, { num: true, c: remaining > 0 ? '#b45309' : '' }) +
       batchCells +
-      td('', { bg: remaining > 0 ? '#fff7ed' : '' }) +   // 尾单 ETA 空白可填
+      td('', { bg: remaining > 0 ? '#fff7ed' : '' }) +   // Backorder ETA — blank to fill
       td(l.notes ?? '') +
       `</tr>`
-  })).join('')
+  }).join('')).join(spacer)
 
   const skuLines = groups.reduce((s, g) => s + g.lines.length, 0)
-  const title = `<tr><td colspan="4" style="font-size:15px;font-weight:700;padding:6px 8px;">INIU · PO 发货追踪 (Shipment Tracking)</td>` +
-    `<td colspan="${6 + maxB * 3}" style="padding:6px 8px;color:#64748b;">导出日期 ${today} · ${groups.length} 张 PO · ${skuLines} 个 SKU 行 · 橙色格为可手填 ETA</td></tr>`
+  const title = `<tr><td colspan="4" style="font-size:15px;font-weight:700;padding:6px 8px;">INIU · PO Shipment Tracking</td>` +
+    `<td colspan="${totalCols - 4}" style="padding:6px 8px;color:#64748b;">Exported ${today} · ${groups.length} POs · ${skuLines} SKU lines · orange cells = ETA to fill in</td></tr>`
 
   return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8">` +
     `<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>PO Tracking</x:Name>` +
     `<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->` +
-    `</head><body><table border="0" cellspacing="0" style="font-family:Arial,'Microsoft YaHei',sans-serif;font-size:12px;">` +
+    `</head><body><table border="0" cellspacing="0" style="font-family:Arial,sans-serif;font-size:12px;">` +
     `<thead>${title}${head}</thead><tbody>${body}</tbody></table></body></html>`
 }
 
 function ExportModal({ rows, batchesByPo, today, onClose }: {
   rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; today: string; onClose: () => void
 }) {
-  const groups = useMemo(() => groupByPo(rows), [rows])   // 全部 PO，PO 日期倒序
+  const groups = useMemo(() => groupByPo(rows), [rows])   // all POs, PO date desc
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [q, setQ] = useState('')
+  const [kaFilter, setKaFilter] = useState('')
+
+  const kaOptions = useMemo(() =>
+    Array.from(new Set(groups.map(g => g.ka_name).filter(Boolean) as string[])).sort(), [groups])
 
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase()
-    return s ? groups.filter(g => (g.po_number ?? '').toLowerCase().includes(s)) : groups
-  }, [groups, q])
+    return groups.filter(g =>
+      (!s || (g.po_number ?? '').toLowerCase().includes(s)) &&
+      (!kaFilter || g.ka_name === kaFilter))
+  }, [groups, q, kaFilter])
 
   const allShownSelected = shown.length > 0 && shown.every(g => sel.has(g.key))
   const toggle = (k: string) => setSel(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
@@ -693,19 +702,19 @@ function ExportModal({ rows, batchesByPo, today, onClose }: {
   })
 
   const grpStage = (g: Grp) => {
-    const set = new Set(g.lines.map(l => STAGE_CN[stageOf(l)]))
-    return set.size === 1 ? [...set][0] : `混合(${set.size})`
+    const set = new Set(g.lines.map(l => STAGE_LABEL[stageOf(l)]))
+    return set.size === 1 ? [...set][0] : `Mixed (${set.size})`
   }
   const grpBatches = (g: Grp) => g.lines.reduce((s, l) => s + (batchesByPo.get(l.id) ?? []).length, 0)
 
   const doExport = () => {
     const picked = groups.filter(g => sel.has(g.key))
-    if (!picked.length) { alert('请先勾选要导出的 PO。'); return }
+    if (!picked.length) { alert('Please select at least one PO.'); return }
     const html = buildXlsHtml(picked, batchesByPo, today)
     const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = `PO发货追踪_${today}.xls`
+    a.href = url; a.download = `Order Leadtime-${today.replace(/-/g, '')}.xls`
     document.body.appendChild(a); a.click(); a.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
     onClose()
@@ -713,20 +722,24 @@ function ExportModal({ rows, batchesByPo, today, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[860px] p-5 max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[820px] p-5 max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
-          <div className="text-lg font-semibold text-gray-900">⬇ 导出 Excel · 选择 PO</div>
+          <div className="text-lg font-semibold text-gray-900">⬇ Export Excel · Select POs</div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
-        <div className="text-xs text-gray-400 mb-3">勾选要导出的 PO（按 PO 日期从近到远）。每 SKU 一行、批次横向展开；未发尾单与未到货批次的 ETA 是<span className="text-amber-600 font-medium">橙色空白格</span>，Excel 里可手填后发客户。</div>
+        <div className="text-xs text-gray-400 mb-3">Tick the POs to export (newest PO date first). One row per SKU, batches expanded across; ETA of unshipped backorders &amp; in-transit batches are <span className="text-amber-600 font-medium">blank orange cells</span> — fill them in Excel before sending to the customer.</div>
 
         <div className="flex items-center gap-2 mb-2">
-          <div className="relative flex-1 max-w-[240px]">
+          <div className="relative flex-1 max-w-[220px]">
             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">🔍</span>
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search PO #…" className="fld pl-7 pr-3 w-full h-[32px] text-[13px]" />
           </div>
-          <button onClick={toggleAll} className="btn b-grey" style={{ padding: '6px 12px' }}>{allShownSelected ? '取消全选' : '全选'}（{shown.length}）</button>
-          <span className="ml-auto text-xs text-gray-500">已选 <strong className="text-gray-800">{sel.size}</strong> 张</span>
+          <select value={kaFilter} onChange={e => setKaFilter(e.target.value)} className="fld h-[32px] text-[13px] py-0">
+            <option value="">All KAs</option>
+            {kaOptions.map(k => <option key={k} value={k}>{k}</option>)}
+          </select>
+          <button onClick={toggleAll} className="btn b-grey" style={{ padding: '6px 12px' }}>{allShownSelected ? 'Clear' : 'Select all'} ({shown.length})</button>
+          <span className="ml-auto text-xs text-gray-500">Selected <strong className="text-gray-800">{sel.size}</strong></span>
         </div>
 
         <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg">
@@ -734,7 +747,7 @@ function ExportModal({ rows, batchesByPo, today, onClose }: {
             <thead className="sticky top-0 z-10 bg-gray-50 border-b">
               <tr>
                 <th className="px-3 py-2 w-8"><input type="checkbox" checked={allShownSelected} onChange={toggleAll} /></th>
-                <Th>PO #</Th><Th>国家</Th><Th>KA</Th><Th>PO 日期</Th><Th center>SKU 数</Th><Th right>数量</Th><Th center>批次</Th><Th>状态</Th>
+                <Th>PO #</Th><Th>KA</Th><Th>PO Date</Th><Th center>SKUs</Th><Th right>Qty</Th><Th center>Batches</Th><Th>Status</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -743,8 +756,7 @@ function ExportModal({ rows, batchesByPo, today, onClose }: {
                 return (
                   <tr key={g.key} className={`cursor-pointer ${on ? 'bg-emerald-50/50' : 'hover:bg-gray-50/60'}`} onClick={() => toggle(g.key)}>
                     <td className="px-3 py-2 text-center"><input type="checkbox" checked={on} onChange={() => toggle(g.key)} onClick={e => e.stopPropagation()} /></td>
-                    <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{g.po_number ?? <span className="text-gray-300">（无 PO#）</span>}</td>
-                    <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{g.country_flag} {g.country_code}</span></td>
+                    <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{g.po_number ?? <span className="text-gray-300">(no PO#)</span>}</td>
                     <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{g.ka_name ?? '-'}</span></td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{g.po_date}</td>
                     <td className="px-3 py-2 text-center text-gray-500 tabular-nums">{g.lines.length}</td>
@@ -754,17 +766,17 @@ function ExportModal({ rows, batchesByPo, today, onClose }: {
                   </tr>
                 )
               })}
-              {!shown.length && <tr><td colSpan={9} className="py-10 text-center text-gray-300">没有匹配的 PO</td></tr>}
+              {!shown.length && <tr><td colSpan={8} className="py-10 text-center text-gray-300">No matching PO</td></tr>}
             </tbody>
           </table>
         </div>
 
         <div className="flex justify-between items-center mt-4">
-          <span className="text-xs text-gray-400">导出为 .xls，Excel / WPS 直接打开</span>
+          <span className="text-xs text-gray-400">Exports as .xls — opens in Excel / WPS</span>
           <div className="flex gap-2">
-            <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">取消</button>
+            <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Cancel</button>
             <button onClick={doExport} disabled={!sel.size}
-              className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">确认导出（{sel.size}）</button>
+              className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">Export ({sel.size})</button>
           </div>
         </div>
       </div>
