@@ -65,19 +65,28 @@ async function fillPackingList(inp: ShipDocInput, lines: DocLine[]): Promise<Buf
 // ── 箱唛：填模版 carton.docx 的表格，每箱复制一张、分页 ──
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+const VAL_RPR = '<w:rPr><w:rFonts w:ascii="微软雅黑" w:hAnsi="微软雅黑" w:eastAsia="微软雅黑" w:cs="微软雅黑"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>'
 
-function fillCartonTable(tbl: string, l: DocLine, box: number, N: number, qtyThisBox: number, extra: 'boxNo' | 'hsCode'): string {
+// 稳健填法：把值作为新 run 追加到"标签所在段落"末尾（该段 </w:p> 之前）。
+// 不依赖标签是否被拆成多 run（Komsa 模版 DESCRIPTION+独立：、QTY+独立: 都能正确处理）。
+function appendToLabelParagraph(xml: string, label: string, value: string | number): string {
+  const li = xml.indexOf(label); if (li < 0) return xml
+  const pEnd = xml.indexOf('</w:p>', li); if (pEnd < 0) return xml
+  const run = `<w:r>${VAL_RPR}<w:t xml:space="preserve">  ${esc(value)}</w:t></w:r>`
+  return xml.slice(0, pEnd) + run + xml.slice(pEnd)
+}
+
+function fillCartonTable(tbl: string, l: DocLine, g: number, total: number, qtyThisBox: number, extra: 'boxNo' | 'hsCode'): string {
   let t = tbl
-  t = t.replace('Box  of ', `Box ${box} of ${N} `)
+  // Box 编号 = 全发货全局：序号 g / 总箱数 total（不是"本 SKU 第几箱"）
+  t = t.replace('Box  of ', `Box ${g} of ${total} `)
   t = t.replace('PO No. ', `PO No. ${esc(l.po)}`).replace('PO NO. ', `PO NO. ${esc(l.po)}`)
-  t = t.replace('DESCRIPTION：', `DESCRIPTION：  ${esc(l.description)}`)
-  t = t.replace('Model Name：', `Model Name：  ${esc(l.model)}`)
-  if (l.ean) t = t.replace('EAN：', `EAN：  ${esc(l.ean)}`)
-  // QTY：模版可能是连续 'QTY: '（原生）或 'QTY' + 独立 '：'（转换件）
-  if (t.includes('QTY: ')) t = t.replace('QTY: ', `QTY:  ${esc(qtyThisBox)}`)
-  else t = t.replace(/(<w:t[^>]*>)：(<\/w:t>)/, `$1：  ${esc(qtyThisBox)}$2`)   // 唯一的独立冒号 = QTY 的
-  if (extra === 'boxNo') t = t.replace('Box NO.: ', `Box NO.:  ${box}`).replace('Box NO.：', `Box NO.：  ${box}`)
-  if (extra === 'hsCode') t = t.replace('HS Code: ', `HS Code:  ${esc(l.customerRef)}`).replace('HS Code：', `HS Code：  ${esc(l.customerRef)}`)
+  t = appendToLabelParagraph(t, 'DESCRIPTION', l.description)
+  t = appendToLabelParagraph(t, 'Model Name', l.model)
+  if (l.ean) t = appendToLabelParagraph(t, 'EAN', l.ean)
+  t = appendToLabelParagraph(t, 'QTY', qtyThisBox)
+  if (extra === 'boxNo') t = appendToLabelParagraph(t, 'Box NO.', g)
+  if (extra === 'hsCode') t = appendToLabelParagraph(t, 'HS Code', l.customerRef)
   return t
 }
 
@@ -92,14 +101,17 @@ async function fillCartonLabels(inp: ShipDocInput): Promise<Buffer | null> {
   if (!m) return null                                   // 拍平无表格 → 视为未就绪
   const tbl = m[0]
 
+  const total = inp.lines.reduce((s, l) => s + cartonCount(l), 0)   // 本次发货总箱数
+  let g = 0
   const filled: string[] = []
   for (const l of inp.lines) {
     const N = cartonCount(l)
     for (let b = 1; b <= N; b++) {
+      g++
       const qty = l.unitsPerCarton && l.unitsPerCarton > 0
         ? (b < N ? l.unitsPerCarton : l.qtySent - l.unitsPerCarton * (N - 1))
         : l.qtySent
-      filled.push(fillCartonTable(tbl, l, b, N, qty, tpl.carton.extra))
+      filled.push(fillCartonTable(tbl, l, g, total, qty, tpl.carton.extra))
     }
   }
   const newDoc = docXml.replace(tbl, filled.join(PAGE_BREAK))
