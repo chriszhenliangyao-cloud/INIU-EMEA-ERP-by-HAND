@@ -8,11 +8,12 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 const BUCKET = 'po-docs'
-type DocType = 'carton_label' | 'delivery_note' | 'packing_list' | 'pod' | 'invoice'
+type DocType = 'po_original' | 'carton_label' | 'delivery_note' | 'packing_list' | 'pod' | 'invoice'
 type Doc = { id: number; doc_type: DocType; file_name: string; storage_path: string; mime: string | null; size_bytes: number | null; notes: string | null; created_at: string }
 
-// 五类单据 + 履约阶段分组
+// 六类单据 + 履约阶段分组
 const SECTIONS: { type: DocType; label: string; icon: string; phase: string }[] = [
+  { type: 'po_original',   label: 'PO 原件 (Original PO)', icon: '📑', phase: 'Order 下单' },
   { type: 'carton_label',  label: 'Carton Label 箱唛',   icon: '🏷️', phase: 'Pre-ship 发货前' },
   { type: 'delivery_note', label: 'Delivery Note 送货单', icon: '📄', phase: 'Pre-ship 发货前' },
   { type: 'packing_list',  label: 'Packing List 装箱单',  icon: '📦', phase: 'Pre-ship 发货前' },
