@@ -103,3 +103,23 @@ export const fieldValue = (c: Col, l: DocLine): string | number => {
 // 箱数 = ⌈发货量 / 每箱装量⌉（无装量则按 1 箱）
 export const cartonCount = (l: DocLine): number =>
   l.unitsPerCarton && l.unitsPerCarton > 0 ? Math.ceil(l.qtySent / l.unitsPerCarton) : 1
+
+// 各 KA 的模版坐标（填真实模版用）。key = ka_id。
+//   dir = templates/ 下子文件夹；dn.dataStartRow/单元格 = 送货单填充位置（列跟 DN_COLUMNS 从 B 起）；
+//   carton.extra = 箱唛尾部字段（Box NO. 或 HS Code）。PL 各 KA 统一：日期 D3 / 数量 D4 / 数据第 8 行 / 列 B-H（I,J 为模版公式）。
+export type KaTpl = {
+  dir: string
+  dn?: { dnCell: string; palletsCell: string; parcelsCell: string; dataStartRow: number }
+  carton: { extra: 'boxNo' | 'hsCode' }
+}
+export const KA_TPL: Record<number, KaTpl> = {
+  29: { dir: 'Komsa',    dn: { dnCell: 'D9',  palletsCell: 'D10', parcelsCell: 'D11', dataStartRow: 14 }, carton: { extra: 'boxNo' } },
+  28: { dir: 'Bigben',   dn: { dnCell: 'D9',  palletsCell: 'D10', parcelsCell: 'D11', dataStartRow: 14 }, carton: { extra: 'hsCode' } },
+  37: { dir: 'ICP',      dn: { dnCell: 'F7',  palletsCell: 'F8',  parcelsCell: 'F9',  dataStartRow: 12 }, carton: { extra: 'boxNo' } },
+  20: { dir: 'LINKU',    dn: { dnCell: 'D10', palletsCell: 'D11', parcelsCell: 'D12', dataStartRow: 15 }, carton: { extra: 'boxNo' } },
+  30: { dir: 'Esprinet', dn: { dnCell: 'D9',  palletsCell: 'D10', parcelsCell: 'D11', dataStartRow: 14 }, carton: { extra: 'boxNo' } },
+  5:  { dir: 'Gandalf',  dn: { dnCell: 'D11', palletsCell: 'D12', parcelsCell: 'D13', dataStartRow: 16 }, carton: { extra: 'boxNo' } },
+  11: { dir: 'MEX',      dn: { dnCell: 'D11', palletsCell: 'D12', parcelsCell: 'D13', dataStartRow: 16 }, carton: { extra: 'boxNo' } },
+  33: { dir: 'X-KOM',    dn: { dnCell: 'C14', palletsCell: 'C15', parcelsCell: 'C16', dataStartRow: 19 }, carton: { extra: 'boxNo' } },
+  3:  { dir: 'Coolblue', carton: { extra: 'boxNo' } },   // EDI，一般不出手工资料
+}

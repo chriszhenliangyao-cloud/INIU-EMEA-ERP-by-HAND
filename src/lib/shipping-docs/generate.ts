@@ -1,10 +1,13 @@
-// 发货资料生成器（服务端 Node）：送货单 Delivery Note(.xlsx) · 箱单 Packing List(.xlsx) · 箱唛 Carton Label(.docx)
-// 打成一个 zip 返回。抬头/地址来自 ka_shipping_config，列结构来自 ./config。
+// 发货资料生成器（服务端 Node）——**填真实模版**，格式 100% 原样：
+//   送货单 Delivery Note(.xlsx) / 箱单 Packing List(.xlsx) → exceljs 载入模版填单元格
+//   箱唛 Carton Label(.docx) → jszip 载入模版、按标签串填、每箱复制一张表
+// 模版在 src/lib/shipping-docs/templates/{KA}/ ；抬头/地址/边框/公式全在模版里，只填变量。
 
 import ExcelJS from 'exceljs'
-import { Document, Packer, Paragraph, TextRun, AlignmentType, BorderStyle } from 'docx'
 import JSZip from 'jszip'
-import { dnColumns, fieldValue, cartonCount, PL_COLUMNS, type DocLine } from './config'
+import { readFileSync } from 'fs'
+import path from 'path'
+import { dnColumns, fieldValue, cartonCount, KA_TPL, type DocLine } from './config'
 
 export type KaConfig = {
   customer_name: string; ship_to_address: string | null; customer_contact: string | null
@@ -16,134 +19,98 @@ export type ShipDocInput = {
   lines: DocLine[]
 }
 
-const THIN = { style: 'thin' as const }
-const border = { top: THIN, left: THIN, bottom: THIN, right: THIN }
+const TPL_DIR = path.join(process.cwd(), 'src/lib/shipping-docs/templates')
+const tplPath = (dir: string, f: string) => path.join(TPL_DIR, dir, f)
 const toBuf = (x: ExcelJS.Buffer | ArrayBuffer): Buffer => Buffer.from(x as ArrayBuffer)
+const numOrStr = (s: string): number | string => { const n = Number(s); return s !== '' && Number.isFinite(n) ? n : s }
 
-// ── 送货单 Delivery Note ──
-async function deliveryNote(inp: ShipDocInput): Promise<Buffer> {
-  const { config: c, meta, lines } = inp
-  const wb = new ExcelJS.Workbook()
-  const ws = wb.addWorksheet('Delivery Note')
-  ws.getColumn(1).width = 22
-  for (let i = 2; i <= 8; i++) ws.getColumn(i).width = 18
-
-  ws.getCell('A1').value = 'Delivery Note'
-  ws.getCell('A1').font = { bold: true, size: 16 }
-  const kv = (row: number, k: string, v: string) => {
-    ws.getCell(`A${row}`).value = k; ws.getCell(`A${row}`).font = { bold: true }
-    ws.getCell(`B${row}`).value = v; ws.getCell(`B${row}`).alignment = { wrapText: true, vertical: 'top' }
-  }
-  kv(3, 'Supplier:', c.supplier_name)
-  kv(4, 'Customer:', c.customer_name)
-  kv(5, 'Customer Address:', c.ship_to_address ?? '')
-  kv(6, 'Customer Contact:', c.customer_contact ?? '')
-  kv(7, 'Delivery Note Number:', meta.deliveryNoteNumber)
-  kv(8, 'Number of Pallets:', meta.pallets)
-  kv(9, 'Number of Parcels:', meta.parcels)
-
+// ── 送货单：填模版 dn.xlsx ──
+async function fillDeliveryNote(inp: ShipDocInput): Promise<Buffer | null> {
+  const tpl = KA_TPL[inp.kaId]; if (!tpl?.dn) return null
+  const wb = new ExcelJS.Workbook(); await wb.xlsx.readFile(tplPath(tpl.dir, 'dn.xlsx'))
+  const ws = wb.worksheets[0]
+  ws.getCell(tpl.dn.dnCell).value = inp.meta.deliveryNoteNumber
+  ws.getCell(tpl.dn.palletsCell).value = numOrStr(inp.meta.pallets)
+  ws.getCell(tpl.dn.parcelsCell).value = numOrStr(inp.meta.parcels)
   const cols = dnColumns(inp.kaId)
-  const hRow = 11
-  cols.forEach((col, i) => {
-    const cell = ws.getCell(hRow, i + 1)
-    cell.value = col.header
-    cell.font = { bold: true }; cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8EDF3' } }
-    cell.border = border; cell.alignment = { wrapText: true }
-  })
-  lines.forEach((l, r) => {
-    cols.forEach((col, i) => {
-      const cell = ws.getCell(hRow + 1 + r, i + 1)
-      cell.value = fieldValue(col, l); cell.border = border
-    })
-  })
-  // 合计（Qty Sent 列）
-  const sentIdx = cols.findIndex(c2 => c2.field === 'qtySent')
-  if (sentIdx >= 0) {
-    const tr = hRow + 1 + lines.length
-    ws.getCell(tr, Math.max(1, sentIdx)).value = 'TOTAL'
-    ws.getCell(tr, Math.max(1, sentIdx)).font = { bold: true }
-    const cell = ws.getCell(tr, sentIdx + 1)
-    cell.value = lines.reduce((s, l) => s + l.qtySent, 0); cell.font = { bold: true }; cell.border = border
-  }
-  return toBuf(await wb.xlsx.writeBuffer())
-}
-
-// ── 箱单 Packing List（每托盘一张，SOP 里即"托盘标"）──
-async function packingList(inp: ShipDocInput, lines: DocLine[]): Promise<Buffer> {
-  const { config: c, meta } = inp
-  const wb = new ExcelJS.Workbook()
-  const ws = wb.addWorksheet('Packing List')
-  ws.getColumn(1).width = 16; ws.getColumn(4).width = 30
-  for (const i of [2, 3, 5, 6, 7, 8, 9]) ws.getColumn(i).width = 16
-
-  ws.getCell('A1').value = 'Packing List'; ws.getCell('A1').font = { bold: true, size: 16 }
-  const totalQty = lines.reduce((s, l) => s + l.qtySent, 0)
-  ws.getCell('A3').value = 'Packing List Date:'; ws.getCell('A3').font = { bold: true }; ws.getCell('B3').value = meta.date
-  ws.getCell('D3').value = 'Customer:'; ws.getCell('D3').font = { bold: true }; ws.getCell('E3').value = c.customer_name
-  ws.getCell('A4').value = 'Quantity:'; ws.getCell('A4').font = { bold: true }; ws.getCell('B4').value = totalQty
-  ws.getCell('D4').value = 'Supplier:'; ws.getCell('D4').font = { bold: true }; ws.getCell('E4').value = c.supplier_name
-  ws.getCell('A6').value = 'Packing Summary'; ws.getCell('A6').font = { bold: true }
-
-  const hRow = 7
-  PL_COLUMNS.forEach((h, i) => {
-    const cell = ws.getCell(hRow, i + 1)
-    cell.value = h; cell.font = { bold: true }; cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8EDF3' } }
-    cell.border = border; cell.alignment = { wrapText: true }
-  })
-  lines.forEach((l, r) => {
-    const row = hRow + 1 + r
-    const cartons = cartonCount(l)
-    const vals: (string | number | null)[] = [
-      l.po, l.palletNo, l.model, l.description,
-      l.unitsPerCarton, l.cartonGrossKg, cartons,
-      l.unitsPerCarton ? l.unitsPerCarton * cartons : l.qtySent,
-      l.cartonGrossKg != null ? Math.round(l.cartonGrossKg * cartons * 100) / 100 : null,
-    ]
-    vals.forEach((v, i) => { const cell = ws.getCell(row, i + 1); cell.value = v as any; cell.border = border })
+  inp.lines.forEach((l, i) => {
+    const r = tpl.dn!.dataStartRow + i
+    cols.forEach((c, ci) => { ws.getCell(r, 2 + ci).value = fieldValue(c, l) as any })   // B 列起
   })
   return toBuf(await wb.xlsx.writeBuffer())
 }
 
-// ── 箱唛 Carton Label（.docx，每箱一页）──
-async function cartonLabels(inp: ShipDocInput): Promise<Buffer> {
-  const { config: c, lines } = inp
-  const addr = (c.ship_to_address ?? '').split('\n').filter(Boolean)
-  const children: Paragraph[] = []
-  const line = (t: string, opt: { bold?: boolean; size?: number } = {}) =>
-    new Paragraph({ children: [new TextRun({ text: t, bold: opt.bold, size: (opt.size ?? 11) * 2 })] })
+// ── 箱单：填模版 pl.xlsx（每托盘一张，传入该托盘的行）──
+async function fillPackingList(inp: ShipDocInput, lines: DocLine[]): Promise<Buffer> {
+  const tpl = KA_TPL[inp.kaId]
+  const wb = new ExcelJS.Workbook(); await wb.xlsx.readFile(tplPath(tpl.dir, 'pl.xlsx'))
+  const ws = wb.worksheets[0]
+  ws.getCell('D3').value = inp.meta.date
+  ws.getCell('D4').value = lines.reduce((s, l) => s + l.qtySent, 0)
+  lines.forEach((l, i) => {
+    const r = 8 + i, cartons = cartonCount(l)
+    ws.getCell('B' + r).value = l.po
+    ws.getCell('C' + r).value = numOrStr(l.palletNo)
+    ws.getCell('D' + r).value = l.model
+    ws.getCell('E' + r).value = l.description
+    ws.getCell('F' + r).value = l.unitsPerCarton
+    ws.getCell('G' + r).value = l.cartonGrossKg
+    ws.getCell('H' + r).value = cartons
+    ws.getCell('I' + r).value = { formula: `F${r}*H${r}` }
+    ws.getCell('J' + r).value = { formula: `G${r}*H${r}` }
+  })
+  return toBuf(await wb.xlsx.writeBuffer())
+}
 
-  lines.forEach((l, li) => {
+// ── 箱唛：填模版 carton.docx 的表格，每箱复制一张、分页 ──
+const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+
+function fillCartonTable(tbl: string, l: DocLine, box: number, N: number, qtyThisBox: number, extra: 'boxNo' | 'hsCode'): string {
+  let t = tbl
+  t = t.replace('Box  of ', `Box ${box} of ${N} `)
+  t = t.replace('PO No. ', `PO No. ${esc(l.po)}`).replace('PO NO. ', `PO NO. ${esc(l.po)}`)
+  t = t.replace('DESCRIPTION：', `DESCRIPTION：  ${esc(l.description)}`)
+  t = t.replace('Model Name：', `Model Name：  ${esc(l.model)}`)
+  if (l.ean) t = t.replace('EAN：', `EAN：  ${esc(l.ean)}`)
+  // QTY：模版可能是连续 'QTY: '（原生）或 'QTY' + 独立 '：'（转换件）
+  if (t.includes('QTY: ')) t = t.replace('QTY: ', `QTY:  ${esc(qtyThisBox)}`)
+  else t = t.replace(/(<w:t[^>]*>)：(<\/w:t>)/, `$1：  ${esc(qtyThisBox)}$2`)   // 唯一的独立冒号 = QTY 的
+  if (extra === 'boxNo') t = t.replace('Box NO.: ', `Box NO.:  ${box}`).replace('Box NO.：', `Box NO.：  ${box}`)
+  if (extra === 'hsCode') t = t.replace('HS Code: ', `HS Code:  ${esc(l.customerRef)}`).replace('HS Code：', `HS Code：  ${esc(l.customerRef)}`)
+  return t
+}
+
+// 返回 null 表示该 KA 的箱唛模版尚未就绪（无表格结构）→ 跳过箱唛，DN/箱单照常出
+async function fillCartonLabels(inp: ShipDocInput): Promise<Buffer | null> {
+  const tpl = KA_TPL[inp.kaId]
+  let raw: Buffer
+  try { raw = readFileSync(tplPath(tpl.dir, 'carton.docx')) } catch { return null }
+  const zip = await JSZip.loadAsync(raw)
+  const docXml = await zip.file('word/document.xml')!.async('string')
+  const m = docXml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/)   // 模版里那张 label 表（非贪婪取第一张）
+  if (!m) return null                                   // 拍平无表格 → 视为未就绪
+  const tbl = m[0]
+
+  const filled: string[] = []
+  for (const l of inp.lines) {
     const N = cartonCount(l)
-    for (let box = 1; box <= N; box++) {
-      const qty = l.unitsPerCarton ? (box < N ? l.unitsPerCarton : l.qtySent - l.unitsPerCarton * (N - 1)) : l.qtySent
-      children.push(
-        new Paragraph({ children: [new TextRun({ text: `Box ${box} of ${N}`, bold: true, size: 28 })], border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '999999', space: 4 } } }),
-        line('SHIP TO:', { bold: true, size: 12 }),
-        line(`PO No. ${l.po}`, { bold: true }),
-        line(c.customer_name, { bold: true }),
-        ...addr.map(a => line(a)),
-        line(''),
-        line(`DESCRIPTION：${l.description}`),
-        line(`Model Name：${l.model}`),
-        line(`EAN：${l.ean}`),
-        line(`QTY: ${qty}`, { bold: true, size: 12 }),
-        line(`Box NO.: ${box}`),
-        new Paragraph({ children: [new TextRun({ text: 'PLEASE LEAVE THIS LABEL UNCOVERED', italics: true, size: 18 })], alignment: AlignmentType.CENTER, spacing: { before: 120 }, pageBreakBefore: false }),
-      )
-      const last = li === lines.length - 1 && box === N
-      if (!last) children.push(new Paragraph({ text: '', pageBreakBefore: true }))
+    for (let b = 1; b <= N; b++) {
+      const qty = l.unitsPerCarton && l.unitsPerCarton > 0
+        ? (b < N ? l.unitsPerCarton : l.qtySent - l.unitsPerCarton * (N - 1))
+        : l.qtySent
+      filled.push(fillCartonTable(tbl, l, b, N, qty, tpl.carton.extra))
     }
-  })
-
-  const doc = new Document({ sections: [{ children }] })
-  return await Packer.toBuffer(doc)
+  }
+  const newDoc = docXml.replace(tbl, filled.join(PAGE_BREAK))
+  zip.file('word/document.xml', newDoc)
+  return await zip.generateAsync({ type: 'nodebuffer' })
 }
 
 const cleanName = (s: string) => s.replace(/[^a-zA-Z0-9._+-]+/g, '_').replace(/^_+|_+$/g, '')
 
 export async function generateShippingDocsZip(inp: ShipDocInput): Promise<Buffer> {
   const zip = new JSZip()
-  // 命名规则：KA短码-PO{单号(可多个,+连接)}-{类型}-{MMDD}
   const code = inp.config.doc_code || 'INIU'
   const pos = [...new Set(inp.lines.map(l => l.po).filter(Boolean))].join('+') || 'NA'
   const mmdd = (inp.meta.date || '').slice(5).replace('-', '') || 'nodate'
@@ -151,17 +118,20 @@ export async function generateShippingDocsZip(inp: ShipDocInput): Promise<Buffer
   const folder = cleanName(base)
   const fn = (t: string) => cleanName(`${base}-${t}-${mmdd}`)
 
-  // 送货单：一份，含所有 PO 行；仅卡派需要（快递/EDI 不出）
-  if (inp.config.delivery_mode === 'truck') zip.file(`${folder}/${fn('DeliveryNote')}.xlsx`, await deliveryNote(inp))
-
-  // 箱单：按托盘分组，一个托盘一张
+  // 送货单：一份（仅卡派）
+  if (inp.config.delivery_mode === 'truck') {
+    const dn = await fillDeliveryNote(inp)
+    if (dn) zip.file(`${folder}/${fn('DeliveryNote')}.xlsx`, dn)
+  }
+  // 箱单：按托盘各一张
   const byPallet = new Map<string, DocLine[]>()
   inp.lines.forEach(l => { const k = l.palletNo?.trim() || '(unassigned)'; const a = byPallet.get(k); a ? a.push(l) : byPallet.set(k, [l]) })
   for (const [pallet, lines] of byPallet) {
-    zip.file(`${folder}/${fn('PackingList-Pallet' + cleanName(pallet))}.xlsx`, await packingList(inp, lines))
+    zip.file(`${folder}/${fn('PackingList-Pallet' + cleanName(pallet))}.xlsx`, await fillPackingList(inp, lines))
   }
-
-  // 箱唛：一份，连续多页（每箱一页）
-  zip.file(`${folder}/${fn('CartonLabel')}.docx`, await cartonLabels(inp))
+  // 箱唛：一份，连续多页（模版未就绪的 KA 跳过，并放一个提示文件）
+  const carton = await fillCartonLabels(inp)
+  if (carton) zip.file(`${folder}/${fn('CartonLabel')}.docx`, carton)
+  else zip.file(`${folder}/CartonLabel-模版待补充.txt`, `该渠道(${inp.config.customer_name})的箱唛 .docx 模版尚未就绪，暂未生成箱唛。DN/箱单已生成。`)
   return await zip.generateAsync({ type: 'nodebuffer' })
 }
