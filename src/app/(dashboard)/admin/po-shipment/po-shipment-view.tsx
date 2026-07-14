@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { fmtNum } from '@/lib/utils'
 import { fmtMoney, stageOf, type Batch, type OpsRow, type Stage } from '../../po/_ops'
+import { PoDocsModal } from './po-docs-modal'
 
 export type SkuOpt = { id: number; code: string; name: string }
 export type CountryOpt = { id: number; code: string; name: string; flag: string }
@@ -24,8 +25,8 @@ const STAGES: Record<Stage, StageMeta> = {
 const daysSince = (d: string) => Math.max(0, Math.round((Date.now() - new Date(d + 'T00:00:00').getTime()) / 86400000))
 const ageTone = (n: number) => n > 30 ? 'bg-rose-50 text-rose-700' : n > 14 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'
 
-export function PoShipmentView({ rows, batches, skus, countries, kas }: {
-  rows: OpsRow[]; batches: Batch[]; plnToEur: number; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]
+export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas }: {
+  rows: OpsRow[]; batches: Batch[]; docCounts: Record<string, number>; plnToEur: number; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]
 }) {
   const supabase = useRef(createClient()).current
   const router = useRouter()
@@ -38,6 +39,7 @@ export function PoShipmentView({ rows, batches, skus, countries, kas }: {
   const [open, setOpen] = useState<Set<string>>(new Set())  // 展开的组 / 行
   const [addOpen, setAddOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [docsPo, setDocsPo] = useState<string | null>(null)
 
   const batchesByPo = useMemo(() => {
     const m = new Map<number, Batch[]>()
@@ -182,11 +184,11 @@ export function PoShipmentView({ rows, batches, skus, countries, kas }: {
           <div className="rounded-[10px] overflow-hidden mt-2.5" style={{ borderLeft: `3px solid ${m.a}` }}>
             <div className="overflow-x-auto max-h-[600px] overflow-y-auto border border-gray-100 border-l-0 rounded-r-[10px]">
               {grouped && <GroupedTable stage={active} meta={m} rows={list} open={open} toggle={toggle} busy={busy} dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today}
-                onConfirm={confirmPo} onCancel={cancelPo} onShip={markShipped} onPartial={markPartial} poSearch={poSearch} />}
+                onConfirm={confirmPo} onCancel={cancelPo} onShip={markShipped} onPartial={markPartial} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {(active === 'shipped' || active === 'partial') && <BatchStageTable stage={active} meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
-                dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipRemaining={shipRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} />}
-              {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} poSearch={poSearch} />}
-              {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} />}
+                dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipRemaining={shipRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
+              {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
+              {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
             </div>
           </div>
         </div>
@@ -195,7 +197,19 @@ export function PoShipmentView({ rows, batches, skus, countries, kas }: {
       {addOpen && <AddPoModal today={today} skus={skus} countries={countries} kas={kas} onClose={() => setAddOpen(false)}
         onDone={() => { setAddOpen(false); router.refresh() }} supabase={supabase} />}
       {exportOpen && <ExportModal rows={rows} batchesByPo={batchesByPo} today={today} onClose={() => setExportOpen(false)} />}
+      {docsPo && <PoDocsModal poNumber={docsPo} onClose={() => setDocsPo(null)} onChanged={() => router.refresh()} />}
     </div>
+  )
+}
+
+// PO 文档角标（点开该 PO 的文档面板）。无 PO # 的行不显示。
+function DocsBadge({ po, count, onDocs }: { po: string | null; count: number; onDocs: (po: string) => void }) {
+  if (!po) return null
+  return (
+    <button onClick={e => { e.stopPropagation(); onDocs(po) }} title="PO 文档：箱唛 / 送货单 / 装箱单 / POD / 发票"
+      className={`ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] align-middle transition ${count ? 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>
+      📎{count ? ` ${count}` : ''}
+    </button>
   )
 }
 
@@ -214,11 +228,12 @@ function groupByPo(rows: OpsRow[]): Grp[] {
   return out.sort((a, z) => z.po_date.localeCompare(a.po_date))
 }
 
-function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, today, onConfirm, onCancel, onShip, onPartial, poSearch }: {
+function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, today, onConfirm, onCancel, onShip, onPartial, poSearch, docCounts, onDocs }: {
   stage: Stage; meta: StageMeta; rows: OpsRow[]; open: Set<string>; toggle: (k: string) => void; busy: string | null
   dateOf: (k: string) => string; setDate: (k: string, v: string) => void; today: string
   onConfirm: (ids: number[], key: string) => void; onCancel: (ids: number[], key: string) => void
   onShip: (lines: OpsRow[], key: string) => void; onPartial: (l: OpsRow, key: string) => void; poSearch: string
+  docCounts: Record<string, number>; onDocs: (po: string) => void
 }) {
   const groups = useMemo(() => groupByPo(rows), [rows])
   const isNew = stage === 'new'
@@ -244,7 +259,7 @@ function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, 
                 <td className="pl-3 pr-1 py-2 w-6 cursor-pointer" onClick={() => toggle(g.key)}>
                   <span className="inline-block text-gray-400 transition-transform" style={{ transform: o ? 'rotate(90deg)' : 'none' }}>▶</span>
                 </td>
-                <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap cursor-pointer" onClick={() => toggle(g.key)}>{g.po_number ?? <span className="text-gray-300">（无 PO #）</span>}</td>
+                <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap"><span className="cursor-pointer" onClick={() => toggle(g.key)}>{g.po_number ?? <span className="text-gray-300">（无 PO #）</span>}</span><DocsBadge po={g.po_number} count={docCounts[g.po_number ?? ''] ?? 0} onDocs={onDocs} /></td>
                 <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{g.country_flag} {g.country_code}</span></td>
                 <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{g.ka_name ?? '-'}</span></td>
                 <td className="px-3 py-2 text-center text-gray-500 tabular-nums">{g.lines.length}</td>
@@ -326,12 +341,13 @@ function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, 
 }
 
 // ===== Shipped / Partial：逐 SKU 行，展开看批次并逐批录送达日 =====
-function BatchStageTable({ stage, meta, rows, batchesByPo, open, toggle, busy, dateOf, setDate, today, onShipRemaining, onReopen, onPatchBatch, onSaveNotes, poSearch }: {
+function BatchStageTable({ stage, meta, rows, batchesByPo, open, toggle, busy, dateOf, setDate, today, onShipRemaining, onReopen, onPatchBatch, onSaveNotes, poSearch, docCounts, onDocs }: {
   stage: Stage; meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; busy: string | null
   dateOf: (k: string) => string; setDate: (k: string, v: string) => void; today: string
   onShipRemaining: (l: OpsRow, key: string) => void; onReopen: (id: number, key: string) => void
   onPatchBatch: (batchId: number, patch: Record<string, any>, key: string) => void
   onSaveNotes: (id: number, notes: string, key: string) => void; poSearch: string
+  docCounts: Record<string, number>; onDocs: (po: string) => void
 }) {
   const isPartial = stage === 'partial'
   return (
@@ -358,7 +374,7 @@ function BatchStageTable({ stage, meta, rows, batchesByPo, open, toggle, busy, d
                 <td className="pl-3 pr-1 py-2 w-6 cursor-pointer" onClick={() => toggle(`l${l.id}`)}>
                   <span className="inline-block text-gray-400 transition-transform" style={{ transform: o ? 'rotate(90deg)' : 'none' }}>▶</span>
                 </td>
-                <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{l.po_number ?? '–'}</td>
+                <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{l.po_number ?? '–'}<DocsBadge po={l.po_number} count={docCounts[l.po_number ?? ''] ?? 0} onDocs={onDocs} /></td>
                 <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{l.country_flag} {l.country_code}</span></td>
                 <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{l.ka_name ?? '-'}</span></td>
                 <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{l.sku_code}</td>
@@ -483,7 +499,7 @@ function LineNotes({ line, busy, onSave }: { line: OpsRow; busy: string | null; 
   )
 }
 
-function CancelledTable({ meta, rows, busy, onReopen, poSearch }: { meta: StageMeta; rows: OpsRow[]; busy: string | null; onReopen: (id: number, key: string) => void; poSearch: string }) {
+function CancelledTable({ meta, rows, busy, onReopen, poSearch, docCounts, onDocs }: { meta: StageMeta; rows: OpsRow[]; busy: string | null; onReopen: (id: number, key: string) => void; poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void }) {
   return (
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
@@ -497,7 +513,7 @@ function CancelledTable({ meta, rows, busy, onReopen, poSearch }: { meta: StageM
           const lk = `line:${l.id}`
           return (
             <tr key={l.id} className="hover:bg-gray-50/60">
-              <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{l.po_number ?? '–'}</td>
+              <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{l.po_number ?? '–'}<DocsBadge po={l.po_number} count={docCounts[l.po_number ?? ''] ?? 0} onDocs={onDocs} /></td>
               <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{l.country_flag} {l.country_code}</span></td>
               <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{l.ka_name ?? '-'}</span></td>
               <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{l.sku_code}</td>
@@ -520,8 +536,9 @@ function CancelledTable({ meta, rows, busy, onReopen, poSearch }: { meta: StageM
 }
 
 // ===== Delivered：按 PO # 归并，展开逐 SKU 逐批次追溯 =====
-function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch }: {
+function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCounts, onDocs }: {
   meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; poSearch: string
+  docCounts: Record<string, number>; onDocs: (po: string) => void
 }) {
   const groups = useMemo(() => {
     const gs = groupByPo(rows)
@@ -556,7 +573,7 @@ function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch }: {
             <Fragment key={g.key}>
               <tr className="hover:bg-gray-50/60 cursor-pointer" onClick={() => toggle(g.key)}>
                 <td className="pl-3 pr-1 py-2 w-6"><span className="inline-block text-gray-400 transition-transform" style={{ transform: o ? 'rotate(90deg)' : 'none' }}>▶</span></td>
-                <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{g.po_number ?? <span className="text-gray-300">（无 PO #）</span>}</td>
+                <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{g.po_number ?? <span className="text-gray-300">（无 PO #）</span>}<DocsBadge po={g.po_number} count={docCounts[g.po_number ?? ''] ?? 0} onDocs={onDocs} /></td>
                 <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{g.country_flag} {g.country_code}</span></td>
                 <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{g.ka_name ?? '-'}</span></td>
                 <td className="px-3 py-2 text-center text-gray-500 tabular-nums">
