@@ -43,9 +43,9 @@ export default async function AdminPoShipmentPage() {
   const [{ data: pos, error }, { data: shipList }, { data: docList }, { data: skuList }, { data: countryList }, { data: kaList }] = await Promise.all([
     supabase.from('channel_po').select(`
       id, po_number, po_date, qty_ordered, ship_date, delivery_date, notes, fd_buying_price, turnover, currency, po_status, delivered_qty,
-      sku:sku_id ( code, name ),
+      sku:sku_id ( id, code, name, ean, units_per_carton ),
       country:country_id ( code, name_en, flag_emoji ),
-      ka:ka_id ( name )
+      ka:ka_id ( id, name )
     `).order('po_date', { ascending: false }),
     // 发货批次（唯一事实来源）；父行的日期/已发量由 DB 触发器从这里派生
     supabase.from('po_shipment').select('id, po_id, qty, ship_date, delivery_date, notes')
@@ -78,10 +78,14 @@ export default async function AdminPoShipmentPage() {
     fd_buying_price: r.fd_buying_price,
     turnover: r.turnover,
     currency: r.currency,
+    sku_id: r.sku?.id,
     sku_code: r.sku?.code ?? '',
     sku_name: r.sku?.name ?? '',
+    ean: r.sku?.ean ?? null,
+    units_per_carton: r.sku?.units_per_carton ?? null,
     country_code: r.country?.code ?? '',
     country_flag: r.country?.flag_emoji ?? '',
+    ka_id: r.ka?.id ?? null,
     ka_name: r.ka?.name ?? null,
   }))
 
