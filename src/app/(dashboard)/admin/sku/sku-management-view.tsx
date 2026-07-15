@@ -210,7 +210,7 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
               <tr className="bg-white">
                 <th className="sticky top-0 left-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]" style={{ minWidth: CODE_W, width: CODE_W }}>Code</th>
                 <th className="sticky top-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>Name</th>
-                <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Lifecycle</th>
+                <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">EAN</th>
                 {warehouses.map((w, i) => (
                   <th key={w.name} title={w.name} className={`sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-semibold text-[#1a56b3] bg-[#e3eefc] border-b border-black/[0.06] ${i === 0 ? 'border-l-2 border-l-[#cfe0f8]' : ''}`}>{shortWh(w.name)}</th>
                 ))}
@@ -230,10 +230,10 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                     {s.name}
                     {s.name_zh && <span className="text-gray-400 ml-1">· {s.name_zh}</span>}
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-600 border-b border-black/[0.05]">
-                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${lifecycleBadge(s.lifecycle)}`}>
-                      {s.lifecycle || '-'}
-                    </span>
+                  <td className="px-3 py-2 text-xs border-b border-black/[0.05] whitespace-nowrap">
+                    {s.ean
+                      ? <span className="font-mono text-[11px] text-gray-700">{s.ean}</span>
+                      : <span className="text-gray-300">—</span>}
                   </td>
                   {warehouses.map((w, i) => {
                     const q = fmtQty(stockBySku[s.id]?.[w.name])
