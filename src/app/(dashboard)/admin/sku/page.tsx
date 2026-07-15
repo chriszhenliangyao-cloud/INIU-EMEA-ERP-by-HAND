@@ -6,13 +6,13 @@ import { SkuManagementView } from './sku-management-view'
 /**
  * /admin/sku — SKU Master Data 管理面板（admin only）
  *
- * 进入此页面需 is_admin = true，非 admin 跳转回 /shipments。
+ * 进入此页面需 is_admin = true，非 admin 跳转回 /po。
  * 数据：全量 SKU（active + inactive，admin 都能看到）。
  */
 export default async function AdminSkuPage() {
   const me = await getCurrentUser()
   if (!me.isAdmin) {
-    redirect('/shipments')
+    redirect('/po')
   }
 
   const supabase = createClient()

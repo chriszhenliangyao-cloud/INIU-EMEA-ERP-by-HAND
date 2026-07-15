@@ -96,7 +96,7 @@ export async function createSKU(input: SkuInput): Promise<ActionResult> {
   revalidatePath('/admin/sku')
   revalidatePath('/forecast')
   revalidatePath('/psi')
-  revalidatePath('/shipments')
+  revalidatePath('/po')
   return { ok: true, data }
 }
 
@@ -155,7 +155,7 @@ export async function updateSKU(id: number, input: Partial<SkuInput>): Promise<A
   revalidatePath('/admin/sku')
   revalidatePath('/forecast')
   revalidatePath('/psi')
-  revalidatePath('/shipments')
+  revalidatePath('/po')
   return { ok: true, data }
 }
 
@@ -182,7 +182,7 @@ export async function deactivateSKU(id: number, reason?: string): Promise<Action
   revalidatePath('/admin/sku')
   revalidatePath('/forecast')
   revalidatePath('/psi')
-  revalidatePath('/shipments')
+  revalidatePath('/po')
   return { ok: true }
 }
 
@@ -208,7 +208,7 @@ export async function reactivateSKU(id: number): Promise<ActionResult> {
   revalidatePath('/admin/sku')
   revalidatePath('/forecast')
   revalidatePath('/psi')
-  revalidatePath('/shipments')
+  revalidatePath('/po')
   return { ok: true }
 }
 

@@ -36,7 +36,7 @@ export async function updateSession(request: NextRequest) {
   // 已登录 + 访问 /auth/login → 重定向到首页
   if (user && request.nextUrl.pathname === '/auth/login') {
     const url = request.nextUrl.clone()
-    url.pathname = '/shipments'
+    url.pathname = '/po'
     return NextResponse.redirect(url)
   }
 

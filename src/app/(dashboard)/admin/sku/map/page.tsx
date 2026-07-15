@@ -12,7 +12,7 @@ import { SkuMapView } from './sku-map-view'
 export default async function AdminSkuMapPage() {
   const me = await getCurrentUser()
   if (!me.isAdmin) {
-    redirect('/shipments')
+    redirect('/po')
   }
 
   const supabase = createClient()

@@ -10,7 +10,7 @@ import { SalesRepManagementView } from './sales-rep-management-view'
 export default async function AdminSalesPage() {
   const me = await getCurrentUser()
   if (!me.isAdmin) {
-    redirect('/shipments')
+    redirect('/po')
   }
 
   const supabase = createClient()

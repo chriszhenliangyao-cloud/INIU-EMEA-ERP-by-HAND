@@ -49,7 +49,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
 
         <nav className="flex-1 p-3">
           <div className="text-[11px] font-semibold text-gray-400 px-3 py-2">Sales</div>
-          {/* Shipments 与 PO 高度重合，暂时隐藏入口（页面 /shipments 仍保留，可随时恢复） */}
+          {/* Shipments 与 PO 高度重合，暂时隐藏入口（页面 /po 仍保留，可随时恢复） */}
           <NavLink href="/po">🧾 PO (Orders)</NavLink>
           <NavLink href="/forecast">📈 Demand Forecast</NavLink>
           <NavLink href="/psi">📦 PSI Dashboard</NavLink>
@@ -109,7 +109,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
 import { useEffect, useRef, useState } from 'react'
 
 function PsiIframeHolder({ visible, buildId }: { visible: boolean; buildId: string }) {
-  // 用 state 记录"曾经显示过"，避免初始进入 /shipments 时就预加载 iframe
+  // 用 state 记录"曾经显示过"，避免初始进入 /po 时就预加载 iframe
   const [hasMounted, setHasMounted] = useState(visible)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 

@@ -14,7 +14,7 @@ import { ForecastLogView } from './forecast-log-view'
 export default async function AdminForecastLogPage() {
   const me = await getCurrentUser()
   if (!me.isAdmin) {
-    redirect('/shipments')
+    redirect('/po')
   }
 
   const supabase = createClient()

@@ -12,7 +12,7 @@ import { KaManagementView } from './ka-management-view'
 export default async function AdminKaPage() {
   const me = await getCurrentUser()
   if (!me.isAdmin) {
-    redirect('/shipments')
+    redirect('/po')
   }
 
   const supabase = createClient()

@@ -35,7 +35,7 @@ async function getPlnToEur(): Promise<number> {
 
 export default async function AdminPoShipmentPage() {
   const me = await getCurrentUser()
-  if (!me.isAdmin) redirect('/shipments')
+  if (!me.isAdmin) redirect('/po')
 
   const supabase = createClient()
   const plnToEur = await getPlnToEur()
