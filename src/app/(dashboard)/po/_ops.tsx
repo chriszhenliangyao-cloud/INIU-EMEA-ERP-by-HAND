@@ -24,8 +24,8 @@ export const PALETTE = ['#5b8def', '#52b788', '#9b8cce', '#e0a458', '#d98594', '
 export type OpsRow = {
   id: number; po_date: string; po_number: string | null; notes: string | null
   ship_date: string | null; delivery_date: string | null; po_status: string | null
-  sku_id: number; sku_code: string; sku_name: string; ean: string | null; units_per_carton: number | null
-  country_code: string; country_flag: string; ka_id: number | null; ka_name: string | null
+  sku_code: string; sku_name: string
+  country_code: string; country_flag: string; ka_name: string | null
   qty: number; delivered_qty: number | null
   fd_buying_price: number | null; turnover: number | null; currency: string | null
 }
