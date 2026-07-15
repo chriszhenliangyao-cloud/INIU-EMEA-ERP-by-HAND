@@ -39,6 +39,7 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
   const [open, setOpen] = useState<Set<string>>(new Set())  // 展开的组 / 行
   const [addOpen, setAddOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [poDetailsOpen, setPoDetailsOpen] = useState(false)
   const [docsPo, setDocsPo] = useState<string | null>(null)
 
   const batchesByPo = useMemo(() => {
@@ -144,10 +145,24 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
             一条履约流水线管完整 PO 生命周期。发货记录以<span className="font-medium text-gray-700">批次</span>存储，同一 SKU 可分多次发运、各批独立日期与备注。
           </p>
         </div>
-        <button onClick={() => setExportOpen(true)}
-          className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition">
-          ⬇ 导出 Excel
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => setPoDetailsOpen(true)} title="导出所选 PO 为 PO Details 子表格式，用于粘贴回「线下零售渠道发货记录表」"
+            className="group inline-flex items-center gap-2.5 pl-3 pr-4 py-2 rounded-xl border border-sky-200 bg-white hover:border-sky-300 hover:bg-sky-50/60 shadow-sm transition">
+            <span className="grid place-items-center w-8 h-8 rounded-lg bg-sky-600 text-white text-base group-hover:bg-sky-700 transition">📄</span>
+            <span className="text-left leading-tight">
+              <span className="block text-sm font-semibold text-gray-900">PO Details</span>
+              <span className="block text-[11px] text-gray-400">导出明细 · 粘贴用</span>
+            </span>
+          </button>
+          <button onClick={() => setExportOpen(true)} title="导出所选 PO 的发货批次与各批 ETA，用于追踪交期 / 回复客户到货时间"
+            className="group inline-flex items-center gap-2.5 pl-3 pr-4 py-2 rounded-xl border border-emerald-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/60 shadow-sm transition">
+            <span className="grid place-items-center w-8 h-8 rounded-lg bg-emerald-600 text-white text-base group-hover:bg-emerald-700 transition">📋</span>
+            <span className="text-left leading-tight">
+              <span className="block text-sm font-semibold text-gray-900">Order Leadtime</span>
+              <span className="block text-[11px] text-gray-400">导出交期表 · 各批 ETA</span>
+            </span>
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-5 items-start">
@@ -205,6 +220,7 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
       {addOpen && <AddPoModal today={today} skus={skus} countries={countries} kas={kas} onClose={() => setAddOpen(false)}
         onDone={() => { setAddOpen(false); router.refresh() }} supabase={supabase} />}
       {exportOpen && <ExportModal rows={rows} batchesByPo={batchesByPo} today={today} onClose={() => setExportOpen(false)} />}
+      {poDetailsOpen && <PoDetailsExportModal rows={rows} today={today} onClose={() => setPoDetailsOpen(false)} />}
       {docsPo && <PoDocsModal poNumber={docsPo} onClose={() => setDocsPo(null)} onChanged={() => router.refresh()} />}
     </div>
   )
@@ -851,10 +867,10 @@ function ExportModal({ rows, batchesByPo, today, onClose }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[820px] p-5 max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
-          <div className="text-lg font-semibold text-gray-900">⬇ Export Excel · Select POs</div>
+          <div className="text-lg font-semibold text-gray-900">📋 Order Leadtime <span className="text-sm font-normal text-gray-400">· 导出交期表</span></div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
-        <div className="text-xs text-gray-400 mb-3">Tick the POs to export (newest PO date first). One row per SKU, batches expanded across; ETA of unshipped backorders &amp; in-transit batches are <span className="text-amber-600 font-medium">blank orange cells</span> — fill them in Excel before sending to the customer.</div>
+        <div className="text-xs text-gray-400 mb-3">勾选要导出的 PO（按 PO 日期从近到远）。每 SKU 一行、发货批次横向展开；未发尾单与在途批次的 ETA 是 <span className="text-amber-600 font-medium">橙色空白格</span>——在 Excel 里手填到货日后即可发客户追踪交期。</div>
 
         <div className="flex items-center gap-2 mb-2">
           <div className="relative flex-1 max-w-[220px]">
@@ -899,11 +915,136 @@ function ExportModal({ rows, batchesByPo, today, onClose }: {
         </div>
 
         <div className="flex justify-between items-center mt-4">
-          <span className="text-xs text-gray-400">Exports as .xls — opens in Excel / WPS</span>
+          <span className="text-xs text-gray-400">导出 <span className="font-mono text-gray-500">Order Leadtime-{today.replace(/-/g, '')}.xls</span> · Excel / WPS 直接打开</span>
           <div className="flex gap-2">
-            <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Cancel</button>
+            <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">取消</button>
             <button onClick={doExport} disabled={!sel.size}
-              className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">Export ({sel.size})</button>
+              className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">📋 导出 ({sel.size})</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ===== PO Details 导出：选 PO → 导出为「线下零售渠道发货记录表 · PO Details」子表格式（可粘贴）=====
+// 行2列头必须与母表逐列一致（col0..col45）。空字符串 = 母表里该列本就空。
+const POD_HEADERS: string[] = [
+  'Region', 'PO #', 'PO Date', 'Requested Ship Date', 'Requested Delivery Date', 'Customer', 'Seller', 'Part Number', 'UPC',
+  'Qty. Ordered', '新数量', '箱数', 'Unit Cost', 'Subtotal', '沃尔玛/B&H预计打款金额', 'Currency', 'Payment Term', 'Ship to',
+  'Shipping Label', '出库单号（国内直发）', 'Note', '', '出库单号（海外仓中转）', 'Invoice #', 'Invoice Amount', 'Check #',
+  'Ship Date', 'ASN Sent Date', 'Delivery Date', 'Invoice Date', 'Due Date', 'Payment Method', 'Payment Receive Date',
+  'Amount', '币种', 'Payment Status', '备注', '', '', '', '', '', '', '', '', '',
+]
+// 行1 分组抬头（col → 文本），逐列复刻母表
+const POD_GROUP: Record<number, string> = { 0: '大客户运营--红方填写', 23: '大客户--朱江Shea填写', 31: '财务--钟小婷填写', 39: 'Walmart 接收&申诉情况' }
+
+function buildPoDetailsXls(lines: OpsRow[], today: string): string {
+  const esc2 = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const N = POD_HEADERS.length
+  const td = (v: any, opt: { num?: boolean } = {}) =>
+    `<td style="border:0.5px solid #ccc;padding:3px 6px;${opt.num ? 'text-align:right;' : "mso-number-format:'\\@';"}">${esc2(v)}</td>`
+  // 每行 PO 明细：只填指定列，其余留空
+  const rowCells = (l: OpsRow): (string | number)[] => {
+    const c = Array(N).fill('') as (string | number)[]
+    c[0] = 'Europe'; c[1] = l.po_number ?? ''; c[2] = l.po_date ?? ''; c[5] = l.ka_name ?? ''; c[6] = 'INIU'
+    c[7] = l.sku_code; c[8] = l.ean ?? ''; c[9] = l.qty
+    c[12] = l.fd_buying_price ?? ''; c[15] = l.currency ?? ''
+    return c
+  }
+  const numCols = new Set([9, 12])   // 数量/单价右对齐、按数字
+  const groupRow = `<tr>${Array.from({ length: N }, (_, i) => `<th style="background:#fde68a;border:0.5px solid #ccc;padding:3px 6px;font-weight:600;">${esc2(POD_GROUP[i] ?? '')}</th>`).join('')}</tr>`
+  const headRow = `<tr>${POD_HEADERS.map(h => `<th style="background:#f5b301;border:0.5px solid #b8860b;padding:4px 6px;font-weight:700;white-space:nowrap;">${esc2(h)}</th>`).join('')}</tr>`
+  const body = lines.map(l => { const c = rowCells(l); return `<tr>${c.map((v, i) => td(v, { num: numCols.has(i) })).join('')}</tr>` }).join('')
+
+  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8">` +
+    `<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>PO Details</x:Name>` +
+    `<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>` +
+    `<body><table border="0" cellspacing="0" style="font-family:Arial,sans-serif;font-size:12px;">${groupRow}${headRow}${body}</table></body></html>`
+}
+
+function PoDetailsExportModal({ rows, today, onClose }: { rows: OpsRow[]; today: string; onClose: () => void }) {
+  const groups = useMemo(() => groupByPo(rows), [rows])
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [q, setQ] = useState('')
+  const [kaFilter, setKaFilter] = useState('')
+  const kaOptions = useMemo(() => Array.from(new Set(groups.map(g => g.ka_name).filter(Boolean) as string[])).sort(), [groups])
+  const shown = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    return groups.filter(g => (!s || (g.po_number ?? '').toLowerCase().includes(s)) && (!kaFilter || g.ka_name === kaFilter))
+  }, [groups, q, kaFilter])
+  const allShownSelected = shown.length > 0 && shown.every(g => sel.has(g.key))
+  const toggle = (k: string) => setSel(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const toggleAll = () => setSel(s => { const n = new Set(s); if (allShownSelected) shown.forEach(g => n.delete(g.key)); else shown.forEach(g => n.add(g.key)); return n })
+
+  const doExport = () => {
+    const picked = groups.filter(g => sel.has(g.key))
+    if (!picked.length) { alert('请先勾选要导出的 PO。'); return }
+    const lines = picked.flatMap(g => g.lines)
+    const blob = new Blob(['﻿' + buildPoDetailsXls(lines, today)], { type: 'application/vnd.ms-excel;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = `PO Details-${today.replace(/-/g, '')}.xls`
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+    onClose()
+  }
+
+  const grpLines = (g: Grp) => g.lines.length
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[820px] p-5 max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-lg font-semibold text-gray-900">📄 PO Details <span className="text-sm font-normal text-gray-400">· 导出明细（粘贴回母表）</span></div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="text-xs text-gray-400 mb-3">勾选要导出的 PO，导出格式与「线下零售渠道发货记录表 · PO Details」子表**逐列一致**，可直接复制数据行粘贴回母表。已填：Region(Europe) / PO# / PO Date / Customer / Seller(INIU) / Part Number / UPC(有EAN才填) / Qty / Unit Cost / Currency；其余列留空。</div>
+
+        <div className="flex items-center gap-2 mb-2">
+          <div className="relative flex-1 max-w-[220px]">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">🔍</span>
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search PO #…" className="fld pl-7 pr-3 w-full h-[32px] text-[13px]" />
+          </div>
+          <select value={kaFilter} onChange={e => setKaFilter(e.target.value)} className="fld h-[32px] text-[13px] py-0">
+            <option value="">All KAs</option>
+            {kaOptions.map(k => <option key={k} value={k}>{k}</option>)}
+          </select>
+          <button onClick={toggleAll} className="btn b-grey" style={{ padding: '6px 12px' }}>{allShownSelected ? 'Clear' : 'Select all'} ({shown.length})</button>
+          <span className="ml-auto text-xs text-gray-500">已选 <strong className="text-gray-800">{sel.size}</strong></span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg">
+          <table className="w-full text-[12.5px]">
+            <thead className="sticky top-0 z-10 bg-gray-50 border-b">
+              <tr>
+                <th className="px-3 py-2 w-8"><input type="checkbox" checked={allShownSelected} onChange={toggleAll} /></th>
+                <Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKU 行</Th><Th right>Qty</Th><Th>PO Date</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {shown.map(g => {
+                const on = sel.has(g.key)
+                return (
+                  <tr key={g.key} className={`cursor-pointer ${on ? 'bg-sky-50/60' : 'hover:bg-gray-50/60'}`} onClick={() => toggle(g.key)}>
+                    <td className="px-3 py-2 text-center"><input type="checkbox" checked={on} onChange={() => toggle(g.key)} onClick={e => e.stopPropagation()} /></td>
+                    <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{g.po_number ?? <span className="text-gray-300">(no PO#)</span>}</td>
+                    <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{g.country_flag} {g.country_code}</span></td>
+                    <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{g.ka_name ?? '-'}</span></td>
+                    <td className="px-3 py-2 text-center text-gray-500 tabular-nums">{grpLines(g)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtNum(g.qty)}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{g.po_date}</td>
+                  </tr>
+                )
+              })}
+              {!shown.length && <tr><td colSpan={7} className="py-10 text-center text-gray-300">No matching PO</td></tr>}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex justify-between items-center mt-4">
+          <span className="text-xs text-gray-400">导出 <span className="font-mono text-gray-500">PO Details-{today.replace(/-/g, '')}.xls</span> · 与母表逐列对齐</span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">取消</button>
+            <button onClick={doExport} disabled={!sel.size} className="px-4 py-2 text-sm rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50">📄 导出 ({sel.size})</button>
           </div>
         </div>
       </div>

@@ -43,7 +43,7 @@ export default async function AdminPoShipmentPage() {
   const [{ data: pos, error }, { data: shipList }, { data: docList }, { data: skuList }, { data: countryList }, { data: kaList }] = await Promise.all([
     supabase.from('channel_po').select(`
       id, po_number, po_date, qty_ordered, ship_date, delivery_date, notes, fd_buying_price, turnover, currency, po_status, delivered_qty,
-      sku:sku_id ( code, name ),
+      sku:sku_id ( code, name, ean ),
       country:country_id ( code, name_en, flag_emoji ),
       ka:ka_id ( name )
     `).order('po_date', { ascending: false }),
@@ -80,6 +80,7 @@ export default async function AdminPoShipmentPage() {
     currency: r.currency,
     sku_code: r.sku?.code ?? '',
     sku_name: r.sku?.name ?? '',
+    ean: r.sku?.ean ?? null,
     country_code: r.country?.code ?? '',
     country_flag: r.country?.flag_emoji ?? '',
     ka_name: r.ka?.name ?? null,
