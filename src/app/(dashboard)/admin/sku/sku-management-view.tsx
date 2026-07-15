@@ -118,6 +118,14 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
       else { flash('success', `${sku.code} deleted`); router.refresh() }
     })
   }
+  // 行内保存 EAN（可空清除）。返回是否成功，让单元格决定退出编辑态。
+  const onSaveEan = async (sku: Sku, ean: string | null): Promise<boolean> => {
+    const r = await updateSKU(sku.id, { ean })
+    if (!r.ok) { flash('error', r.error); return false }
+    flash('success', `${sku.code} EAN ${ean ? 'updated' : 'cleared'}`)
+    router.refresh()
+    return true
+  }
 
   return (
     <div className="p-6 max-w-[1700px] mx-auto">
@@ -231,9 +239,7 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                     {s.name_zh && <span className="text-gray-400 ml-1">· {s.name_zh}</span>}
                   </td>
                   <td className="px-3 py-2 text-xs border-b border-black/[0.05] whitespace-nowrap">
-                    {s.ean
-                      ? <span className="font-mono text-[11px] text-gray-700">{s.ean}</span>
-                      : <span className="text-gray-300">—</span>}
+                    <EanCell sku={s} onSave={onSaveEan} />
                   </td>
                   {warehouses.map((w, i) => {
                     const q = fmtQty(stockBySku[s.id]?.[w.name])
@@ -288,6 +294,58 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
         />
       )}
     </div>
+  )
+}
+
+// ── 行内可编辑 EAN 单元格 ──
+function EanCell({ sku, onSave }: { sku: Sku; onSave: (sku: Sku, ean: string | null) => Promise<boolean> }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(sku.ean ?? '')
+  const [saving, setSaving] = useState(false)
+  // 外部数据刷新后同步显示值（非编辑态时）
+  useEffect(() => { if (!editing) setVal(sku.ean ?? '') }, [sku.ean, editing])
+
+  const commit = async () => {
+    const next = val.trim() || null
+    if (next === (sku.ean ?? null)) { setEditing(false); return }   // 没变，直接退出
+    if (next && !/^\d{8,14}$/.test(next)) { alert('EAN 应为 8–14 位数字'); return }
+    setSaving(true)
+    const ok = await onSave(sku, next)
+    setSaving(false)
+    if (ok) setEditing(false)
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        title="点击编辑 EAN"
+        className="group inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 -ml-1.5 hover:bg-blue-50 transition-colors"
+      >
+        {sku.ean
+          ? <span className="font-mono text-[11px] text-gray-700">{sku.ean}</span>
+          : <span className="text-gray-300">—</span>}
+        <span className="text-[10px] text-gray-300 opacity-0 group-hover:opacity-100">✎</span>
+      </button>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <input
+        autoFocus
+        value={val}
+        disabled={saving}
+        onChange={(e) => setVal(e.target.value.replace(/[^\d]/g, ''))}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          else if (e.key === 'Escape') { setVal(sku.ean ?? ''); setEditing(false) }
+        }}
+        onBlur={commit}
+        placeholder="13 位条码"
+        className="w-36 font-mono text-[11px] rounded border border-blue-300 bg-white px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-blue-200"
+      />
+      {saving && <span className="text-[10px] text-gray-400">…</span>}
+    </span>
   )
 }
 
