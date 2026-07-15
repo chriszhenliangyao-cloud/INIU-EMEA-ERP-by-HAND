@@ -119,6 +119,12 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
     const { error } = await supabase.from('po_shipment').update(patch).eq('id', batchId)
     after(error, key)
   }
+  // 整单送达：把该 PO 下所有 SKU 行、所有"未录送达日"的批次一次性标记送达
+  const deliverGroup = async (lineIds: number[], date: string, key: string) => {
+    setBusy(key)
+    const { error } = await supabase.from('po_shipment').update({ delivery_date: date }).in('po_id', lineIds).is('delivery_date', null)
+    after(error, key)
+  }
   const saveLineNotes = async (id: number, notes: string, key: string) => {
     setBusy(key)
     const { error } = await supabase.from('channel_po').update({ notes: notes.trim() || null }).eq('id', id)
@@ -188,7 +194,7 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
               {active === 'partial' && <BatchStageTable stage={active} meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
                 dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipRemaining={shipRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
-                onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
+                onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} onDeliverGroup={deliverGroup} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
             </div>
@@ -538,13 +544,15 @@ function CancelledTable({ meta, rows, busy, onReopen, poSearch, docCounts, onDoc
 }
 
 // ===== Shipped：按 PO # 归并（📎 挂 PO 主行），展开逐 SKU 逐批录送达日 + Reopen =====
-function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, today, onReopen, onPatchBatch, onSaveNotes, poSearch, docCounts, onDocs }: {
+function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, today, onReopen, onPatchBatch, onSaveNotes, onDeliverGroup, poSearch, docCounts, onDocs }: {
   meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; busy: string | null; today: string
   onReopen: (id: number, key: string) => void
   onPatchBatch: (batchId: number, patch: Record<string, any>, key: string) => void
   onSaveNotes: (id: number, notes: string, key: string) => void
+  onDeliverGroup: (lineIds: number[], date: string, key: string) => void
   poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void
 }) {
+  const [gdate, setGdate] = useState<Record<string, string>>({})
   const groups = useMemo(() => groupByPo(rows).map(g => {
     const all = g.lines.flatMap(l => batchesByPo.get(l.id) ?? [])
     const ships = all.map(b => b.ship_date).filter(Boolean) as string[]
@@ -555,12 +563,13 @@ function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, toda
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
-          <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKUs</Th><Th right>Total Qty</Th><Th>PO Date</Th><Th>Shipped</Th><Th center>待录送达日</Th>
+          <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKUs</Th><Th right>Total Qty</Th><Th>PO Date</Th><Th>Shipped</Th><Th center>整单送达 / 逐批</Th>
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
         {groups.map(g => {
           const o = open.has(g.key)
+          const gk = `grp:${g.key}`
           return (
             <Fragment key={g.key}>
               <tr className="hover:bg-gray-50/60 cursor-pointer" onClick={() => toggle(g.key)}>
@@ -572,10 +581,14 @@ function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, toda
                 <td className="px-3 py-2 text-right font-semibold tabular-nums">{fmtNum(g.qty)}</td>
                 <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{g.po_date}</td>
                 <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{g.firstShip ?? '–'}</td>
-                <td className="px-3 py-2 text-center">
-                  {g.undelivered > 0
-                    ? <span className="inline-block px-2 py-0.5 rounded text-[11px] bg-amber-50 text-amber-700">{g.undelivered} 批待录</span>
-                    : <span className="inline-block px-2 py-0.5 rounded text-[11px] bg-emerald-50 text-emerald-700">全部已录</span>}
+                <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                  {g.undelivered > 0 ? (
+                    <div className="flex items-center gap-1.5 justify-center">
+                      <input type="date" value={gdate[g.key] ?? today} max={today} onChange={e => setGdate(p => ({ ...p, [g.key]: e.target.value }))} className="lg-date" />
+                      <button onClick={() => { if (confirm(`把整张 PO 的 ${g.undelivered} 个未录批次全部标记为 ${gdate[g.key] ?? today} 送达？`)) onDeliverGroup(g.lines.map(l => l.id), gdate[g.key] ?? today, gk) }}
+                        disabled={busy === gk} className="btn b-green whitespace-nowrap">{busy === gk ? '…' : `📬 整单送达 (${g.undelivered})`}</button>
+                    </div>
+                  ) : <div className="text-center"><span className="inline-block px-2 py-0.5 rounded text-[11px] bg-emerald-50 text-emerald-700">✓ 全部已达</span></div>}
                 </td>
               </tr>
               {o && (
