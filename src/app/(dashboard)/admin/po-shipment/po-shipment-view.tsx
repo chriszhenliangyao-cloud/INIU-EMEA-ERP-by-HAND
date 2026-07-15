@@ -185,8 +185,10 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
             <div className="overflow-x-auto max-h-[600px] overflow-y-auto border border-gray-100 border-l-0 rounded-r-[10px]">
               {grouped && <GroupedTable stage={active} meta={m} rows={list} open={open} toggle={toggle} busy={busy} dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today}
                 onConfirm={confirmPo} onCancel={cancelPo} onShip={markShipped} onPartial={markPartial} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
-              {(active === 'shipped' || active === 'partial') && <BatchStageTable stage={active} meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
+              {active === 'partial' && <BatchStageTable stage={active} meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
                 dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipRemaining={shipRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
+              {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
+                onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
             </div>
@@ -530,6 +532,101 @@ function CancelledTable({ meta, rows, busy, onReopen, poSearch, docCounts, onDoc
           )
         })}
         {!rows.length && <tr><td colSpan={11} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
+      </tbody>
+    </table>
+  )
+}
+
+// ===== Shipped：按 PO # 归并（📎 挂 PO 主行），展开逐 SKU 逐批录送达日 + Reopen =====
+function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, today, onReopen, onPatchBatch, onSaveNotes, poSearch, docCounts, onDocs }: {
+  meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; busy: string | null; today: string
+  onReopen: (id: number, key: string) => void
+  onPatchBatch: (batchId: number, patch: Record<string, any>, key: string) => void
+  onSaveNotes: (id: number, notes: string, key: string) => void
+  poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void
+}) {
+  const groups = useMemo(() => groupByPo(rows).map(g => {
+    const all = g.lines.flatMap(l => batchesByPo.get(l.id) ?? [])
+    const ships = all.map(b => b.ship_date).filter(Boolean) as string[]
+    return { ...g, firstShip: ships.length ? ships.reduce((a, b) => a < b ? a : b) : null, undelivered: all.filter(b => !b.delivery_date).length }
+  }), [rows, batchesByPo])
+
+  return (
+    <table className="w-full text-[12.5px]">
+      <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
+        <tr className="border-b border-gray-200">
+          <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKUs</Th><Th right>Total Qty</Th><Th>PO Date</Th><Th>Shipped</Th><Th center>待录送达日</Th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+        {groups.map(g => {
+          const o = open.has(g.key)
+          return (
+            <Fragment key={g.key}>
+              <tr className="hover:bg-gray-50/60 cursor-pointer" onClick={() => toggle(g.key)}>
+                <td className="pl-3 pr-1 py-2 w-6"><span className="inline-block text-gray-400 transition-transform" style={{ transform: o ? 'rotate(90deg)' : 'none' }}>▶</span></td>
+                <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{g.po_number ?? <span className="text-gray-300">（无 PO #）</span>}<DocsBadge po={g.po_number} count={docCounts[g.po_number ?? ''] ?? 0} onDocs={onDocs} /></td>
+                <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{g.country_flag} {g.country_code}</span></td>
+                <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{g.ka_name ?? '-'}</span></td>
+                <td className="px-3 py-2 text-center text-gray-500 tabular-nums">{g.lines.length}</td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">{fmtNum(g.qty)}</td>
+                <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{g.po_date}</td>
+                <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{g.firstShip ?? '–'}</td>
+                <td className="px-3 py-2 text-center">
+                  {g.undelivered > 0
+                    ? <span className="inline-block px-2 py-0.5 rounded text-[11px] bg-amber-50 text-amber-700">{g.undelivered} 批待录</span>
+                    : <span className="inline-block px-2 py-0.5 rounded text-[11px] bg-emerald-50 text-emerald-700">全部已录</span>}
+                </td>
+              </tr>
+              {o && (
+                <tr className="bg-slate-50/60">
+                  <td></td>
+                  <td colSpan={8} className="px-3 py-2.5">
+                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{g.lines.length} 个 SKU · 展开逐批录送达日</div>
+                    <table className="w-full text-[12px]">
+                      <thead><tr className="text-left text-[10.5px] text-gray-500 border-b border-gray-200">
+                        <th className="py-1 pr-3 font-semibold w-5"></th><th className="py-1 pr-3 font-semibold">SKU</th><th className="py-1 pr-3 font-semibold">Product</th>
+                        <th className="py-1 pr-3 font-semibold text-right">Qty</th><th className="py-1 pr-3 font-semibold">🚚 Ship Date</th><th className="py-1 font-semibold text-right">Action</th>
+                      </tr></thead>
+                      <tbody>
+                        {g.lines.map(l => {
+                          const lo = open.has(`l${l.id}`)
+                          const lk = `line:${l.id}`
+                          const bs = batchesByPo.get(l.id) ?? []
+                          const undelivered = bs.filter(b => !b.delivery_date).length
+                          return (
+                            <Fragment key={l.id}>
+                              <tr className="border-b border-gray-100 last:border-0 align-top">
+                                <td className="py-1.5 pr-1 cursor-pointer" onClick={() => toggle(`l${l.id}`)}><span className="inline-block text-gray-400 transition-transform text-[10px]" style={{ transform: lo ? 'rotate(90deg)' : 'none' }}>▶</span></td>
+                                <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-700 whitespace-nowrap">{l.sku_code}</td>
+                                <td className="py-1.5 pr-3 text-gray-600">{l.sku_name || '-'}</td>
+                                <td className="py-1.5 pr-3 text-right tabular-nums font-medium">{fmtNum(l.qty)}</td>
+                                <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-500 whitespace-nowrap">{l.ship_date ?? '–'}<span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500">{bs.length}批</span></td>
+                                <td className="py-1.5">
+                                  <div className="flex gap-1.5 justify-end">
+                                    <button onClick={() => toggle(`l${l.id}`)} className="btn b-blue" title="展开逐批录入送达日">📬 录送达日 ({undelivered})</button>
+                                    <button onClick={() => onReopen(l.id, lk)} disabled={busy === lk} className="btn b-grey">↩ Reopen</button>
+                                  </div>
+                                </td>
+                              </tr>
+                              {lo && (
+                                <tr><td></td><td colSpan={5} className="py-2">
+                                  <BatchPanel batches={bs} lineQty={l.qty} busy={busy} today={today} onPatch={onPatchBatch} />
+                                  <LineNotes line={l} busy={busy} onSave={onSaveNotes} />
+                                </td></tr>
+                              )}
+                            </Fragment>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          )
+        })}
+        {!groups.length && <tr><td colSpan={9} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '此阶段暂无记录 🎉'}</td></tr>}
       </tbody>
     </table>
   )
