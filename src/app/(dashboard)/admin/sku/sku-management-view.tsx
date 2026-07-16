@@ -126,6 +126,14 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
     router.refresh()
     return true
   }
+  // 行内保存 Qty/Carton（box_qty，可空清除）。
+  const onSaveBoxQty = async (sku: Sku, qty: number | null): Promise<boolean> => {
+    const r = await updateSKU(sku.id, { box_qty: qty })
+    if (!r.ok) { flash('error', r.error); return false }
+    flash('success', `${sku.code} Qty/Carton ${qty != null ? 'updated' : 'cleared'}`)
+    router.refresh()
+    return true
+  }
 
   return (
     <div className="p-6 max-w-[1700px] mx-auto">
@@ -242,10 +250,8 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                   <td className="px-3 py-2 text-xs border-b border-black/[0.05] whitespace-nowrap">
                     <EanCell sku={s} onSave={onSaveEan} />
                   </td>
-                  <td className="px-3 py-2 text-xs text-right tabular-nums border-b border-black/[0.05]">
-                    {s.box_qty != null
-                      ? <span className="text-gray-700">{s.box_qty}</span>
-                      : <span className="text-gray-300">—</span>}
+                  <td className="px-3 py-2 text-xs text-right border-b border-black/[0.05]">
+                    <BoxQtyCell sku={s} onSave={onSaveBoxQty} />
                   </td>
                   {warehouses.map((w, i) => {
                     const q = fmtQty(stockBySku[s.id]?.[w.name])
@@ -349,6 +355,57 @@ function EanCell({ sku, onSave }: { sku: Sku; onSave: (sku: Sku, ean: string | n
         onBlur={commit}
         placeholder="13 位条码"
         className="w-36 font-mono text-[11px] rounded border border-blue-300 bg-white px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-blue-200"
+      />
+      {saving && <span className="text-[10px] text-gray-400">…</span>}
+    </span>
+  )
+}
+
+// ── 行内可编辑 Qty/Carton 单元格 ──
+function BoxQtyCell({ sku, onSave }: { sku: Sku; onSave: (sku: Sku, qty: number | null) => Promise<boolean> }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(sku.box_qty != null ? String(sku.box_qty) : '')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { if (!editing) setVal(sku.box_qty != null ? String(sku.box_qty) : '') }, [sku.box_qty, editing])
+
+  const commit = async () => {
+    const next = val.trim() ? parseInt(val.trim(), 10) : null
+    if (next === (sku.box_qty ?? null)) { setEditing(false); return }
+    if (next != null && (!Number.isFinite(next) || next <= 0)) { alert('每箱数量应为正整数'); return }
+    setSaving(true)
+    const ok = await onSave(sku, next)
+    setSaving(false)
+    if (ok) setEditing(false)
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        title="点击编辑每箱数量"
+        className="group inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-blue-50 transition-colors"
+      >
+        {sku.box_qty != null
+          ? <span className="tabular-nums text-gray-700">{sku.box_qty}</span>
+          : <span className="text-gray-300">—</span>}
+        <span className="text-[10px] text-gray-300 opacity-0 group-hover:opacity-100">✎</span>
+      </button>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 justify-end">
+      <input
+        autoFocus
+        value={val}
+        disabled={saving}
+        onChange={(e) => setVal(e.target.value.replace(/[^\d]/g, ''))}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          else if (e.key === 'Escape') { setVal(sku.box_qty != null ? String(sku.box_qty) : ''); setEditing(false) }
+        }}
+        onBlur={commit}
+        placeholder="每箱数量"
+        className="w-20 text-right tabular-nums text-[11px] rounded border border-blue-300 bg-white px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-blue-200"
       />
       {saving && <span className="text-[10px] text-gray-400">…</span>}
     </span>
