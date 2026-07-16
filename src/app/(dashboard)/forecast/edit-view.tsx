@@ -186,6 +186,9 @@ export function ForecastEditView({
   const [saving, setSaving] = useState(false)
   const [cellStatus, setCellStatus] = useState<Record<CellKey, 'saving' | 'saved' | 'error'>>({})
   const savedQty = useRef<Record<CellKey, number>>(buildQtyMap(allCells))
+  // 每格「停手即存」防抖计时器：输入停顿 AUTOSAVE_MS 后自动落库（失焦/回车仍立即存）
+  const AUTOSAVE_MS = 400
+  const saveTimers = useRef<Record<CellKey, ReturnType<typeof setTimeout>>>({})
 
   // 注：上期 rollover 预填值与人工值同等显示（销售要求：实体数据、免重复填报）
   // source 字段仅作为来源痕迹保留（admin 的 Forecast Activity 用它区分 人工/预填）
@@ -223,6 +226,9 @@ export function ForecastEditView({
     const key = cellKey(sku_id, ka_id, monthIso)
     setCellQty(prev => ({ ...prev, [key]: num }))
     setDirtyKeys(prev => new Set(prev).add(key))
+    // 停手即存：每次输入重置该格计时器，停顿 AUTOSAVE_MS 后落库
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key])
+    saveTimers.current[key] = setTimeout(() => { saveCell(sku_id, ka_id, monthIso) }, AUTOSAVE_MS)
   }
 
   // —— 保存 ——
@@ -255,6 +261,7 @@ export function ForecastEditView({
   // —— 单格即时保存（失焦/回车触发）：只提交这一格，审计触发器自动记日志；无变化则不保存 ——
   const saveCell = useCallback(async (sku_id: number, ka_id: number, monthIso: string) => {
     const key = cellKey(sku_id, ka_id, monthIso)
+    if (saveTimers.current[key]) { clearTimeout(saveTimers.current[key]); delete saveTimers.current[key] }
     const { cellQty: cq, runId, locked } = stateRef.current
     if (locked) return
     const cur = cq[key] ?? 0
@@ -296,6 +303,12 @@ export function ForecastEditView({
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [dirtyKeys.size])
+
+  // —— 卸载时清掉所有待触发的自动保存计时器，避免泄漏 ——
+  useEffect(() => {
+    const timers = saveTimers.current
+    return () => { Object.values(timers).forEach(clearTimeout) }
+  }, [])
 
   // —— SKU 行小计（合计该 SKU 在所有 KA × 4 月的总量）——
   const rowSubtotal = (sku_id: number) => {
@@ -834,7 +847,7 @@ export function ForecastEditView({
 
       {/* 调试提示 */}
       <div className="mt-4 text-xs text-gray-400 text-center">
-        💡 Edits <b className="text-gray-500">auto-save on blur or Enter and are logged</b> (🟦 saving · 🟩 saved · 🟥 failed, retryable) · <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">⌘/Ctrl + S</kbd> flushes any pending ·
+        💡 Edits <b className="text-gray-500">auto-save as you type — save when you pause, or on blur / Enter — and are logged</b> (🟦 saving · 🟩 saved · 🟥 failed, retryable) · <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">⌘/Ctrl + S</kbd> flushes any pending ·
         PO (shipment) / SO (PSI) ref = avg of past 3 complete months (excl. current) ·
         Writes are RLS-protected — out-of-scope writes are auto-rejected
       </div>
