@@ -219,6 +219,7 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                 <th className="sticky top-0 left-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]" style={{ minWidth: CODE_W, width: CODE_W }}>Code</th>
                 <th className="sticky top-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>Name</th>
                 <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">EAN</th>
+                <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Qty/Carton</th>
                 {warehouses.map((w, i) => (
                   <th key={w.name} title={w.name} className={`sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-semibold text-[#1a56b3] bg-[#e3eefc] border-b border-black/[0.06] ${i === 0 ? 'border-l-2 border-l-[#cfe0f8]' : ''}`}>{shortWh(w.name)}</th>
                 ))}
@@ -229,7 +230,7 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
             </thead>
             <tbody>
               {filteredSkus.length === 0 && (
-                <tr><td colSpan={6 + warehouses.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
+                <tr><td colSpan={7 + warehouses.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
               )}
               {filteredSkus.map(s => (
                 <tr key={s.id} className={`group hover:bg-[#f5f5f7] transition-colors ${!s.is_active ? 'opacity-55' : ''}`}>
@@ -240,6 +241,11 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                   </td>
                   <td className="px-3 py-2 text-xs border-b border-black/[0.05] whitespace-nowrap">
                     <EanCell sku={s} onSave={onSaveEan} />
+                  </td>
+                  <td className="px-3 py-2 text-xs text-right tabular-nums border-b border-black/[0.05]">
+                    {s.box_qty != null
+                      ? <span className="text-gray-700">{s.box_qty}</span>
+                      : <span className="text-gray-300">—</span>}
                   </td>
                   {warehouses.map((w, i) => {
                     const q = fmtQty(stockBySku[s.id]?.[w.name])
