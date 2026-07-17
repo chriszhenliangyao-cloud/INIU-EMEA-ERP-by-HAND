@@ -206,8 +206,8 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
             <div className="overflow-x-auto max-h-[600px] overflow-y-auto border border-gray-100 border-l-0 rounded-r-[10px]">
               {grouped && <GroupedTable stage={active} meta={m} rows={list} open={open} toggle={toggle} busy={busy} dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today}
                 onConfirm={confirmPo} onCancel={cancelPo} onShip={markShipped} onPartial={markPartial} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
-              {active === 'partial' && <BatchStageTable stage={active} meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
-                dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipRemaining={shipRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
+              {active === 'partial' && <PartialGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
+                dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipGroup={markShipped} onShipRemaining={shipRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
                 onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} onDeliverGroup={deliverGroup} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
@@ -365,81 +365,109 @@ function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, 
 }
 
 // ===== Shipped / Partial：逐 SKU 行，展开看批次并逐批录送达日 =====
-function BatchStageTable({ stage, meta, rows, batchesByPo, open, toggle, busy, dateOf, setDate, today, onShipRemaining, onReopen, onPatchBatch, onSaveNotes, poSearch, docCounts, onDocs }: {
-  stage: Stage; meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; busy: string | null
+// ===== Partial：按 PO # 归并。主行可「整单发余量」，展开逐 SKU 单发 / 逐批录送达日 =====
+function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, dateOf, setDate, today, onShipGroup, onShipRemaining, onReopen, onPatchBatch, onSaveNotes, poSearch, docCounts, onDocs }: {
+  meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; busy: string | null
   dateOf: (k: string) => string; setDate: (k: string, v: string) => void; today: string
+  onShipGroup: (lines: OpsRow[], key: string) => void
   onShipRemaining: (l: OpsRow, key: string) => void; onReopen: (id: number, key: string) => void
   onPatchBatch: (batchId: number, patch: Record<string, any>, key: string) => void
   onSaveNotes: (id: number, notes: string, key: string) => void; poSearch: string
   docCounts: Record<string, number>; onDocs: (po: string) => void
 }) {
-  const isPartial = stage === 'partial'
+  const groups = useMemo(() => groupByPo(rows).map(g => {
+    const delivered = g.lines.reduce((s, l) => s + (l.delivered_qty ?? 0), 0)
+    return { ...g, delivered, remaining: g.qty - delivered }
+  }), [rows])
+
   return (
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
-          <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th>SKU</Th><Th>Product</Th>
-          <Th right>{isPartial ? 'Ordered' : 'Qty'}</Th>
-          {isPartial && <Th right className="text-emerald-600">Delivered</Th>}
-          {isPartial && <Th right className="text-amber-600">Remaining ⏳</Th>}
-          <Th right>Unit Price</Th><Th>PO Date</Th><Th>🚚 Ship Date</Th><Th center>Action</Th>
+          <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKUs</Th>
+          <Th right>Ordered</Th><Th right className="text-emerald-600">Delivered</Th><Th right className="text-amber-600">Remaining ⏳</Th>
+          <Th>PO Date</Th><Th center>整单发余量 / 逐 SKU</Th>
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
-        {rows.map(l => {
-          const o = open.has(`l${l.id}`)
-          const lk = `line:${l.id}`
-          const bs = batchesByPo.get(l.id) ?? []
-          const remaining = l.qty - (l.delivered_qty ?? 0)
-          const undelivered = bs.filter(b => !b.delivery_date).length
+        {groups.map(g => {
+          const o = open.has(g.key)
+          const gk = `grp:${g.key}`
           return (
-            <Fragment key={l.id}>
-              <tr className="hover:bg-gray-50/60">
-                <td className="pl-3 pr-1 py-2 w-6 cursor-pointer" onClick={() => toggle(`l${l.id}`)}>
-                  <span className="inline-block text-gray-400 transition-transform" style={{ transform: o ? 'rotate(90deg)' : 'none' }}>▶</span>
-                </td>
-                <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{l.po_number ?? '–'}<DocsBadge po={l.po_number} count={docCounts[l.po_number ?? ''] ?? 0} onDocs={onDocs} /></td>
-                <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{l.country_flag} {l.country_code}</span></td>
-                <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{l.ka_name ?? '-'}</span></td>
-                <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{l.sku_code}</td>
-                <td className="px-3 py-2 text-gray-600">{l.sku_name || '-'}</td>
-                <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtNum(l.qty)}</td>
-                {isPartial && <td className="px-3 py-2 text-right font-semibold text-emerald-700 tabular-nums">{fmtNum(l.delivered_qty ?? 0)}</td>}
-                {isPartial && <td className="px-3 py-2 text-right font-bold text-amber-700 tabular-nums">{fmtNum(remaining)}</td>}
-                <td className="px-3 py-2 text-right tabular-nums text-gray-500 whitespace-nowrap">{fmtMoney(l.fd_buying_price, l.currency)}</td>
-                <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{l.po_date}</td>
-                <td className="px-3 py-2 font-mono text-xs text-gray-600 whitespace-nowrap">
-                  {l.ship_date ?? '–'}
-                  <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500" title={`${bs.length} 批发运，${undelivered} 批未录送达日`}>{bs.length}批</span>
-                </td>
-                <td className="px-3 py-2.5">
-                  <div className="flex flex-col gap-1.5 w-[164px]">
-                    {isPartial && (
-                      <>
-                        <input type="date" value={dateOf(lk)} max={today} onChange={e => setDate(lk, e.target.value)} className="lg-date w-full" />
-                        <button onClick={() => onShipRemaining(l, lk)} disabled={busy === lk} className="btn b-green w-full">{busy === lk ? '…' : `🚚 Ship remaining ${fmtNum(remaining)}`}</button>
-                      </>
-                    )}
-                    {!isPartial && (
-                      <button onClick={() => toggle(`l${l.id}`)} className="btn b-blue w-full" title="展开逐批录入送达日">📬 录送达日 ({undelivered})</button>
-                    )}
-                    <button onClick={() => onReopen(l.id, lk)} disabled={busy === lk} className="btn b-grey w-full">↩ Reopen</button>
+            <Fragment key={g.key}>
+              <tr className="hover:bg-gray-50/60 cursor-pointer" onClick={() => toggle(g.key)}>
+                <td className="pl-3 pr-1 py-2 w-6"><span className="inline-block text-gray-400 transition-transform" style={{ transform: o ? 'rotate(90deg)' : 'none' }}>▶</span></td>
+                <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{g.po_number ?? <span className="text-gray-300">（无 PO #）</span>}<DocsBadge po={g.po_number} count={docCounts[g.po_number ?? ''] ?? 0} onDocs={onDocs} /></td>
+                <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{g.country_flag} {g.country_code}</span></td>
+                <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{g.ka_name ?? '-'}</span></td>
+                <td className="px-3 py-2 text-center text-gray-500 tabular-nums">{g.lines.length}</td>
+                <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtNum(g.qty)}</td>
+                <td className="px-3 py-2 text-right font-semibold text-emerald-700 tabular-nums">{fmtNum(g.delivered)}</td>
+                <td className="px-3 py-2 text-right font-bold text-amber-700 tabular-nums">{fmtNum(g.remaining)}</td>
+                <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{g.po_date}</td>
+                <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center gap-1.5 justify-center">
+                    <input type="date" value={dateOf(gk)} max={today} onChange={e => setDate(gk, e.target.value)} className="lg-date" />
+                    <button onClick={() => { if (confirm(`把整张 PO ${g.lines.length} 个 SKU 的全部剩余量（共 ${fmtNum(g.remaining)}）在 ${dateOf(gk)} 发出？\n发完将自动归入 Shipped。`)) onShipGroup(g.lines, gk) }}
+                      disabled={busy === gk} className="btn b-green whitespace-nowrap">{busy === gk ? '…' : `🚚 整单发余量 (${fmtNum(g.remaining)})`}</button>
                   </div>
                 </td>
               </tr>
               {o && (
                 <tr className="bg-slate-50/60">
                   <td></td>
-                  <td colSpan={isPartial ? 12 : 10} className="px-3 py-2.5">
-                    <BatchPanel batches={bs} lineQty={l.qty} busy={busy} today={today} onPatch={onPatchBatch} />
-                    <LineNotes line={l} busy={busy} onSave={onSaveNotes} />
+                  <td colSpan={9} className="px-3 py-2.5">
+                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{g.lines.length} 个 SKU · 可单独发余量；再展开可逐批录送达日</div>
+                    <table className="w-full text-[12px]">
+                      <thead><tr className="text-left text-[10.5px] text-gray-500 border-b border-gray-200">
+                        <th className="py-1 pr-3 font-semibold w-5"></th><th className="py-1 pr-3 font-semibold">SKU</th><th className="py-1 pr-3 font-semibold">Product</th>
+                        <th className="py-1 pr-3 font-semibold text-right">Ordered</th><th className="py-1 pr-3 font-semibold text-right">Delivered</th>
+                        <th className="py-1 pr-3 font-semibold text-right">Remaining</th><th className="py-1 pr-3 font-semibold">🚚 Ship Date</th>
+                        <th className="py-1 font-semibold text-right">Action</th>
+                      </tr></thead>
+                      <tbody>
+                        {g.lines.map(l => {
+                          const lo = open.has(`l${l.id}`)
+                          const lk = `line:${l.id}`
+                          const bs = batchesByPo.get(l.id) ?? []
+                          const remaining = l.qty - (l.delivered_qty ?? 0)
+                          const undelivered = bs.filter(b => !b.delivery_date).length
+                          return (
+                            <Fragment key={l.id}>
+                              <tr className="border-b border-gray-100 last:border-0 align-top">
+                                <td className="py-1.5 pr-1 cursor-pointer" onClick={() => toggle(`l${l.id}`)}><span className="inline-block text-gray-400 transition-transform text-[10px]" style={{ transform: lo ? 'rotate(90deg)' : 'none' }}>▶</span></td>
+                                <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-700 whitespace-nowrap">{l.sku_code}</td>
+                                <td className="py-1.5 pr-3 text-gray-600">{l.sku_name || '-'}</td>
+                                <td className="py-1.5 pr-3 text-right tabular-nums font-medium">{fmtNum(l.qty)}</td>
+                                <td className="py-1.5 pr-3 text-right tabular-nums font-semibold text-emerald-700">{fmtNum(l.delivered_qty ?? 0)}</td>
+                                <td className="py-1.5 pr-3 text-right tabular-nums font-bold text-amber-700">{fmtNum(remaining)}</td>
+                                <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-500 whitespace-nowrap">{l.ship_date ?? '–'}<span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500" title={`${bs.length} 批发运，${undelivered} 批未录送达日`}>{bs.length}批</span></td>
+                                <td className="py-1.5">
+                                  <div className="flex gap-1.5 justify-end items-center">
+                                    <input type="date" value={dateOf(lk)} max={today} onChange={e => setDate(lk, e.target.value)} className="lg-date" />
+                                    <button onClick={() => onShipRemaining(l, lk)} disabled={busy === lk} className="btn b-green whitespace-nowrap">{busy === lk ? '…' : `🚚 发余量 ${fmtNum(remaining)}`}</button>
+                                    <button onClick={() => onReopen(l.id, lk)} disabled={busy === lk} className="btn b-grey">↩ Reopen</button>
+                                  </div>
+                                </td>
+                              </tr>
+                              {lo && (
+                                <tr><td></td><td colSpan={7} className="py-2">
+                                  <BatchPanel batches={bs} lineQty={l.qty} busy={busy} today={today} onPatch={onPatchBatch} />
+                                  <LineNotes line={l} busy={busy} onSave={onSaveNotes} />
+                                </td></tr>
+                              )}
+                            </Fragment>
+                          )
+                        })}
+                      </tbody>
+                    </table>
                   </td>
                 </tr>
               )}
             </Fragment>
           )
         })}
-        {!rows.length && <tr><td colSpan={13} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '此阶段暂无记录 🎉'}</td></tr>}
+        {!groups.length && <tr><td colSpan={10} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '此阶段暂无记录 🎉'}</td></tr>}
       </tbody>
     </table>
   )
