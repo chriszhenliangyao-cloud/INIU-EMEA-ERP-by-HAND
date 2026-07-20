@@ -229,6 +229,18 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
 
   const aggTotal = sortedAgg.reduce((s, r) => s + r.qty, 0)
   const resetTable = () => { setTYear(thisYear); setTCountry('ALL'); setTMonth('ALL'); setTSku('ALL'); setTKa('ALL'); setTCat('ALL'); setTSearch('') }
+
+  // 导出聚合表：Month × PO（qty + turnover），沿用当前表格筛选
+  const exportAgg = () => {
+    if (!tableFiltered.length) return
+    const today = new Date().toISOString().slice(0, 10)
+    const blob = new Blob(['﻿' + buildAggXls(tableFiltered, plnToEur, today)], { type: 'application/vnd.ms-excel;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `PO by Month-${today.replace(/-/g, '')}.xls`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
   const toggleSort = (col: string) => { if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortCol(col); setSortDir('desc') } }
   // 展开：看该聚合行(月×SKU×KA)下的每一张 PO（含具体日期）
   const [expandedAgg, setExpandedAgg] = useState<Set<string>>(new Set())
@@ -378,7 +390,10 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
           <input value={tSearch} onChange={(e) => setTSearch(e.target.value)} placeholder="Search SKU / product / KA / PO..."
             className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-64" />
           <span className="text-xs text-gray-400">↓ pick filters directly in the column headers</span>
-          <button onClick={resetTable} className="ml-auto px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">Reset</button>
+          <button onClick={exportAgg} disabled={!tableFiltered.length}
+            className="ml-auto px-3 py-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="导出当前筛选结果：按月 × PO 汇总 qty 与 turnover">⬇️ Export Excel</button>
+          <button onClick={resetTable} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">Reset</button>
         </div>
         <div className="text-xs text-gray-500 mb-2">Showing <strong className="text-gray-900">{sortedAgg.length}</strong> rows · Total <strong className="text-gray-900">{fmtNum(aggTotal)}</strong> units</div>
         <div className="overflow-x-auto max-h-[640px] overflow-y-auto border border-gray-200 rounded-lg">
@@ -459,6 +474,82 @@ function KpiCard({ label, value, hint, color }: { label: string; value: string; 
       {hint && <div className="text-xs text-gray-400 mt-1.5 leading-snug line-clamp-2">{hint}</div>}
     </div>
   )
+}
+
+// ===== 聚合表导出：Month → PO → SKU 三层，PO 小计 + 每月小计 + 总计 =====
+// 口径与聚合表一致：用表格自身筛选后的 tableFiltered。
+function buildAggXls(src: FlatRow[], plnToEur: number, today: string): string {
+  type Line = { sku: string; product: string; qty: number; price: number | null; eur: number; orig: number; currency: string | null }
+  type PoAgg = { month: string; po: string; po_date: string; country: string; ka: string; qty: number; eur: number; orig: number; currency: string | null; lines: Map<string, Line> }
+  const map = new Map<string, PoAgg>()
+  src.forEach(r => {
+    const month = (r.po_date ?? '').slice(0, 7)
+    const po = r.po_number ?? '(no PO #)'
+    const key = `${month}|${po}`
+    const eur = toEUR(r.turnover, r.currency, plnToEur)
+    let p = map.get(key)
+    if (!p) {
+      p = { month, po, po_date: r.po_date, country: r.country_code, ka: r.ka_name ?? '-', qty: 0, eur: 0, orig: 0, currency: r.currency, lines: new Map() }
+      map.set(key, p)
+    }
+    p.qty += r.qty; p.eur += eur; p.orig += r.turnover ?? 0
+    if (r.po_date < p.po_date) p.po_date = r.po_date
+    if (!p.currency) p.currency = r.currency
+    // 同一 PO 内同 SKU 合并（可能拆多行）
+    const ex = p.lines.get(r.sku_code)
+    if (ex) { ex.qty += r.qty; ex.eur += eur; ex.orig += r.turnover ?? 0; if (ex.price == null) ex.price = r.fd_buying_price }
+    else p.lines.set(r.sku_code, { sku: r.sku_code, product: r.sku_name, qty: r.qty, price: r.fd_buying_price, eur, orig: r.turnover ?? 0, currency: r.currency })
+  })
+  // 月份倒序、月内按 turnover 降序
+  const list = Array.from(map.values()).sort((a, b) => b.month.localeCompare(a.month) || b.eur - a.eur)
+
+  const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const TXT = `mso-number-format:'\\@';`   // 强制文本，避免 Excel 把 2026-07 / PO 号识别成日期或数字
+  const NCOL = 12
+  const th = (t: string, right = false) => `<th style="background:#f1f5f9;border:1px solid #cbd5e1;padding:6px 8px;font-weight:600;text-align:${right ? 'right' : 'left'};">${t}</th>`
+  const td = (t: any, opt = '') => `<td style="border:1px solid #e2e8f0;padding:5px 8px;${opt}">${esc(t)}</td>`
+  const num = (n: number | null, dp = 0) => `<td style="border:1px solid #e2e8f0;padding:5px 8px;text-align:right;">${n == null ? '' : n.toFixed(dp)}</td>`
+  // 小计行：label 占前 7 列，然后 Qty / (空 price) / EUR / (空 currency) / orig
+  const totalRow = (label: string, qty: number, eur: number, orig: number, bg: string, bd: string, weight: number) => {
+    const cell = `border:1px solid ${bd};background:${bg};`
+    return `<tr><td colspan="7" style="${cell}padding:6px 8px;font-weight:${weight};">${esc(label)}</td>`
+      + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:${weight};">${qty}</td>`
+      + `<td style="${cell}"></td>`
+      + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:${weight};">${eur.toFixed(2)}</td>`
+      + `<td style="${cell}"></td>`
+      + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:${weight};">${orig.toFixed(2)}</td></tr>`
+  }
+
+  let html = `<table border="1"><tr>${th('Month')}${th('PO #')}${th('PO Date')}${th('Country')}${th('KA')}${th('SKU')}${th('Product')}${th('Qty', true)}${th('FD Price', true)}${th('Turnover (EUR)', true)}${th('Currency')}${th('Turnover (orig)', true)}</tr>`
+
+  let curMonth = ''
+  let mQty = 0, mEur = 0, mOrig = 0, mPos = 0
+  const flushMonth = () => {
+    if (!curMonth) return ''
+    const row = totalRow(`${curMonth} subtotal · ${mPos} POs`, mQty, mEur, mOrig, '#f1f5f9', '#cbd5e1', 700)
+    mQty = 0; mEur = 0; mOrig = 0; mPos = 0
+    return row
+  }
+
+  list.forEach(p => {
+    if (p.month !== curMonth) { html += flushMonth(); curMonth = p.month }
+    mQty += p.qty; mEur += p.eur; mOrig += p.orig; mPos++
+    // SKU 明细行（按数量降序）
+    Array.from(p.lines.values()).sort((a, b) => b.qty - a.qty).forEach(l => {
+      html += `<tr>${td(p.month, TXT)}${td(p.po, TXT)}${td(p.po_date, TXT)}${td(p.country)}${td(p.ka)}${td(l.sku, TXT)}${td(l.product)}`
+        + num(l.qty) + num(l.price, 2) + num(l.eur, 2) + td(l.currency ?? '') + num(l.orig, 2) + `</tr>`
+    })
+    // PO 小计
+    html += totalRow(`  ↳ ${p.po} total · ${p.lines.size} SKUs`, p.qty, p.eur, p.orig, '#f8fafc', '#e2e8f0', 600)
+  })
+  html += flushMonth()
+
+  const gQty = list.reduce((s, p) => s + p.qty, 0)
+  const gEur = list.reduce((s, p) => s + p.eur, 0)
+  const gOrig = list.reduce((s, p) => s + p.orig, 0)
+  html += totalRow(`TOTAL · ${list.length} POs`, gQty, gEur, gOrig, '#e2e8f0', '#94a3b8', 700)
+  html += `<tr><td colspan="${NCOL}" style="padding:6px 8px;color:#64748b;">Exported ${today} · Month → PO → SKU · EUR converted at PLN×${plnToEur.toFixed(4)}</td></tr>`
+  return html + `</table>`
 }
 
 function Pill({ children, active, onClick, amber }: { children: React.ReactNode; active: boolean; onClick: () => void; amber?: boolean }) {
