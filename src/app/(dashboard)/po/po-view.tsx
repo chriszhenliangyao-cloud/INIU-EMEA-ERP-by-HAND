@@ -415,7 +415,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
                 <FilterTh col="month" label="Month" sc={sortCol} sd={sortDir} on={toggleSort} value={tMonth} onPick={setTMonth} options={options.months} />
                 <FilterTh col="sku_code" label="SKU" sc={sortCol} sd={sortDir} on={toggleSort} value={tSku} onPick={setTSku} options={options.skus} />
                 <FilterTh col="sku_name" label="Product" sc={sortCol} sd={sortDir} on={toggleSort} />
-                <FilterTh col="ka_name" label="KA" sc={sortCol} sd={sortDir} on={toggleSort} value={tKa} onPick={setTKa} options={options.kas} />
+                <FilterTh col="ka_name" label="FD" sc={sortCol} sd={sortDir} on={toggleSort} value={tKa} onPick={setTKa} options={options.kas} />
                 <FilterTh col="qty" label="Qty" sc={sortCol} sd={sortDir} on={toggleSort} align="right" />
                 <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 whitespace-nowrap" title="FD buying price = turnover / qty (original currency, not converted)">FD Price</th>
                 <th className="px-4 py-2 align-top text-right text-xs font-semibold text-gray-600 whitespace-nowrap" title="Total Subtotal / turnover (original currency, as reported by the channel; EUR and PLN not mixed)">Turnover</th>
@@ -614,7 +614,7 @@ function byPoRows(src: FlatRow[], plnToEur: number, today: string): XRow[] {
 
   const rows: XRow[] = [[
     { v: 'Month', s: 'hdr' }, { v: 'PO #', s: 'hdr' }, { v: 'PO Date', s: 'hdr' }, { v: 'Country', s: 'hdr' },
-    { v: 'KA', s: 'hdr' }, { v: 'SKU', s: 'hdr' }, { v: 'Product', s: 'hdr' }, { v: 'Qty', s: 'hdr' },
+    { v: 'FD', s: 'hdr' }, { v: 'SKU', s: 'hdr' }, { v: 'Product', s: 'hdr' }, { v: 'Qty', s: 'hdr' },
     { v: 'FD Price', s: 'hdr' }, { v: 'Turnover (EUR)', s: 'hdr' }, { v: 'Currency', s: 'hdr' }, { v: 'Turnover (orig)', s: 'hdr' },
   ]]
   // 小计行：label 跨前 7 列，然后 Qty / (空 FD Price) / EUR / (空 Currency) / orig
