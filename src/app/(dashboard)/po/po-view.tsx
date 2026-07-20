@@ -117,6 +117,11 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
   }, [rows, dashExceptCountry])
 
   const countryCodes = Object.keys(countryMeta)
+  // Country 选择条：按 volume 降序（与月份 Pill 同口径，qty 来自 dashExceptCountry）
+  const countryByVolume = useMemo(
+    () => Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty),
+    [countryMeta]
+  )
   const currentCountryLabel = (() => {
     if (dCountry !== 'ALL') return countryMeta[dCountry]?.name ?? dCountry
     if (viewerIsAdmin) return 'EU'
@@ -252,9 +257,19 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5">
         <div className="flex gap-4 flex-wrap items-center mb-3">
           <Sel label="Year" value={dYear} onChange={setDYear} options={options.years} />
-          <Sel label="Country" value={dCountry} onChange={v => { setDCountry(v); setDKa('ALL') }} options={countryCodes} allLabel={viewerIsAdmin ? 'All EU' : 'All'} />
           <Sel label="KA" value={dKa} onChange={setDKa} options={kaOptionsTop} allLabel="All KAs" />
           <span className="ml-auto text-sm text-gray-500">Total <strong className="text-gray-900 tabular-nums">{fmtNum(stats.totalQty)}</strong> units · {fmtNum(stats.poCount)} POs</span>
+        </div>
+        {/* Country 选择条：按 volume 降序 */}
+        <div className="flex gap-2 flex-wrap mb-2.5">
+          <Pill active={dCountry === 'ALL'} onClick={() => { setDCountry('ALL'); setDKa('ALL') }}>
+            🌍 {viewerIsAdmin ? 'All EU' : 'All'} <B>{fmtNum(dashExceptCountry.reduce((s, r) => s + r.qty, 0))}</B>
+          </Pill>
+          {countryByVolume.map(([code, m]) => (
+            <Pill key={code} active={dCountry === code} onClick={() => { setDCountry(code); setDKa('ALL') }}>
+              {m.flag} {code} <B>{fmtNum(m.qty)}</B>
+            </Pill>
+          ))}
         </div>
         <div className="flex gap-2 flex-wrap">
           <Pill active={dMonth === 'ALL'} onClick={() => setDMonth('ALL')} amber>📅 All months <B>{fmtNum(dashExceptMonth.reduce((s, r) => s + r.qty, 0))}</B></Pill>
