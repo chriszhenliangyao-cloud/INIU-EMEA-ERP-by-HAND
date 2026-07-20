@@ -487,6 +487,64 @@ function KpiCard({ label, value, hint, color }: { label: string; value: string; 
   )
 }
 
+// 把多张 <table> 包成真正的多 sheet 工作簿（Excel 的 MSO HTML 工作簿格式）。
+// 注：Excel 支持；Numbers / LibreOffice 可能只认第一张表。
+function buildWorkbook(sheets: { name: string; table: string }[]): string {
+  const decls = sheets.map(s =>
+    `<x:ExcelWorksheet><x:Name>${s.name}</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet>`
+  ).join('')
+  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">`
+    + `<head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>${decls}`
+    + `</x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body>`
+    + sheets.map(s => s.table).join('<br style="mso-data-placement:same-cell;">')
+    + `</body></html>`
+}
+
+// ===== Sheet 2：Country × Month × SKU —— 跨所有 PO 的合计 qty / turnover（扁平，便于自行透视）=====
+function buildCountrySkuTable(src: FlatRow[], plnToEur: number): string {
+  type Agg = { country: string; flag: string; month: string; sku: string; product: string; category: string | null; qty: number; eur: number; orig: number; currency: string | null; pos: Set<string> }
+  const map = new Map<string, Agg>()
+  src.forEach(r => {
+    const month = (r.po_date ?? '').slice(0, 7)
+    const key = `${r.country_code}|${month}|${r.sku_code}`
+    const eur = toEUR(r.turnover, r.currency, plnToEur)
+    const ex = map.get(key)
+    if (ex) {
+      ex.qty += r.qty; ex.eur += eur; ex.orig += r.turnover ?? 0
+      if (r.po_number) ex.pos.add(r.po_number)
+      if (!ex.currency) ex.currency = r.currency
+    } else {
+      map.set(key, { country: r.country_code, flag: r.country_flag, month, sku: r.sku_code, product: r.sku_name, category: r.sku_category, qty: r.qty, eur, orig: r.turnover ?? 0, currency: r.currency, pos: new Set(r.po_number ? [r.po_number] : []) })
+    }
+  })
+  // 国家 A→Z，月份倒序，月内按数量降序
+  const list = Array.from(map.values()).sort((a, b) =>
+    a.country.localeCompare(b.country) || b.month.localeCompare(a.month) || b.qty - a.qty)
+
+  const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const TXT = `mso-number-format:'\\@';`
+  const th = (t: string, right = false) => `<th style="background:#f1f5f9;border:1px solid #cbd5e1;padding:6px 8px;font-weight:600;text-align:${right ? 'right' : 'left'};">${t}</th>`
+  const td = (t: any, opt = '') => `<td style="border:1px solid #e2e8f0;padding:5px 8px;${opt}">${esc(t)}</td>`
+  const num = (n: number | null, dp = 0) => `<td style="border:1px solid #e2e8f0;padding:5px 8px;text-align:right;">${n == null ? '' : n.toFixed(dp)}</td>`
+
+  let html = `<table border="1"><tr>${th('Country')}${th('Month')}${th('SKU')}${th('Product')}${th('Category')}${th('Qty', true)}${th('Turnover (EUR)', true)}${th('Currency')}${th('Turnover (orig)', true)}${th('POs', true)}</tr>`
+  list.forEach(a => {
+    html += `<tr>${td(a.country, TXT)}${td(a.month, TXT)}${td(a.sku, TXT)}${td(a.product)}${td(a.category ?? '')}`
+      + num(a.qty) + num(a.eur, 2) + td(a.currency ?? '') + num(a.orig, 2) + num(a.pos.size) + `</tr>`
+  })
+  const gQty = list.reduce((s, a) => s + a.qty, 0)
+  const gEur = list.reduce((s, a) => s + a.eur, 0)
+  const gOrig = list.reduce((s, a) => s + a.orig, 0)
+  const cell = `border:1px solid #94a3b8;background:#e2e8f0;`
+  html += `<tr><td colspan="5" style="${cell}padding:6px 8px;font-weight:700;">TOTAL · ${list.length} rows</td>`
+    + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:700;">${gQty}</td>`
+    + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:700;">${gEur.toFixed(2)}</td>`
+    + `<td style="${cell}"></td>`
+    + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:700;">${gOrig.toFixed(2)}</td>`
+    + `<td style="${cell}"></td></tr>`
+  return html + `</table>`
+}
+
 // ===== 聚合表导出：Month → PO → SKU 三层，PO 小计 + 每月小计 + 总计 =====
 // 口径与聚合表一致：用表格自身筛选后的 tableFiltered。
 function buildAggXls(src: FlatRow[], plnToEur: number, today: string): string {
@@ -560,7 +618,12 @@ function buildAggXls(src: FlatRow[], plnToEur: number, today: string): string {
   const gOrig = list.reduce((s, p) => s + p.orig, 0)
   html += totalRow(`TOTAL · ${list.length} POs`, gQty, gEur, gOrig, '#e2e8f0', '#94a3b8', 700)
   html += `<tr><td colspan="${NCOL}" style="padding:6px 8px;color:#64748b;">Exported ${today} · Month → PO → SKU · EUR converted at PLN×${plnToEur.toFixed(4)}</td></tr>`
-  return html + `</table>`
+  html += `</table>`
+
+  return buildWorkbook([
+    { name: 'By PO', table: html },
+    { name: 'By Country-SKU', table: buildCountrySkuTable(src, plnToEur) },
+  ])
 }
 
 function Pill({ children, active, onClick, amber }: { children: React.ReactNode; active: boolean; onClick: () => void; amber?: boolean }) {
