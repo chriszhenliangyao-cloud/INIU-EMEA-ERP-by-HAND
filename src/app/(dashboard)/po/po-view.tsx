@@ -53,6 +53,7 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
   const [monthMetric, setMonthMetric] = useState<'volume' | 'value'>('volume')
   const [rankMetric, setRankMetric] = useState<'volume' | 'value'>('volume')
   const [skuMetric, setSkuMetric] = useState<'volume' | 'value'>('volume')
+  const [countryMetric, setCountryMetric] = useState<'volume' | 'value'>('volume')
 
   // ===== aggregation table filters (independent — only control the detail table) =====
   const [tYear, setTYear] = useState<string>(thisYear)
@@ -110,17 +111,21 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
   }), [rows])
 
   const countryMeta = useMemo(() => {
-    const map: Record<string, { flag: string; name: string; qty: number }> = {}
-    rows.forEach(r => { if (!map[r.country_code]) map[r.country_code] = { flag: r.country_flag, name: r.country_name, qty: 0 } })
-    dashExceptCountry.forEach(r => { if (map[r.country_code]) map[r.country_code].qty += r.qty })
+    const map: Record<string, { flag: string; name: string; qty: number; eur: number }> = {}
+    rows.forEach(r => { if (!map[r.country_code]) map[r.country_code] = { flag: r.country_flag, name: r.country_name, qty: 0, eur: 0 } })
+    dashExceptCountry.forEach(r => {
+      const m = map[r.country_code]
+      if (m) { m.qty += r.qty; m.eur += toEUR(r.turnover, r.currency, plnToEur) }
+    })
     return map
-  }, [rows, dashExceptCountry])
+  }, [rows, dashExceptCountry, plnToEur])
 
   const countryCodes = Object.keys(countryMeta)
-  // Country 选择条：按 volume 降序（与月份 Pill 同口径，qty 来自 dashExceptCountry）
+  // Country 选择条：按所选口径降序（与月份 Pill 同口径，数据来自 dashExceptCountry）
   const countryByVolume = useMemo(
-    () => Object.entries(countryMeta).sort((a, b) => b[1].qty - a[1].qty),
-    [countryMeta]
+    () => Object.entries(countryMeta).sort((a, b) =>
+      countryMetric === 'value' ? b[1].eur - a[1].eur : b[1].qty - a[1].qty),
+    [countryMeta, countryMetric]
   )
   const currentCountryLabel = (() => {
     if (dCountry !== 'ALL') return countryMeta[dCountry]?.name ?? dCountry
@@ -272,16 +277,22 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
           <Sel label="KA" value={dKa} onChange={setDKa} options={kaOptionsTop} allLabel="All KAs" />
           <span className="ml-auto text-sm text-gray-500">Total <strong className="text-gray-900 tabular-nums">{fmtNum(stats.totalQty)}</strong> units · {fmtNum(stats.poCount)} POs</span>
         </div>
-        {/* Country 选择条：按 volume 降序 */}
-        <div className="flex gap-2 flex-wrap mb-2.5">
+        {/* Country 选择条：按所选口径（Volume / Value）降序 */}
+        <div className="flex gap-2 flex-wrap items-center mb-2.5">
           <Pill active={dCountry === 'ALL'} onClick={() => { setDCountry('ALL'); setDKa('ALL') }}>
-            🌍 {viewerIsAdmin ? 'All EU' : 'All'} <B>{fmtNum(dashExceptCountry.reduce((s, r) => s + r.qty, 0))}</B>
+            🌍 {viewerIsAdmin ? 'All EU' : 'All'} <B>{countryMetric === 'value'
+              ? '€' + fmtNum(Math.round(Object.values(countryMeta).reduce((s, m) => s + m.eur, 0)))
+              : fmtNum(dashExceptCountry.reduce((s, r) => s + r.qty, 0))}</B>
           </Pill>
           {countryByVolume.map(([code, m]) => (
             <Pill key={code} active={dCountry === code} onClick={() => { setDCountry(code); setDKa('ALL') }}>
-              {m.flag} {code} <B>{fmtNum(m.qty)}</B>
+              {m.flag} {code} <B>{countryMetric === 'value' ? '€' + fmtNum(Math.round(m.eur)) : fmtNum(m.qty)}</B>
             </Pill>
           ))}
+          <span className="ml-auto flex items-center gap-2">
+            {countryMetric === 'value' && <span className="text-[11px] text-gray-400">€ · PLN×{plnToEur.toFixed(4)}</span>}
+            {metricTag(countryMetric, setCountryMetric)}
+          </span>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Pill active={dMonth === 'ALL'} onClick={() => setDMonth('ALL')} amber>📅 All months <B>{fmtNum(dashExceptMonth.reduce((s, r) => s + r.qty, 0))}</B></Pill>
