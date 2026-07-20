@@ -239,7 +239,8 @@ export function PoView({ rows, viewerIsAdmin, viewerName, marketCount, plnToEur 
   const exportAgg = () => {
     if (!tableFiltered.length) return
     const today = new Date().toISOString().slice(0, 10)
-    const blob = new Blob(['﻿' + buildAggXls(tableFiltered, plnToEur, today)], { type: 'application/vnd.ms-excel;charset=utf-8' })
+    // SpreadsheetML 2003：纯 XML，不能加 BOM（会破坏 <?xml ?> 解析）
+    const blob = new Blob([buildAggXls(tableFiltered, plnToEur, today)], { type: 'application/vnd.ms-excel;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url; a.download = `PO by Month-${today.replace(/-/g, '')}.xls`
@@ -487,22 +488,64 @@ function KpiCard({ label, value, hint, color }: { label: string; value: string; 
   )
 }
 
-// 把多张 <table> 包成真正的多 sheet 工作簿（Excel 的 MSO HTML 工作簿格式）。
-// 注：Excel 支持；Numbers / LibreOffice 可能只认第一张表。
-function buildWorkbook(sheets: { name: string; table: string }[]): string {
-  const decls = sheets.map(s =>
-    `<x:ExcelWorksheet><x:Name>${s.name}</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet>`
-  ).join('')
-  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">`
-    + `<head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>${decls}`
-    + `</x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body>`
-    + sheets.map(s => s.table).join('<br style="mso-data-placement:same-cell;">')
-    + `</body></html>`
+// ===== 导出工作簿：SpreadsheetML 2003（单个 XML，原生多 Worksheet，零依赖）=====
+// 之前用 MSO HTML 的多 <table> 方案：tab 能建出来，但内容全落在第一张 sheet，第二张是空白。
+type XCell = { v: string | number | null; num?: boolean; s?: string; span?: number }
+type XRow = XCell[]
+
+const xesc = (s: any) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+function xmlSheet(name: string, rows: XRow[], widths: number[]): string {
+  const cols = widths.map(w => `<Column ss:Width="${w}"/>`).join('')
+  const body = rows.map(r => {
+    const cells = r.map(c => {
+      const span = c.span && c.span > 1 ? ` ss:MergeAcross="${c.span - 1}"` : ''
+      const style = c.s ? ` ss:StyleID="${c.s}"` : ''
+      if (c.v === null || c.v === '') return `<Cell${style}${span}/>`
+      const t = c.num ? 'Number' : 'String'
+      return `<Cell${style}${span}><Data ss:Type="${t}">${xesc(c.v)}</Data></Cell>`
+    }).join('')
+    return `<Row>${cells}</Row>`
+  }).join('')
+  // sheet 名不能含 : \ / ? * [ ]
+  const safe = xesc(name.replace(/[:\\/?*[\]]/g, '-')).slice(0, 31)
+  return `<Worksheet ss:Name="${safe}"><Table>${cols}${body}</Table>`
+    + `<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><SplitHorizontal>1</SplitHorizontal>`
+    + `<TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions></Worksheet>`
+}
+
+function buildWorkbook(sheets: { name: string; rows: XRow[]; widths: number[] }[]): string {
+  const styles = `<Styles>`
+    + `<Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Bottom"/><Font ss:FontName="Calibri" ss:Size="11"/></Style>`
+    + `<Style ss:ID="hdr"><Font ss:Bold="1"/><Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>`
+    + `<Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/></Borders></Style>`
+    + `<Style ss:ID="n0"><NumberFormat ss:Format="#,##0"/></Style>`
+    + `<Style ss:ID="n2"><NumberFormat ss:Format="#,##0.00"/></Style>`
+    + `<Style ss:ID="sub"><Font ss:Bold="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/></Style>`
+    + `<Style ss:ID="sub0"><Font ss:Bold="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0"/></Style>`
+    + `<Style ss:ID="sub2"><Font ss:Bold="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>`
+    + `<Style ss:ID="mon"><Font ss:Bold="1"/><Interior ss:Color="#E2E8F0" ss:Pattern="Solid"/></Style>`
+    + `<Style ss:ID="mon0"><Font ss:Bold="1"/><Interior ss:Color="#E2E8F0" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0"/></Style>`
+    + `<Style ss:ID="mon2"><Font ss:Bold="1"/><Interior ss:Color="#E2E8F0" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>`
+    + `<Style ss:ID="tot"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#475569" ss:Pattern="Solid"/></Style>`
+    + `<Style ss:ID="tot0"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#475569" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0"/></Style>`
+    + `<Style ss:ID="tot2"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#475569" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>`
+    + `<Style ss:ID="note"><Font ss:Italic="1" ss:Color="#64748B"/></Style>`
+    + `</Styles>`
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n`
+    + `<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"`
+    + ` xmlns:o="urn:schemas-microsoft-com:office:office"`
+    + ` xmlns:x="urn:schemas-microsoft-com:office:excel"`
+    + ` xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">`
+    + styles
+    + sheets.map(s => xmlSheet(s.name, s.rows, s.widths)).join('')
+    + `</Workbook>`
 }
 
 // ===== Sheet 2：Country × Month × SKU —— 跨所有 PO 的合计 qty / turnover（扁平，便于自行透视）=====
-function buildCountrySkuTable(src: FlatRow[], plnToEur: number): string {
-  type Agg = { country: string; flag: string; month: string; sku: string; product: string; category: string | null; qty: number; eur: number; orig: number; currency: string | null; pos: Set<string> }
+function countrySkuRows(src: FlatRow[], plnToEur: number): XRow[] {
+  type Agg = { country: string; month: string; sku: string; product: string; category: string | null; qty: number; eur: number; orig: number; currency: string | null; pos: Set<string> }
   const map = new Map<string, Agg>()
   src.forEach(r => {
     const month = (r.po_date ?? '').slice(0, 7)
@@ -514,40 +557,37 @@ function buildCountrySkuTable(src: FlatRow[], plnToEur: number): string {
       if (r.po_number) ex.pos.add(r.po_number)
       if (!ex.currency) ex.currency = r.currency
     } else {
-      map.set(key, { country: r.country_code, flag: r.country_flag, month, sku: r.sku_code, product: r.sku_name, category: r.sku_category, qty: r.qty, eur, orig: r.turnover ?? 0, currency: r.currency, pos: new Set(r.po_number ? [r.po_number] : []) })
+      map.set(key, { country: r.country_code, month, sku: r.sku_code, product: r.sku_name, category: r.sku_category, qty: r.qty, eur, orig: r.turnover ?? 0, currency: r.currency, pos: new Set(r.po_number ? [r.po_number] : []) })
     }
   })
   // 国家 A→Z，月份倒序，月内按数量降序
   const list = Array.from(map.values()).sort((a, b) =>
     a.country.localeCompare(b.country) || b.month.localeCompare(a.month) || b.qty - a.qty)
 
-  const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const TXT = `mso-number-format:'\\@';`
-  const th = (t: string, right = false) => `<th style="background:#f1f5f9;border:1px solid #cbd5e1;padding:6px 8px;font-weight:600;text-align:${right ? 'right' : 'left'};">${t}</th>`
-  const td = (t: any, opt = '') => `<td style="border:1px solid #e2e8f0;padding:5px 8px;${opt}">${esc(t)}</td>`
-  const num = (n: number | null, dp = 0) => `<td style="border:1px solid #e2e8f0;padding:5px 8px;text-align:right;">${n == null ? '' : n.toFixed(dp)}</td>`
-
-  let html = `<table border="1"><tr>${th('Country')}${th('Month')}${th('SKU')}${th('Product')}${th('Category')}${th('Qty', true)}${th('Turnover (EUR)', true)}${th('Currency')}${th('Turnover (orig)', true)}${th('POs', true)}</tr>`
-  list.forEach(a => {
-    html += `<tr>${td(a.country, TXT)}${td(a.month, TXT)}${td(a.sku, TXT)}${td(a.product)}${td(a.category ?? '')}`
-      + num(a.qty) + num(a.eur, 2) + td(a.currency ?? '') + num(a.orig, 2) + num(a.pos.size) + `</tr>`
-  })
+  const rows: XRow[] = [[
+    { v: 'Country', s: 'hdr' }, { v: 'Month', s: 'hdr' }, { v: 'SKU', s: 'hdr' }, { v: 'Product', s: 'hdr' },
+    { v: 'Category', s: 'hdr' }, { v: 'Qty', s: 'hdr' }, { v: 'Turnover (EUR)', s: 'hdr' },
+    { v: 'Currency', s: 'hdr' }, { v: 'Turnover (orig)', s: 'hdr' }, { v: 'POs', s: 'hdr' },
+  ]]
+  list.forEach(a => rows.push([
+    { v: a.country }, { v: a.month }, { v: a.sku }, { v: a.product }, { v: a.category ?? '' },
+    { v: a.qty, num: true, s: 'n0' }, { v: Number(a.eur.toFixed(2)), num: true, s: 'n2' },
+    { v: a.currency ?? '' }, { v: Number(a.orig.toFixed(2)), num: true, s: 'n2' },
+    { v: a.pos.size, num: true, s: 'n0' },
+  ]))
   const gQty = list.reduce((s, a) => s + a.qty, 0)
   const gEur = list.reduce((s, a) => s + a.eur, 0)
   const gOrig = list.reduce((s, a) => s + a.orig, 0)
-  const cell = `border:1px solid #94a3b8;background:#e2e8f0;`
-  html += `<tr><td colspan="5" style="${cell}padding:6px 8px;font-weight:700;">TOTAL · ${list.length} rows</td>`
-    + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:700;">${gQty}</td>`
-    + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:700;">${gEur.toFixed(2)}</td>`
-    + `<td style="${cell}"></td>`
-    + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:700;">${gOrig.toFixed(2)}</td>`
-    + `<td style="${cell}"></td></tr>`
-  return html + `</table>`
+  rows.push([
+    { v: `TOTAL · ${list.length} rows`, s: 'tot', span: 5 },
+    { v: gQty, num: true, s: 'tot0' }, { v: Number(gEur.toFixed(2)), num: true, s: 'tot2' },
+    { v: '', s: 'tot' }, { v: Number(gOrig.toFixed(2)), num: true, s: 'tot2' }, { v: '', s: 'tot' },
+  ])
+  return rows
 }
 
-// ===== 聚合表导出：Month → PO → SKU 三层，PO 小计 + 每月小计 + 总计 =====
-// 口径与聚合表一致：用表格自身筛选后的 tableFiltered。
-function buildAggXls(src: FlatRow[], plnToEur: number, today: string): string {
+// ===== Sheet 1：Month → PO → SKU 三层，PO 小计 + 每月小计 + 总计 =====
+function byPoRows(src: FlatRow[], plnToEur: number, today: string): XRow[] {
   type Line = { sku: string; product: string; qty: number; price: number | null; eur: number; orig: number; currency: string | null }
   type PoAgg = { month: string; po: string; po_date: string; country: string; ka: string; qty: number; eur: number; orig: number; currency: string | null; lines: Map<string, Line> }
   const map = new Map<string, PoAgg>()
@@ -572,57 +612,56 @@ function buildAggXls(src: FlatRow[], plnToEur: number, today: string): string {
   // 月份倒序、月内按 turnover 降序
   const list = Array.from(map.values()).sort((a, b) => b.month.localeCompare(a.month) || b.eur - a.eur)
 
-  const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const TXT = `mso-number-format:'\\@';`   // 强制文本，避免 Excel 把 2026-07 / PO 号识别成日期或数字
-  const NCOL = 12
-  const th = (t: string, right = false) => `<th style="background:#f1f5f9;border:1px solid #cbd5e1;padding:6px 8px;font-weight:600;text-align:${right ? 'right' : 'left'};">${t}</th>`
-  const td = (t: any, opt = '') => `<td style="border:1px solid #e2e8f0;padding:5px 8px;${opt}">${esc(t)}</td>`
-  const num = (n: number | null, dp = 0) => `<td style="border:1px solid #e2e8f0;padding:5px 8px;text-align:right;">${n == null ? '' : n.toFixed(dp)}</td>`
-  // 小计行：label 占前 7 列，然后 Qty / (空 price) / EUR / (空 currency) / orig
-  const totalRow = (label: string, qty: number, eur: number, orig: number, bg: string, bd: string, weight: number) => {
-    const cell = `border:1px solid ${bd};background:${bg};`
-    return `<tr><td colspan="7" style="${cell}padding:6px 8px;font-weight:${weight};">${esc(label)}</td>`
-      + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:${weight};">${qty}</td>`
-      + `<td style="${cell}"></td>`
-      + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:${weight};">${eur.toFixed(2)}</td>`
-      + `<td style="${cell}"></td>`
-      + `<td style="${cell}padding:6px 8px;text-align:right;font-weight:${weight};">${orig.toFixed(2)}</td></tr>`
-  }
-
-  let html = `<table border="1"><tr>${th('Month')}${th('PO #')}${th('PO Date')}${th('Country')}${th('KA')}${th('SKU')}${th('Product')}${th('Qty', true)}${th('FD Price', true)}${th('Turnover (EUR)', true)}${th('Currency')}${th('Turnover (orig)', true)}</tr>`
+  const rows: XRow[] = [[
+    { v: 'Month', s: 'hdr' }, { v: 'PO #', s: 'hdr' }, { v: 'PO Date', s: 'hdr' }, { v: 'Country', s: 'hdr' },
+    { v: 'KA', s: 'hdr' }, { v: 'SKU', s: 'hdr' }, { v: 'Product', s: 'hdr' }, { v: 'Qty', s: 'hdr' },
+    { v: 'FD Price', s: 'hdr' }, { v: 'Turnover (EUR)', s: 'hdr' }, { v: 'Currency', s: 'hdr' }, { v: 'Turnover (orig)', s: 'hdr' },
+  ]]
+  // 小计行：label 跨前 7 列，然后 Qty / (空 FD Price) / EUR / (空 Currency) / orig
+  const totalRow = (label: string, qty: number, eur: number, orig: number, base: string): XRow => ([
+    { v: label, s: base, span: 7 },
+    { v: qty, num: true, s: base + '0' }, { v: '', s: base },
+    { v: Number(eur.toFixed(2)), num: true, s: base + '2' }, { v: '', s: base },
+    { v: Number(orig.toFixed(2)), num: true, s: base + '2' },
+  ])
 
   let curMonth = ''
   let mQty = 0, mEur = 0, mOrig = 0, mPos = 0
   const flushMonth = () => {
-    if (!curMonth) return ''
-    const row = totalRow(`${curMonth} subtotal · ${mPos} POs`, mQty, mEur, mOrig, '#f1f5f9', '#cbd5e1', 700)
+    if (!curMonth) return
+    rows.push(totalRow(`${curMonth} subtotal · ${mPos} POs`, mQty, mEur, mOrig, 'mon'))
     mQty = 0; mEur = 0; mOrig = 0; mPos = 0
-    return row
   }
 
   list.forEach(p => {
-    if (p.month !== curMonth) { html += flushMonth(); curMonth = p.month }
+    if (p.month !== curMonth) { flushMonth(); curMonth = p.month }
     mQty += p.qty; mEur += p.eur; mOrig += p.orig; mPos++
     // SKU 明细行（按数量降序）
-    Array.from(p.lines.values()).sort((a, b) => b.qty - a.qty).forEach(l => {
-      html += `<tr>${td(p.month, TXT)}${td(p.po, TXT)}${td(p.po_date, TXT)}${td(p.country)}${td(p.ka)}${td(l.sku, TXT)}${td(l.product)}`
-        + num(l.qty) + num(l.price, 2) + num(l.eur, 2) + td(l.currency ?? '') + num(l.orig, 2) + `</tr>`
-    })
-    // PO 小计
-    html += totalRow(`  ↳ ${p.po} total · ${p.lines.size} SKUs`, p.qty, p.eur, p.orig, '#f8fafc', '#e2e8f0', 600)
+    Array.from(p.lines.values()).sort((a, b) => b.qty - a.qty).forEach(l => rows.push([
+      { v: p.month }, { v: p.po }, { v: p.po_date }, { v: p.country }, { v: p.ka },
+      { v: l.sku }, { v: l.product },
+      { v: l.qty, num: true, s: 'n0' },
+      l.price == null ? { v: '' } : { v: Number(l.price.toFixed(2)), num: true, s: 'n2' },
+      { v: Number(l.eur.toFixed(2)), num: true, s: 'n2' },
+      { v: l.currency ?? '' },
+      { v: Number(l.orig.toFixed(2)), num: true, s: 'n2' },
+    ]))
+    rows.push(totalRow(`  ↳ ${p.po} total · ${p.lines.size} SKUs`, p.qty, p.eur, p.orig, 'sub'))
   })
-  html += flushMonth()
+  flushMonth()
 
   const gQty = list.reduce((s, p) => s + p.qty, 0)
   const gEur = list.reduce((s, p) => s + p.eur, 0)
   const gOrig = list.reduce((s, p) => s + p.orig, 0)
-  html += totalRow(`TOTAL · ${list.length} POs`, gQty, gEur, gOrig, '#e2e8f0', '#94a3b8', 700)
-  html += `<tr><td colspan="${NCOL}" style="padding:6px 8px;color:#64748b;">Exported ${today} · Month → PO → SKU · EUR converted at PLN×${plnToEur.toFixed(4)}</td></tr>`
-  html += `</table>`
+  rows.push(totalRow(`TOTAL · ${list.length} POs`, gQty, gEur, gOrig, 'tot'))
+  rows.push([{ v: `Exported ${today} · Month → PO → SKU · EUR converted at PLN×${plnToEur.toFixed(4)}`, s: 'note', span: 12 }])
+  return rows
+}
 
+function buildAggXls(src: FlatRow[], plnToEur: number, today: string): string {
   return buildWorkbook([
-    { name: 'By PO', table: html },
-    { name: 'By Country-SKU', table: buildCountrySkuTable(src, plnToEur) },
+    { name: 'By PO', rows: byPoRows(src, plnToEur, today), widths: [55, 130, 65, 50, 70, 90, 190, 55, 60, 90, 55, 90] },
+    { name: 'By Country-SKU', rows: countrySkuRows(src, plnToEur), widths: [55, 55, 90, 190, 70, 55, 90, 55, 90, 40] },
   ])
 }
 
