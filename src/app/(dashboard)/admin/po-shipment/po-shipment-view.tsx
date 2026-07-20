@@ -98,12 +98,21 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
     if (!Number.isFinite(n) || n <= 0 || n >= l.qty) { alert(`请输入 1 到 ${l.qty - 1} 之间的数量（整单发完请用 Mark shipped）。`); return }
     addBatches([{ po_id: l.id, qty: n, ship_date: dateOf(key) }], key)
   }
+  // 发完全部剩余量 → 该行结清，自动归 Shipped
   const shipRemaining = (l: OpsRow, key: string) => {
     const remaining = l.qty - (l.delivered_qty ?? 0)
-    const input = prompt(`发运尾单 — 本次发货数量（剩余 ${remaining}）：`, String(remaining))
+    if (remaining <= 0) { alert('这一行已全部发完。'); return }
+    if (!confirm(`把 ${l.sku_code} 的全部剩余量 ${remaining} 在 ${dateOf(key)} 发出？\n发完该行将结清并归入 Shipped。`)) return
+    addBatches([{ po_id: l.id, qty: remaining, ship_date: dateOf(key) }], key)
+  }
+  // 再发一批但不发完 → 仍留在 Partial 继续跟
+  const partialRemaining = (l: OpsRow, key: string) => {
+    const remaining = l.qty - (l.delivered_qty ?? 0)
+    if (remaining <= 1) { alert(`剩余仅 ${remaining}，请直接用「发余量」发完。`); return }
+    const input = prompt(`部分发货 — 本次发货数量（剩余 ${remaining}，需小于 ${remaining}）：`, '')
     if (input == null) return
     const n = Math.floor(Number(input))
-    if (!Number.isFinite(n) || n <= 0 || n > remaining) { alert(`请输入 1 到 ${remaining} 之间的数量。`); return }
+    if (!Number.isFinite(n) || n <= 0 || n >= remaining) { alert(`请输入 1 到 ${remaining - 1} 之间的数量（要发完请用「发余量」）。`); return }
     addBatches([{ po_id: l.id, qty: n, ship_date: dateOf(key) }], key)
   }
   // 退回待发：删掉全部批次（触发器把父行日期/已发量清空），并清掉状态标签
@@ -207,7 +216,7 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
               {grouped && <GroupedTable stage={active} meta={m} rows={list} open={open} toggle={toggle} busy={busy} dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today}
                 onConfirm={confirmPo} onCancel={cancelPo} onShip={markShipped} onPartial={markPartial} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'partial' && <PartialGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
-                dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipGroup={markShipped} onShipRemaining={shipRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
+                dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipGroup={markShipped} onShipRemaining={shipRemaining} onPartialRemaining={partialRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
                 onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} onDeliverGroup={deliverGroup} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
@@ -366,11 +375,12 @@ function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, 
 
 // ===== Shipped / Partial：逐 SKU 行，展开看批次并逐批录送达日 =====
 // ===== Partial：按 PO # 归并。主行可「整单发余量」，展开逐 SKU 单发 / 逐批录送达日 =====
-function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, dateOf, setDate, today, onShipGroup, onShipRemaining, onReopen, onPatchBatch, onSaveNotes, poSearch, docCounts, onDocs }: {
+function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, dateOf, setDate, today, onShipGroup, onShipRemaining, onPartialRemaining, onReopen, onPatchBatch, onSaveNotes, poSearch, docCounts, onDocs }: {
   meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; busy: string | null
   dateOf: (k: string) => string; setDate: (k: string, v: string) => void; today: string
   onShipGroup: (lines: OpsRow[], key: string) => void
-  onShipRemaining: (l: OpsRow, key: string) => void; onReopen: (id: number, key: string) => void
+  onShipRemaining: (l: OpsRow, key: string) => void; onPartialRemaining: (l: OpsRow, key: string) => void
+  onReopen: (id: number, key: string) => void
   onPatchBatch: (batchId: number, patch: Record<string, any>, key: string) => void
   onSaveNotes: (id: number, notes: string, key: string) => void; poSearch: string
   docCounts: Record<string, number>; onDocs: (po: string) => void
@@ -445,7 +455,8 @@ function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, date
                                 <td className="py-1.5">
                                   <div className="flex gap-1.5 justify-end items-center">
                                     <input type="date" value={dateOf(lk)} max={today} onChange={e => setDate(lk, e.target.value)} className="lg-date" />
-                                    <button onClick={() => onShipRemaining(l, lk)} disabled={busy === lk} className="btn b-green whitespace-nowrap">{busy === lk ? '…' : `🚚 发余量 ${fmtNum(remaining)}`}</button>
+                                    <button onClick={() => onShipRemaining(l, lk)} disabled={busy === lk} className="btn b-green whitespace-nowrap" title="把剩余量一次发完，该行结清并归入 Shipped">{busy === lk ? '…' : `🚚 发余量 ${fmtNum(remaining)}`}</button>
+                                    <button onClick={() => onPartialRemaining(l, lk)} disabled={busy === lk || remaining <= 1} className="btn b-blue" title="再发一批但不发完，剩余量继续留在 Partial">Partial</button>
                                     <button onClick={() => onReopen(l.id, lk)} disabled={busy === lk} className="btn b-grey">↩ Reopen</button>
                                   </div>
                                 </td>
