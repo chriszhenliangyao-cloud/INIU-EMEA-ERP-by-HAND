@@ -817,7 +817,7 @@ function buildXlsHtml(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: s
   const head =
     `<tr>${fixedCols.map(h => `<th rowspan="2" style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">${esc(h)}</th>`).join('')}` +
     batchGroupTh +
-    `<th rowspan="2" style="background:#b45309;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">Backorder ETA (fill in)</th>` +
+    `<th rowspan="2" style="background:#b45309;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">Second Batch ETA (fill in)</th>` +
     `<th rowspan="2" style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">Notes</th></tr>` +
     `<tr>${batchSubTh}</tr>`
 
