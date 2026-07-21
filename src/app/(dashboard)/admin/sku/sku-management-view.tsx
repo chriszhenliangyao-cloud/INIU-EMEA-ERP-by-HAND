@@ -60,8 +60,9 @@ const WH_FULL: Record<string, string> = {
 type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number }
 
 type Warehouse = { name: string; location: string }
-export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses, stockAsOf }: {
+export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, warehouses, stockAsOf }: {
   allSkus: Sku[]; viewerName: string
+  canEdit: boolean                       // admin 才为 true；false = 销售只读，隐藏全部写操作
   stockBySku: Record<number, Record<string, number>>
   warehouses: Warehouse[]
   stockAsOf: string
@@ -172,13 +173,15 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
             ⚙️ SKU Master Data
-            <span className="text-base text-gray-500 ml-2 font-normal">· Admin only</span>
+            {canEdit
+              ? <span className="text-base text-gray-500 ml-2 font-normal">· Admin only</span>
+              : <span className="ml-2 align-middle text-xs font-medium text-gray-500 bg-gray-100 border border-gray-200 px-2 py-1 rounded-full">👁 Read-only</span>}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             Signed in as <span className="text-purple-600 font-medium">🌍 {viewerName}</span>
             {' · '}<span className="text-green-600 font-medium">{activeCount} active</span>
             {' · '}<span className="text-gray-400">{inactiveCount} inactive</span>
-            {' · '}All changes auto-logged
+            {canEdit ? ' · All changes auto-logged' : ' · 主数据由 HQ 维护，如需修改请联系 HQ'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -221,12 +224,14 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
           Showing <strong>{filteredSkus.length}</strong> of {allSkus.length}
         </div>
 
-        <button
-          onClick={() => setAddOpen(true)}
-          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl shadow-sm hover:bg-blue-700 active:scale-[0.98] transition flex items-center gap-1.5"
-        >
-          <span>+</span> Add SKU
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setAddOpen(true)}
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl shadow-sm hover:bg-blue-700 active:scale-[0.98] transition flex items-center gap-1.5"
+          >
+            <span>+</span> Add SKU
+          </button>
+        )}
       </div>
 
       {/* 主表 */}
@@ -248,12 +253,12 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                 ))}
                 <th title="Total on hand — all warehouses" className="sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-bold text-gray-700 bg-[#eef2f7] border-b border-black/[0.06]">Total</th>
                 <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Sort</th>
-                <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Edit</th>
+                {canEdit && <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Edit</th>}
               </tr>
             </thead>
             <tbody>
               {filteredSkus.length === 0 && (
-                <tr><td colSpan={7 + warehouses.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
+                <tr><td colSpan={(canEdit ? 7 : 6) + warehouses.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
               )}
               {filteredSkus.map(s => (
                 <tr key={s.id} className={`group hover:bg-[#f5f5f7] transition-colors ${!s.is_active ? 'opacity-55' : ''}`}>
@@ -263,10 +268,10 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                     {s.name_zh && <span className="text-gray-400 ml-1">· {s.name_zh}</span>}
                   </td>
                   <td className="px-3 py-2 text-xs border-b border-black/[0.05] whitespace-nowrap">
-                    <EanCell sku={s} onSave={onSaveEan} />
+                    <EanCell sku={s} onSave={onSaveEan} canEdit={canEdit} />
                   </td>
                   <td className="px-3 py-2 text-xs text-right border-b border-black/[0.05]">
-                    <BoxQtyCell sku={s} onSave={onSaveBoxQty} />
+                    <BoxQtyCell sku={s} onSave={onSaveBoxQty} canEdit={canEdit} />
                   </td>
                   {warehouses.map((w, i) => {
                     const q = fmtQty(stockBySku[s.id]?.[w.name])
@@ -280,9 +285,11 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                     {(() => { const t = rowTotal(s.id); return t > 0 ? <span className="text-gray-900">{t.toLocaleString()}</span> : <span className="text-gray-300">–</span> })()}
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-500 text-right border-b border-black/[0.05] tabular-nums">{s.sort_order}</td>
-                  <td className="px-3 py-2 text-right border-b border-black/[0.05] whitespace-nowrap">
-                    <button onClick={() => setEditingSku(s)} className="px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-black/[0.04] rounded-md transition">Edit</button>
-                  </td>
+                  {canEdit && (
+                    <td className="px-3 py-2 text-right border-b border-black/[0.05] whitespace-nowrap">
+                      <button onClick={() => setEditingSku(s)} className="px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-black/[0.04] rounded-md transition">Edit</button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -325,12 +332,19 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
 }
 
 // ── 行内可编辑 EAN 单元格 ──
-function EanCell({ sku, onSave }: { sku: Sku; onSave: (sku: Sku, ean: string | null) => Promise<boolean> }) {
+function EanCell({ sku, onSave, canEdit }: { sku: Sku; onSave: (sku: Sku, ean: string | null) => Promise<boolean>; canEdit: boolean }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(sku.ean ?? '')
   const [saving, setSaving] = useState(false)
   // 外部数据刷新后同步显示值（非编辑态时）
   useEffect(() => { if (!editing) setVal(sku.ean ?? '') }, [sku.ean, editing])
+
+  // 只读（销售）：纯展示，不可点
+  if (!canEdit) {
+    return sku.ean
+      ? <span className="font-mono text-[11px] text-gray-700">{sku.ean}</span>
+      : <span className="text-gray-300">—</span>
+  }
 
   const commit = async () => {
     const next = val.trim() || null
@@ -377,11 +391,18 @@ function EanCell({ sku, onSave }: { sku: Sku; onSave: (sku: Sku, ean: string | n
 }
 
 // ── 行内可编辑 Qty/Carton 单元格 ──
-function BoxQtyCell({ sku, onSave }: { sku: Sku; onSave: (sku: Sku, qty: number | null) => Promise<boolean> }) {
+function BoxQtyCell({ sku, onSave, canEdit }: { sku: Sku; onSave: (sku: Sku, qty: number | null) => Promise<boolean>; canEdit: boolean }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(sku.box_qty != null ? String(sku.box_qty) : '')
   const [saving, setSaving] = useState(false)
   useEffect(() => { if (!editing) setVal(sku.box_qty != null ? String(sku.box_qty) : '') }, [sku.box_qty, editing])
+
+  // 只读（销售）：纯展示，不可点
+  if (!canEdit) {
+    return sku.box_qty != null
+      ? <span className="tabular-nums text-gray-700">{sku.box_qty}</span>
+      : <span className="text-gray-300">—</span>
+  }
 
   const commit = async () => {
     const next = val.trim() ? parseInt(val.trim(), 10) : null

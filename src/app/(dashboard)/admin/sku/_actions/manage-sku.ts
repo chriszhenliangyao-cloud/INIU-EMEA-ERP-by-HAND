@@ -11,7 +11,15 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUser } from '@/lib/auth/current-user'
 import { revalidatePath } from 'next/cache'
+
+// 页面已对销售只读开放（隐藏写操作 UI）。这里再挡一道，让非 admin 直调 action 时
+// 得到明确提示，而不是撞上 RLS 的原始报错。RLS 仍是最终闸门。
+async function requireAdmin(): Promise<string | null> {
+  const me = await getCurrentUser()
+  return me.isAdmin ? null : 'Read-only: SKU master data is maintained by HQ.'
+}
 
 type ActionResult<T = unknown> =
   | { ok: true; data?: T }
@@ -52,6 +60,8 @@ export async function createSKU(input: SkuInput): Promise<ActionResult> {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Not signed in' }
+  const denied = await requireAdmin()
+  if (denied) return { ok: false, error: denied }
 
   const payload = {
     code,
@@ -107,6 +117,8 @@ export async function updateSKU(id: number, input: Partial<SkuInput>): Promise<A
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Not signed in' }
+  const denied = await requireAdmin()
+  if (denied) return { ok: false, error: denied }
 
   const patch: any = { updated_by: user.id, updated_at: new Date().toISOString() }
 
@@ -166,6 +178,8 @@ export async function deactivateSKU(id: number, reason?: string): Promise<Action
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Not signed in' }
+  const denied = await requireAdmin()
+  if (denied) return { ok: false, error: denied }
 
   const { error } = await supabase
     .from('sku')
@@ -193,6 +207,8 @@ export async function reactivateSKU(id: number): Promise<ActionResult> {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Not signed in' }
+  const denied = await requireAdmin()
+  if (denied) return { ok: false, error: denied }
 
   const { error } = await supabase
     .from('sku')
@@ -219,6 +235,8 @@ export async function deleteSKUPermanently(id: number): Promise<ActionResult> {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Not signed in' }
+  const denied = await requireAdmin()
+  if (denied) return { ok: false, error: denied }
 
   const { error } = await supabase
     .from('sku')

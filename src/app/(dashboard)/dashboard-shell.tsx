@@ -54,12 +54,13 @@ export function DashboardShell({ me, buildId, children }: Props) {
           <NavLink href="/forecast">📈 Demand Forecast</NavLink>
           <NavLink href="/psi">📦 PSI Dashboard</NavLink>
           <NavLink href="/performance">🏆 Performance</NavLink>
+          {/* SKU 主数据对销售只读开放（写操作 UI 隐藏 + RLS 仅 admin 可写） */}
+          <NavLink href="/admin/sku">⚙️ SKU Master Data</NavLink>
 
           {me.isAdmin && (
             <>
               <div className="text-[11px] font-semibold text-gray-400 px-3 py-2 mt-4">Admin only</div>
               <NavLink href="/admin/po-shipment">🚚 Shipment Workflow</NavLink>
-              <NavLink href="/admin/sku">⚙️ SKU Master Data</NavLink>
               <NavLink href="/admin/sales">👤 Sales Reps</NavLink>
               <NavLink href="/admin/ka">🗺️ KA Channel Map</NavLink>
               <NavLink href="/admin/sku/map">🧬 SKU Product Map</NavLink>

@@ -1,19 +1,16 @@
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/lib/auth/current-user'
 import { SkuManagementView } from './sku-management-view'
 
 /**
- * /admin/sku — SKU Master Data 管理面板（admin only）
+ * /admin/sku — SKU Master Data
  *
- * 进入此页面需 is_admin = true，非 admin 跳转回 /po。
- * 数据：全量 SKU（active + inactive，admin 都能看到）。
+ * 所有登录用户可进入；admin 可编辑，销售为只读（canEdit=false 时隐藏全部写操作 UI）。
+ * 真正的写入闸门在 DB：RLS 的 sku_admin_write / hq_stock_admin_write 仅放行 is_admin()。
+ * 数据：全量 SKU（active + inactive）。
  */
 export default async function AdminSkuPage() {
   const me = await getCurrentUser()
-  if (!me.isAdmin) {
-    redirect('/po')
-  }
 
   const supabase = createClient()
 
@@ -70,6 +67,7 @@ export default async function AdminSkuPage() {
     <SkuManagementView
       allSkus={allSkus ?? []}
       viewerName={me.displayName}
+      canEdit={me.isAdmin}
       stockBySku={stockBySku}
       warehouses={warehouses}
       stockAsOf={stockAsOf}
