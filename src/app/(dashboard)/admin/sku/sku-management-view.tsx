@@ -43,6 +43,20 @@ type Sku = {
   updated_at: string
 }
 
+// 仓库展示：DB 中文名 → 仓库代码 / 全称。改这里只影响显示，不影响 hq_stock 的数据键。
+const WH_CODE: Record<string, string> = {
+  '生产部': 'HQ',
+  '新欧达德国仓': 'DE2',
+  '新欧达法国仓': 'FR1',
+  '雨鹤德国仓': 'DE1',
+}
+const WH_FULL: Record<string, string> = {
+  '生产部': 'HQ — Central Warehouse, China (domestic) · 生产部',
+  '新欧达德国仓': 'DE2 — 3PL Distribution Centre, Germany · 新欧达德国仓',
+  '新欧达法国仓': 'FR1 — 3PL Distribution Centre, France · 新欧达法国仓',
+  '雨鹤德国仓': 'DE1 — 3PL Distribution Centre, Germany · 雨鹤德国仓',
+}
+
 type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number }
 
 type Warehouse = { name: string; location: string }
@@ -53,8 +67,9 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
   stockAsOf: string
 }) {
   const router = useRouter()
-  // 库存列：HQ 短名 + 数字格式化；行合计 = 各仓相加
-  const shortWh = (name: string) => name === '生产部' ? 'HQ' : name.replace('国仓', '').replace('仓', '')
+  // 库存列：仓库显示码（DB 里的中文名是数据 key，这里只做展示映射）+ 数字格式化；行合计 = 各仓相加
+  const shortWh = (name: string) => WH_CODE[name] ?? name.replace('国仓', '').replace('仓', '')
+  const fullWh = (name: string) => WH_FULL[name] ?? name
   const fmtQty = (n?: number) => (n && n > 0 ? n.toLocaleString() : null)
   const rowTotal = (id: number) => warehouses.reduce((sum, w) => sum + (stockBySku[id]?.[w.name] ?? 0), 0)
   const CODE_W = 150, NAME_W = 210
@@ -217,7 +232,7 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
       {/* 主表 */}
       <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2.5 text-xs text-gray-500 border-b border-black/[0.06]">
-          <span>📦 <b className="text-gray-700 font-semibold">Inventory</b> · HQ = 生产部 · 海外仓相加 · 只读（随供应链快照更新）</span>
+          <span>📦 <b className="text-gray-700 font-semibold">Inventory</b> · HQ = 生产部 (domestic) · DE1 / DE2 / FR1 = overseas 3PL · Total = all warehouses · 只读（随供应链快照更新）</span>
           {stockAsOf && <span className="ml-auto text-[11px] font-semibold bg-[#e3eefc] text-[#1a56b3] px-2.5 py-1 rounded-full">as of {stockAsOf}</span>}
         </div>
         <div className="overflow-auto max-h-[750px]">
@@ -229,9 +244,9 @@ export function SkuManagementView({ allSkus, viewerName, stockBySku, warehouses,
                 <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">EAN</th>
                 <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Qty/Carton</th>
                 {warehouses.map((w, i) => (
-                  <th key={w.name} title={w.name} className={`sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-semibold text-[#1a56b3] bg-[#e3eefc] border-b border-black/[0.06] ${i === 0 ? 'border-l-2 border-l-[#cfe0f8]' : ''}`}>{shortWh(w.name)}</th>
+                  <th key={w.name} title={fullWh(w.name)} className={`sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-semibold text-[#1a56b3] bg-[#e3eefc] border-b border-black/[0.06] ${i === 0 ? 'border-l-2 border-l-[#cfe0f8]' : ''}`}>{shortWh(w.name)}</th>
                 ))}
-                <th className="sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-bold text-gray-700 bg-[#eef2f7] border-b border-black/[0.06]">汇总</th>
+                <th title="Total on hand — all warehouses" className="sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-bold text-gray-700 bg-[#eef2f7] border-b border-black/[0.06]">Total</th>
                 <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Sort</th>
                 <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Edit</th>
               </tr>
