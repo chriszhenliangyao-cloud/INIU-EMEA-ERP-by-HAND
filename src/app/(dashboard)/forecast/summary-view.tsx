@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { fmtNum } from '@/lib/utils'
 import { RunControls } from './run-controls'
+import { buildWorkbook, downloadWorkbook, type XCell, type XRow, type XSheet } from '@/lib/spreadsheet'
 
 type Run = {
   id: number
@@ -48,9 +49,14 @@ type Country = {
 
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number; lifecycle: string; region_scope: string[] | null }
 
+// 导出「按国家」分页用：KA 级填报明细 + KA 主数据
+type KaCell = { sku_id: number; ka_id: number; month: string; qty: number }
+type Ka = { id: number; name: string; country_id: number; parent_ka_id: number | null; ka_type: string | null; sort_order: number | null; is_active: boolean }
+
 export function ForecastSummaryView({
   runs, selectedRun, cells, allSkus, countries, lastYearData,
   fdStockBySkuCode, hqCnStockBySkuCode, hqOvsStockBySkuCode, hqStockExportRows,
+  kaCells = [], kas = [],
   viewerIsAdmin, viewerName,
 }: {
   runs: Run[]
@@ -63,6 +69,8 @@ export function ForecastSummaryView({
   hqCnStockBySkuCode?: Record<string, number>   // HQ 国内库存
   hqOvsStockBySkuCode?: Record<string, number>  // HQ 海外仓库存
   hqStockExportRows?: { sku_code: string; sku_name: string; warehouse: string; location: string; qty: number; as_of: string }[]
+  kaCells?: KaCell[]      // KA 级明细 —— 导出「按国家」分页时还原填报格式
+  kas?: Ka[]
   viewerIsAdmin: boolean
   viewerName: string
 }) {
@@ -192,6 +200,142 @@ export function ForecastSummaryView({
     return <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${s.bg}`}>{s.label}</span>
   })()
 
+  // ============== 导出 Excel：Tab1 总览 + 每国一个 Tab（还原填报格式）==============
+  const exportWorkbook = () => {
+    const MN = monthLabels.map(l => l.short)
+
+    // ---- Sheet 1: Overview —— 与屏幕表格同构 ----
+    const g = (v: any, span?: number, s = 'grp'): XCell => ({ v, span, s })
+    const head1: XRow = [
+      { v: 'SKU', s: 'hdrL' }, { v: 'PRODUCT', s: 'hdrL' },
+      ...tableCountries.map(c => g(`${c.flag_emoji} ${c.code} ${c.name_en}`, months.length)),
+      g('EU TTL', months.length),
+      g(`Total (${monthCount}-month sum)`, undefined, 'grpA'),
+      g('Stock-FD', undefined, 'grpA'),
+      g('Stock-HQ CN', undefined, 'grpA'),
+      g('Stock-HQ Oversea', undefined, 'grpA'),
+    ]
+    const head2: XRow = [
+      { v: '', s: 'hdr' }, { v: '', s: 'hdr' },
+      ...tableCountries.flatMap(() => MN.map(m => ({ v: m, s: 'hdr' } as XCell))),
+      ...MN.map(m => ({ v: m, s: 'hdr' } as XCell)),
+      { v: '', s: 'hdr' }, { v: '', s: 'hdr' }, { v: '', s: 'hdr' }, { v: '', s: 'hdr' },
+    ]
+    const num = (n: number): XCell => n > 0 ? { v: n, num: true, s: 'n0' } : { v: '-', s: 'dim' }
+    const ovRows: XRow[] = [head1, head2]
+    tableRows.forEach(r => ovRows.push([
+      { v: r.sku_code, s: 'code' }, { v: r.sku_name },
+      ...tableCountries.flatMap(c => months.map(m => num(r.countryMonthQty[c.code]?.[m] ?? 0))),
+      ...months.map(m => num(r.monthlyTtl[m] ?? 0)),
+      { v: r.subTotal, num: true, s: 'sub0' },
+      num(fdStockBySkuCode?.[r.sku_code] ?? 0),
+      num(hqCnStockBySkuCode?.[r.sku_code] ?? 0),
+      num(hqOvsStockBySkuCode?.[r.sku_code] ?? 0),
+    ]))
+    const sumOf = (rec?: Record<string, number>) => Object.values(rec ?? {}).reduce((s, v) => s + v, 0)
+    ovRows.push([
+      { v: 'TOTAL', s: 'tot' }, { v: `${tableRows.length} SKUs`, s: 'tot' },
+      ...tableCountries.flatMap(c => months.map(m => ({ v: footTotals.byCountryMonth[c.code]?.[m] ?? 0, num: true, s: 'tot0' } as XCell))),
+      ...months.map(m => ({ v: footTotals.byEuMonth[m] ?? 0, num: true, s: 'tot0' } as XCell)),
+      { v: footTotals.grandTotal, num: true, s: 'tot0' },
+      { v: sumOf(fdStockBySkuCode), num: true, s: 'tot0' },
+      { v: sumOf(hqCnStockBySkuCode), num: true, s: 'tot0' },
+      { v: sumOf(hqOvsStockBySkuCode), num: true, s: 'tot0' },
+    ])
+    const sheets: XSheet[] = [{
+      name: 'Overview',
+      rows: ovRows,
+      freezeRows: 2,
+      widths: [80, 175, ...tableCountries.flatMap(() => months.map(() => 46)), ...months.map(() => 46), 62, 55, 55, 62],
+    }]
+
+    // ---- Sheet 2..N: 每个国家 —— 还原填报格式（SKU × KA × 月）----
+    // KA 列：本国 active、非 group 节点；顶层 KA 后紧跟其子渠道，和填报表的 FD 分组同序
+    const cellQty = new Map<string, number>()   // `${sku_id}|${ka_id}|YYYY-MM` -> qty
+    kaCells.forEach(c => {
+      const k = `${c.sku_id}|${c.ka_id}|${c.month.slice(0, 7)}`
+      cellQty.set(k, (cellQty.get(k) ?? 0) + (c.qty ?? 0))
+    })
+    const byOrder = (a: Ka, b: Ka) => (a.sort_order ?? 999) - (b.sort_order ?? 999) || a.name.localeCompare(b.name)
+
+    // 本周期有数据的 KA —— 即使已停用也必须出列，否则导出会静默丢数、与 Overview 对不上
+    // （Overview 走 forecast_eu_summary，该视图不过滤 is_active）
+    const kaWithData = new Set(kaCells.filter(c => (c.qty ?? 0) !== 0).map(c => c.ka_id))
+
+    tableCountries.forEach(country => {
+      const countryKas = kas.filter(k =>
+        k.country_id === country.id && k.ka_type !== 'group' &&
+        (k.is_active !== false || kaWithData.has(k.id)))
+      const tops = countryKas.filter(k => k.parent_ka_id == null).sort(byOrder)
+      const cols: { ka: Ka; fd: string | null }[] = []
+      const pushed = new Set<number>()
+      tops.forEach(t => {
+        const kids = countryKas.filter(k => k.parent_ka_id === t.id).sort(byOrder)
+        // 分销商带下级 → FD 作为分组表头、子渠道为输入列（与填报表一致）；
+        // FD 自身仅在有直接数据时才单独占一列，否则不出现（避免「Bigben › Bigben」冗余列）
+        if (t.ka_type === 'distributor' && kids.length > 0) {
+          if (kaWithData.has(t.id)) cols.push({ ka: t, fd: t.name })
+          pushed.add(t.id)
+          kids.forEach(k => { cols.push({ ka: k, fd: t.name }); pushed.add(k.id) })
+        } else {
+          cols.push({ ka: t, fd: null }); pushed.add(t.id)
+          kids.forEach(k => { cols.push({ ka: k, fd: null }); pushed.add(k.id) })
+        }
+      })
+      countryKas.forEach(k => { if (!pushed.has(k.id)) cols.push({ ka: k, fd: null }) })  // 兜底，绝不丢列
+
+      const h1: XRow = [{ v: 'SKU', s: 'hdrL' }, { v: 'Product', s: 'hdrL' }]
+      cols.forEach(c => {
+        const base = c.fd && c.fd !== c.ka.name ? `${c.fd} › ${c.ka.name}` : c.ka.name
+        // 已停用但本周期仍有数据的渠道，标注出来（数据保留，避免与 Overview 对不上）
+        h1.push(g(c.ka.is_active === false ? `${base} (inactive)` : base, months.length))
+      })
+      h1.push(g('Sub-total', months.length, 'grpA'), g('Total', undefined, 'grpA'))
+      const h2: XRow = [{ v: '', s: 'hdr' }, { v: '', s: 'hdr' },
+        ...cols.flatMap(() => MN.map(m => ({ v: m, s: 'hdr' } as XCell))),
+        ...MN.map(m => ({ v: m, s: 'hdr' } as XCell)), { v: '', s: 'hdr' }]
+
+      const rows: XRow[] = [h1, h2]
+      const colTot: number[] = new Array(cols.length * months.length).fill(0)
+      const monTot: number[] = new Array(months.length).fill(0)
+      let grand = 0
+      allSkus.forEach(sku => {
+        const perMonth = months.map(() => 0)
+        const cells: XCell[] = []
+        cols.forEach((c, ci) => months.forEach((m, mi) => {
+          const q = cellQty.get(`${sku.id}|${c.ka.id}|${m}`) ?? 0
+          perMonth[mi] += q
+          colTot[ci * months.length + mi] += q
+          cells.push(num(q))
+        }))
+        const rowTot = perMonth.reduce((s, v) => s + v, 0)
+        if (hideZero && rowTot === 0) return
+        perMonth.forEach((v, i) => { monTot[i] += v })
+        grand += rowTot
+        rows.push([
+          { v: sku.code, s: 'code' }, { v: sku.name }, ...cells,
+          ...perMonth.map(v => v > 0 ? ({ v, num: true, s: 'sub0' } as XCell) : ({ v: '-', s: 'dim' } as XCell)),
+          rowTot > 0 ? { v: rowTot, num: true, s: 'sub0' } : { v: '-', s: 'dim' },
+        ])
+      })
+      rows.push([
+        { v: 'TOTAL', s: 'tot' }, { v: `${country.name_en}`, s: 'tot' },
+        ...colTot.map(v => ({ v, num: true, s: 'tot0' } as XCell)),
+        ...monTot.map(v => ({ v, num: true, s: 'tot0' } as XCell)),
+        { v: grand, num: true, s: 'tot0' },
+      ])
+
+      sheets.push({
+        name: `${country.code} ${country.name_en}`,
+        rows,
+        freezeRows: 2,
+        widths: [80, 175, ...cols.flatMap(() => months.map(() => 46)), ...months.map(() => 46), 62],
+      })
+    })
+
+    downloadWorkbook(buildWorkbook(sheets), `${selectedRun.code}-FCST`)
+  }
+
   // ============== 导出 Stock CSV（仓库级明细，给客户的下载版本）==============
   // 格式（Chris 定）：每个仓库一行，海外仓不合并；含国内（生产部）与各海外仓
   const exportStockCsv = () => {
@@ -274,6 +418,11 @@ export function ForecastSummaryView({
               <input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} />
               Hide empty SKUs
             </label>
+            <button onClick={exportWorkbook}
+              title="导出 Excel：第 1 页总览（同本页表格），之后每国一页、还原填报格式（SKU × 渠道 × 月）"
+              className="px-3 py-1.5 text-sm font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700">
+              ⬇️ Export FCST Excel
+            </button>
             <button onClick={exportStockCsv}
               title="导出 HQ 库存仓库级明细（国内 + 各海外仓逐行），可直接发给客户"
               className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700">

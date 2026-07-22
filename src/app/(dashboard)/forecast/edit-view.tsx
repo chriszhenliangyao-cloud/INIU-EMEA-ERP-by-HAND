@@ -32,7 +32,8 @@ const cellKey = (sku_id: number, ka_id: number, monthIso: string) => `${sku_id}|
 //      - ES：FD 数据结构特殊
 //      - PL：Komsa 有真实的直发(FD 层)数据，硬分组会破坏数据准确性，按要求保持扁平
 //   ② FD 在当前周期已有直接 forecast 数据 → 保持扁平叶子列，避免隐藏已填数据
-const FD_GROUPING_DISABLED_COUNTRIES = new Set(['ES', 'PL'])
+// 整国保持扁平（不按 FD 分组）的国家。PL 已于 2026-07 改为与 FR 一致的 FD 分组。
+const FD_GROUPING_DISABLED_COUNTRIES = new Set(['ES'])
 type ColGroup = { fd: Ka | null; leaves: Ka[] }
 const byOrder = (a: Ka, b: Ka) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name)
 
@@ -90,16 +91,20 @@ export function ForecastEditView({
         hasGroups: false,
       }
     }
-    const directCellKaIds = new Set(allCells.map(c => c.ka_id))  // 本周期已有数据的 KA → 保持扁平
+    const directCellKaIds = new Set(allCells.map(c => c.ka_id))  // 本周期 FD 自身是否挂着直接数据
     const childrenOf = (id: number) => countryKas.filter(k => k.parent_ka_id === id).sort(byOrder)
     const topLevel = countryKas.filter(k => k.parent_ka_id == null).sort(byOrder)
 
     const columnGroups: ColGroup[] = []
     for (const k of topLevel) {
       const kids = childrenOf(k.id)
-      const isGroupedFd = k.ka_type === 'distributor' && kids.length > 0 && !directCellKaIds.has(k.id)
+      const isGroupedFd = k.ka_type === 'distributor' && kids.length > 0
       if (isGroupedFd) {
-        columnGroups.push({ fd: k, leaves: kids })  // FD 大表头 + 子 retailer 输入列
+        // FD 大表头 + 子 retailer 输入列。
+        // FD 自己若挂着直接数据（如 PL 的 Komsa），必须保留它自己的输入列放在最前，
+        // 否则那批数据会既看不见也改不了 —— 不能为了排版把已有数据藏掉。
+        const leaves = directCellKaIds.has(k.id) ? [k, ...kids] : kids
+        columnGroups.push({ fd: k, leaves })
       } else {
         columnGroups.push({ fd: null, leaves: [k] })          // 叶子（独立 retailer / 无子 FD / 有数据的 FD）
         for (const c of kids) columnGroups.push({ fd: null, leaves: [c] })  // 罕见：未分组父的子也扁平列出
@@ -569,7 +574,10 @@ export function ForecastEditView({
                               className="sticky z-20 px-3 py-1.5 text-center text-[11px] font-bold uppercase border-b border-r-2 border-gray-300 bg-blue-50 text-blue-700"
                               style={{ top: 36 }}
                               colSpan={monthsIso.length}>
-                            {leaf.name}
+                            {/* FD 自己的直供列（与其下游 retailer 区分） */}
+                            {leaf.id === g.fd!.id
+                              ? <>{leaf.name} <span className="text-[9px] font-medium text-blue-400 normal-case">direct</span></>
+                              : leaf.name}
                           </th>
                         ))
                       : null)}

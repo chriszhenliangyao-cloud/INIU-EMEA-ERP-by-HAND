@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import { fmtNum } from '@/lib/utils'
 import { toEUR, fmtMoney, PALETTE } from './_ops'
+import { buildWorkbook, downloadWorkbook, type XRow } from '@/lib/spreadsheet'
 
 type FlatRow = {
   id: number
@@ -486,61 +487,6 @@ function KpiCard({ label, value, hint, color }: { label: string; value: string; 
       {hint && <div className="text-xs text-gray-400 mt-1.5 leading-snug line-clamp-2">{hint}</div>}
     </div>
   )
-}
-
-// ===== 导出工作簿：SpreadsheetML 2003（单个 XML，原生多 Worksheet，零依赖）=====
-// 之前用 MSO HTML 的多 <table> 方案：tab 能建出来，但内容全落在第一张 sheet，第二张是空白。
-type XCell = { v: string | number | null; num?: boolean; s?: string; span?: number }
-type XRow = XCell[]
-
-const xesc = (s: any) => String(s ?? '')
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
-function xmlSheet(name: string, rows: XRow[], widths: number[]): string {
-  const cols = widths.map(w => `<Column ss:Width="${w}"/>`).join('')
-  const body = rows.map(r => {
-    const cells = r.map(c => {
-      const span = c.span && c.span > 1 ? ` ss:MergeAcross="${c.span - 1}"` : ''
-      const style = c.s ? ` ss:StyleID="${c.s}"` : ''
-      if (c.v === null || c.v === '') return `<Cell${style}${span}/>`
-      const t = c.num ? 'Number' : 'String'
-      return `<Cell${style}${span}><Data ss:Type="${t}">${xesc(c.v)}</Data></Cell>`
-    }).join('')
-    return `<Row>${cells}</Row>`
-  }).join('')
-  // sheet 名不能含 : \ / ? * [ ]
-  const safe = xesc(name.replace(/[:\\/?*[\]]/g, '-')).slice(0, 31)
-  return `<Worksheet ss:Name="${safe}"><Table>${cols}${body}</Table>`
-    + `<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><SplitHorizontal>1</SplitHorizontal>`
-    + `<TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions></Worksheet>`
-}
-
-function buildWorkbook(sheets: { name: string; rows: XRow[]; widths: number[] }[]): string {
-  const styles = `<Styles>`
-    + `<Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Bottom"/><Font ss:FontName="Calibri" ss:Size="11"/></Style>`
-    + `<Style ss:ID="hdr"><Font ss:Bold="1"/><Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>`
-    + `<Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#94A3B8"/></Borders></Style>`
-    + `<Style ss:ID="n0"><NumberFormat ss:Format="#,##0"/></Style>`
-    + `<Style ss:ID="n2"><NumberFormat ss:Format="#,##0.00"/></Style>`
-    + `<Style ss:ID="sub"><Font ss:Bold="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/></Style>`
-    + `<Style ss:ID="sub0"><Font ss:Bold="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0"/></Style>`
-    + `<Style ss:ID="sub2"><Font ss:Bold="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>`
-    + `<Style ss:ID="mon"><Font ss:Bold="1"/><Interior ss:Color="#E2E8F0" ss:Pattern="Solid"/></Style>`
-    + `<Style ss:ID="mon0"><Font ss:Bold="1"/><Interior ss:Color="#E2E8F0" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0"/></Style>`
-    + `<Style ss:ID="mon2"><Font ss:Bold="1"/><Interior ss:Color="#E2E8F0" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>`
-    + `<Style ss:ID="tot"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#475569" ss:Pattern="Solid"/></Style>`
-    + `<Style ss:ID="tot0"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#475569" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0"/></Style>`
-    + `<Style ss:ID="tot2"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#475569" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>`
-    + `<Style ss:ID="note"><Font ss:Italic="1" ss:Color="#64748B"/></Style>`
-    + `</Styles>`
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n`
-    + `<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"`
-    + ` xmlns:o="urn:schemas-microsoft-com:office:office"`
-    + ` xmlns:x="urn:schemas-microsoft-com:office:excel"`
-    + ` xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">`
-    + styles
-    + sheets.map(s => xmlSheet(s.name, s.rows, s.widths)).join('')
-    + `</Workbook>`
 }
 
 // ===== Sheet 2：Country × Month × SKU —— 跨所有 PO 的合计 qty / turnover（扁平，便于自行透视）=====

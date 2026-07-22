@@ -68,6 +68,8 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
     { data: allSkus },
     { data: allEuCountries },
     { data: lyData },         // 去年同期 shipment
+    { data: kaCellsRaw },     // KA 级明细 —— 仅用于导出「按国家」分页（还原填报格式）
+    { data: allKas },
   ] = await Promise.all([
     supabase
       .from('forecast_eu_summary')
@@ -90,6 +92,14 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
       .eq('source_type', 'channel')
       .gte('effective_date', lyStart.toISOString().slice(0, 10))
       .lt('effective_date', lyEnd.toISOString().slice(0, 10)),
+    supabase
+      .from('forecast_cell')
+      .select('sku_id, ka_id, month, qty')
+      .eq('run_id', selectedRun.id),
+    supabase
+      .from('ka')
+      .select('id, name, country_id, parent_ka_id, ka_type, sort_order, is_active')
+      .order('country_id').order('sort_order').order('name'),
   ])
 
   // 🔐 admin 看全部 EU，sales 只看自己负责的国家
@@ -190,6 +200,8 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
       hqCnStockBySkuCode={hqCnBySkuCode}
       hqOvsStockBySkuCode={hqOvsBySkuCode}
       hqStockExportRows={hqStockExportRows}
+      kaCells={kaCellsRaw ?? []}
+      kas={(allKas ?? []).filter((k: any) => me.canAccessCountry(k.country_id))}
       viewerIsAdmin={me.isAdmin}
       viewerName={me.displayName}
     />
