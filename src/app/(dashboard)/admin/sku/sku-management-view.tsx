@@ -400,7 +400,7 @@ function CartonExportModal({ skus, onClose }: { skus: Sku[]; onClose: () => void
 
   const doExport = () => {
     const picked = skus.filter(s => sel.has(s.id))
-    if (!picked.length) { alert('请先勾选要导出的 SKU。'); return }
+    if (!picked.length) { alert('Please select at least one SKU to export.'); return }
     const dash = (v: any): any => v == null || v === '' ? '' : v
     const head: XRow = ['SKU', 'Product', 'EAN', 'Qty/Carton', 'Carton weight (kg)', 'Carton size', 'Qty/Pallet', 'Pallet weight (kg)', 'Retail package size', 'Unit weight (g)']
       .map(h => ({ v: h, s: 'hdrL' }))
@@ -424,10 +424,10 @@ function CartonExportModal({ skus, onClose }: { skus: Sku[]; onClose: () => void
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[720px] p-5 max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
-          <div className="text-lg font-semibold text-gray-900">⬇️ Export carton specs <span className="text-sm font-normal text-gray-400">· 导出箱规</span></div>
+          <div className="text-lg font-semibold text-gray-900">⬇️ Export carton specs</div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
-        <div className="text-xs text-gray-400 mb-3">勾选要导出的 SKU。导出内容仅箱规：每箱数量 / 每箱重量·尺寸 / 每托箱数·重量 / 彩盒尺寸 / 单品重量（含 EAN 便于对照）。不含库存。</div>
+        <div className="text-xs text-gray-400 mb-3">Select the SKUs to export. Carton specs only: Qty/Carton · carton weight &amp; size · Qty/Pallet &amp; weight · retail package size · unit weight (EAN included for reference). Inventory not included.</div>
 
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <div className="relative flex-1 min-w-[180px] max-w-[240px]">
@@ -440,7 +440,7 @@ function CartonExportModal({ skus, onClose }: { skus: Sku[]; onClose: () => void
           </select>
           <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={onlyFilled} onChange={e => setOnlyFilled(e.target.checked)} />Only with specs</label>
           <button onClick={toggleAll} className="px-3 py-1.5 text-xs rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50">{allShownSelected ? 'Clear' : 'Select all'} ({shown.length})</button>
-          <span className="ml-auto text-xs text-gray-500">已选 <strong className="text-gray-800">{sel.size}</strong></span>
+          <span className="ml-auto text-xs text-gray-500">Selected <strong className="text-gray-800">{sel.size}</strong></span>
         </div>
 
         <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg">
