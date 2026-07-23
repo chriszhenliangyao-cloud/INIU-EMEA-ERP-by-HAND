@@ -9,7 +9,7 @@
  * - 删除时检查 reference count，有引用就提示用 deactivate
  */
 
-import { useState, useMemo, useTransition, useEffect } from 'react'
+import { useState, useMemo, useTransition, useEffect, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -117,6 +117,20 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
 
   const activeCount = useMemo(() => allSkus.filter(s => s.is_active).length, [allSkus])
   const inactiveCount = allSkus.length - activeCount
+
+  // 按系列(series)分组显示：同系列聚在一起，组内保持原有 sort_order/code 顺序（纯展示，不改数据）
+  const groupedSkus = useMemo(() => {
+    const map = new Map<string, Sku[]>()
+    filteredSkus.forEach(s => {
+      const key = s.series?.trim() || 'Other'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(s)
+    })
+    // 组排序：SKU 数量多的系列在前；'Other' 永远垫底
+    return Array.from(map.entries())
+      .sort((a, b) => (a[0] === 'Other' ? 1 : b[0] === 'Other' ? -1 : 0) || b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .map(([series, skus]) => ({ series, skus }))
+  }, [filteredSkus])
 
   // ── Actions ──
   const onDeactivate = (sku: Sku) => {
@@ -288,7 +302,15 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
               {filteredSkus.length === 0 && (
                 <tr><td colSpan={(canEdit ? 12 : 11) - (showCarton ? 0 : 6) + warehouses.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
               )}
-              {filteredSkus.map(s => (
+              {groupedSkus.map(g => (
+                <Fragment key={g.series}>
+                  <tr>
+                    <td colSpan={(canEdit ? 12 : 11) - (showCarton ? 0 : 6) + warehouses.length}
+                        className="sticky left-0 bg-[#f3f4f6] border-y border-black/[0.06] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                      {g.series} <span className="ml-1.5 font-normal text-gray-400 normal-case tracking-normal">· {g.skus.length}</span>
+                    </td>
+                  </tr>
+                  {g.skus.map(s => (
                 <tr key={s.id} className={`group hover:bg-[#f5f5f7] transition-colors ${!s.is_active ? 'opacity-55' : ''}`}>
                   <td className="sticky left-0 z-10 bg-white group-hover:bg-[#f5f5f7] px-3 py-2 font-mono text-xs font-bold text-gray-900 border-b border-black/[0.05]" style={{ left: 0, minWidth: CODE_W, width: CODE_W }}>{s.code}</td>
                   <td className="sticky z-10 bg-white group-hover:bg-[#f5f5f7] px-3 py-2 text-xs text-gray-700 border-b border-r-2 border-black/[0.05]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>
@@ -336,6 +358,8 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
                     </td>
                   )}
                 </tr>
+                  ))}
+                </Fragment>
               ))}
             </tbody>
           </table>

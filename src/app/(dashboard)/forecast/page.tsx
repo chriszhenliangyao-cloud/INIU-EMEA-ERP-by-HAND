@@ -77,7 +77,7 @@ async function SummaryPage({ me, runs, selectedRun, supabase }: any) {
       .eq('run_id', selectedRun.id),
     supabase
       .from('sku')
-      .select('id, code, name, category, sort_order, lifecycle, region_scope')
+      .select('id, code, name, category, series, sort_order, lifecycle, region_scope')
       .eq('is_active', true)
       .order('sort_order')
       .order('code'),
@@ -229,7 +229,7 @@ async function EditPage({ me, runs, selectedRun, supabase, countryParam }: any) 
       .order('sort_order'),
 
     supabase.from('sku')
-      .select('id, code, name, category, sort_order, lifecycle, region_scope')
+      .select('id, code, name, category, series, sort_order, lifecycle, region_scope')
       .eq('is_active', true)
       .order('sort_order').order('code'),
 

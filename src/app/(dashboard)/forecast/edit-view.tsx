@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useRef, useEffect, useCallback, useTransition } from 'react'
+import { useMemo, useState, useRef, useEffect, useCallback, useTransition, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -20,7 +20,7 @@ type Ka = {
   is_active?: boolean
   notes?: string | null
 }
-type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number; lifecycle: string }
+type Sku = { id: number; code: string; name: string; category: string | null; series?: string | null; sort_order: number; lifecycle: string }
 type Cell = { run_id: number; sku_id: number; ka_id: number; month: string; qty: number; source?: string | null; updated_by: string | null; updated_at: string }
 
 type CellKey = string  // `${sku_id}|${ka_id}|${YYYY-MM-01}`
@@ -346,6 +346,15 @@ export function ForecastEditView({
     if (!hideZero) return allSkus
     return allSkus.filter(s => rowSubtotal(s.id) > 0)
   }, [allSkus, hideZero, cellQty])
+
+  // 按系列(series)分组（与 SKU Master Data / 总览一致，组内保持原顺序）
+  const skuGroups = useMemo(() => {
+    const map = new Map<string, Sku[]>()
+    visibleSkus.forEach(s => { const k = s.series?.trim() || 'Other'; if (!map.has(k)) map.set(k, []); map.get(k)!.push(s) })
+    return Array.from(map.entries())
+      .sort((a, b) => (a[0] === 'Other' ? 1 : b[0] === 'Other' ? -1 : 0) || b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .map(([series, skus]) => ({ series, skus }))
+  }, [visibleSkus])
 
   // —— Run status badge ——
   const statusBadge = (() => {
@@ -682,7 +691,15 @@ export function ForecastEditView({
               )}
             </thead>
             <tbody>
-              {visibleSkus.map(sku => {
+              {skuGroups.map(g => (
+                <Fragment key={g.series}>
+                  <tr>
+                    <td colSpan={2 + kas.length * monthsIso.length + 1 + monthsIso.length + 4}
+                        className="sticky left-0 z-10 bg-gray-100 border-y border-gray-200 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                      {g.series} <span className="ml-1.5 font-normal text-gray-400 normal-case tracking-normal">· {g.skus.length}</span>
+                    </td>
+                  </tr>
+                  {g.skus.map(sku => {
                 const subTotal = rowSubtotal(sku.id)
                 // Σ PO: shipment 出货 — country × sku 级（不细分 KA, 因为出货跨 KA 汇总同义）
                 const poTotal = poByCountrySku[selectedCountry.id]?.[sku.id] ?? 0
@@ -766,7 +783,9 @@ export function ForecastEditView({
                     </td>
                   </tr>
                 )
-              })}
+                  })}
+                </Fragment>
+              ))}
               {!visibleSkus.length && (
                 <tr>
                   <td colSpan={2 + kas.length * monthsIso.length + 1 + monthsIso.length + 4} className="py-16 text-center text-gray-400">

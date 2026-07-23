@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { fmtNum } from '@/lib/utils'
@@ -47,7 +47,7 @@ type Country = {
   region: string
 }
 
-type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number; lifecycle: string; region_scope: string[] | null }
+type Sku = { id: number; code: string; name: string; category: string | null; series?: string | null; sort_order: number; lifecycle: string; region_scope: string[] | null }
 
 // 导出「按国家」分页用：KA 级填报明细 + KA 主数据
 type KaCell = { sku_id: number; ka_id: number; month: string; qty: number }
@@ -119,6 +119,7 @@ export function ForecastSummaryView({
     sku_code: string
     sku_name: string
     sku_category: string | null
+    series: string
     countryMonthQty: Record<string, Record<string, number>>  // country_code -> month YYYY-MM -> qty
     monthlyTtl: Record<string, number>  // EU TTL per month
     subTotal: number
@@ -144,6 +145,7 @@ export function ForecastSummaryView({
         sku_code: sku.code,
         sku_name: sku.name,
         sku_category: sku.category,
+        series: sku.series?.trim() || 'Other',
         countryMonthQty,
         monthlyTtl,
         subTotal,
@@ -153,6 +155,15 @@ export function ForecastSummaryView({
     // 隐藏空白 SKU 选项
     return hideZero ? result.filter(r => r.subTotal > 0) : result
   }, [allSkus, cellIndex, tableCountries, months, hideZero])
+
+  // 按系列(series)分组显示（与 SKU Master Data 一致，组内保持原顺序）
+  const rowGroups = useMemo(() => {
+    const map = new Map<string, RowData[]>()
+    tableRows.forEach(r => { if (!map.has(r.series)) map.set(r.series, []); map.get(r.series)!.push(r) })
+    return Array.from(map.entries())
+      .sort((a, b) => (a[0] === 'Other' ? 1 : b[0] === 'Other' ? -1 : 0) || b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .map(([series, rows]) => ({ series, rows }))
+  }, [tableRows])
 
   // ============== 列总计（Footer）==============
   const footTotals = useMemo(() => {
@@ -522,7 +533,15 @@ export function ForecastSummaryView({
               </tr>
             </thead>
             <tbody>
-              {tableRows.map((r, ri) => (
+              {rowGroups.map(g => (
+                <Fragment key={g.series}>
+                  <tr>
+                    <td colSpan={2 + tableCountries.length * months.length + months.length + 4}
+                        className="sticky left-0 z-10 bg-gray-100 border-y border-gray-200 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                      {g.series} <span className="ml-1.5 font-normal text-gray-400 normal-case tracking-normal">· {g.rows.length}</span>
+                    </td>
+                  </tr>
+                  {g.rows.map(r => (
                 <tr key={r.sku_code} className="hover:bg-gray-50 group">
                   <td className="sticky left-0 bg-white group-hover:bg-gray-50 z-10 px-3 py-2 font-mono text-xs font-bold text-gray-900 border-b border-r border-gray-100" style={{ minWidth: 90, maxWidth: 90 }}>
                     {r.sku_code}
@@ -534,7 +553,7 @@ export function ForecastSummaryView({
                     months.map((m, i) => {
                       const q = r.countryMonthQty[c.code]?.[m] ?? 0
                       return (
-                        <td key={`${c.code}-${m}-${ri}`} className={`px-2 py-2 text-right text-xs tabular-nums border-b border-gray-100 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'} ${countryCellBg(c.code)}`}>
+                        <td key={`${c.code}-${m}-${r.sku_code}`} className={`px-2 py-2 text-right text-xs tabular-nums border-b border-gray-100 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'} ${countryCellBg(c.code)}`}>
                           {q > 0 ? fmtNum(q) : <span className="text-gray-300">-</span>}
                         </td>
                       )
@@ -543,7 +562,7 @@ export function ForecastSummaryView({
                   {months.map((m, i) => {
                     const q = r.monthlyTtl[m] ?? 0
                     return (
-                      <td key={`eu-${m}-${ri}`} className={`px-2 py-2 text-right text-xs tabular-nums font-semibold text-purple-700 bg-purple-50 border-b border-gray-100 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}>
+                      <td key={`eu-${m}-${r.sku_code}`} className={`px-2 py-2 text-right text-xs tabular-nums font-semibold text-purple-700 bg-purple-50 border-b border-gray-100 ${i === months.length - 1 ? 'border-r-2 border-gray-300' : 'border-r border-gray-100'}`}>
                         {q > 0 ? fmtNum(q) : <span className="text-gray-300">-</span>}
                       </td>
                     )
@@ -562,6 +581,8 @@ export function ForecastSummaryView({
                     {(hqOvsStockBySkuCode?.[r.sku_code] ?? 0) > 0 ? fmtNum(hqOvsStockBySkuCode![r.sku_code]) : <span className="text-gray-300" title="HQ overseas stock not yet imported">-</span>}
                   </td>
                 </tr>
+                  ))}
+                </Fragment>
               ))}
               {!tableRows.length && (
                 <tr>
