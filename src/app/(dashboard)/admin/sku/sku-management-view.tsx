@@ -83,6 +83,7 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [addOpen, setAddOpen] = useState(false)
+  const [showCarton, setShowCarton] = useState(false)   // 箱规明细列（EAN/Qty/Carton/尺寸/托盘…）默认收起，聚焦库存
   const [editingSku, setEditingSku] = useState<Sku | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -243,7 +244,15 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
       <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2.5 text-xs text-gray-500 border-b border-black/[0.06]">
           <span>📦 <b className="text-gray-700 font-semibold">Inventory</b> · HQ = 生产部 (domestic) · DE1 / DE2 / FR1 = overseas 3PL · Total = all warehouses · 只读（随供应链快照更新）</span>
-          {stockAsOf && <span className="ml-auto text-[11px] font-semibold bg-[#e3eefc] text-[#1a56b3] px-2.5 py-1 rounded-full">as of {stockAsOf}</span>}
+          <button
+            onClick={() => setShowCarton(v => !v)}
+            className="ml-auto shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-200 text-[11px] font-medium text-gray-600 hover:bg-gray-50 transition"
+            title="展开 / 收起箱规明细列（每箱数量·重量·尺寸·托盘·彩盒）"
+          >
+            <span className="text-gray-400 transition-transform" style={{ display: 'inline-block', transform: showCarton ? 'rotate(90deg)' : 'none' }}>▸</span>
+            {showCarton ? '收起箱规明细' : '展开箱规明细'}
+          </button>
+          {stockAsOf && <span className="shrink-0 text-[11px] font-semibold bg-[#e3eefc] text-[#1a56b3] px-2.5 py-1 rounded-full">as of {stockAsOf}</span>}
         </div>
         <div className="overflow-auto max-h-[750px]">
           <table className="w-full text-sm border-collapse" style={{ minWidth: CODE_W + NAME_W + 120 + warehouses.length * 84 + 90 + 150 }}>
@@ -252,12 +261,14 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
                 <th className="sticky top-0 left-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]" style={{ minWidth: CODE_W, width: CODE_W }}>Code</th>
                 <th className="sticky top-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>Name</th>
                 <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">EAN</th>
-                <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Qty/Carton</th>
-                <th title="每箱重量 (gross kg)" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Carton kg</th>
-                <th title="每箱尺寸 L*W*H" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Carton size</th>
-                <th title="每托箱数" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Ctn/Plt</th>
-                <th title="每托重量 (gross kg)" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Pallet kg</th>
-                <th title="产品彩盒尺寸 L*W*H" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-r-2 border-black/[0.06] whitespace-nowrap">Box size</th>
+                {showCarton && <>
+                  <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Qty/Carton</th>
+                  <th title="每箱重量 (gross kg)" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Carton kg</th>
+                  <th title="每箱尺寸 L*W*H" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Carton size</th>
+                  <th title="每托箱数" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Qty/Pallet</th>
+                  <th title="每托重量 (gross kg)" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Pallet weight</th>
+                  <th title="产品彩盒尺寸 L*W*H" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-r-2 border-black/[0.06] whitespace-nowrap">Retail package size</th>
+                </>}
                 {warehouses.map((w, i) => (
                   <th key={w.name} title={fullWh(w.name)} className={`sticky top-0 z-20 px-3 py-2.5 text-right text-[11px] font-semibold text-[#1a56b3] bg-[#e3eefc] border-b border-black/[0.06] ${i === 0 ? 'border-l-2 border-l-[#cfe0f8]' : ''}`}>{shortWh(w.name)}</th>
                 ))}
@@ -268,7 +279,7 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
             </thead>
             <tbody>
               {filteredSkus.length === 0 && (
-                <tr><td colSpan={(canEdit ? 12 : 11) + warehouses.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
+                <tr><td colSpan={(canEdit ? 12 : 11) - (showCarton ? 0 : 6) + warehouses.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
               )}
               {filteredSkus.map(s => (
                 <tr key={s.id} className={`group hover:bg-[#f5f5f7] transition-colors ${!s.is_active ? 'opacity-55' : ''}`}>
@@ -280,24 +291,26 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
                   <td className="px-3 py-2 text-xs border-b border-black/[0.05] whitespace-nowrap">
                     <EanCell sku={s} onSave={onSaveEan} canEdit={canEdit} />
                   </td>
-                  <td className="px-3 py-2 text-xs text-right border-b border-black/[0.05]">
-                    <BoxQtyCell sku={s} onSave={onSaveBoxQty} canEdit={canEdit} />
-                  </td>
-                  <td className="px-3 py-2 text-xs text-right tabular-nums border-b border-black/[0.05]">
-                    {s.carton_gross_kg != null ? <span className="text-gray-700">{s.carton_gross_kg}</span> : <span className="text-gray-300">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-left border-b border-black/[0.05] whitespace-nowrap">
-                    {s.carton_dim_cm ? <span className="text-gray-700">{s.carton_dim_cm}</span> : <span className="text-gray-300">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-right tabular-nums border-b border-black/[0.05]">
-                    {s.cartons_per_pallet != null ? <span className="text-gray-700">{s.cartons_per_pallet}</span> : <span className="text-gray-300">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-right tabular-nums border-b border-black/[0.05]">
-                    {s.pallet_gross_kg != null ? <span className="text-gray-700">{s.pallet_gross_kg}</span> : <span className="text-gray-300">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-left border-b border-r-2 border-black/[0.05] whitespace-nowrap">
-                    {s.colorbox_dim_cm ? <span className="text-gray-700">{s.colorbox_dim_cm}</span> : <span className="text-gray-300">—</span>}
-                  </td>
+                  {showCarton && <>
+                    <td className="px-3 py-2 text-xs text-right border-b border-black/[0.05]">
+                      <BoxQtyCell sku={s} onSave={onSaveBoxQty} canEdit={canEdit} />
+                    </td>
+                    <td className="px-3 py-2 text-xs text-right tabular-nums border-b border-black/[0.05]">
+                      {s.carton_gross_kg != null ? <span className="text-gray-700">{s.carton_gross_kg}</span> : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-left border-b border-black/[0.05] whitespace-nowrap">
+                      {s.carton_dim_cm ? <span className="text-gray-700">{s.carton_dim_cm}</span> : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-right tabular-nums border-b border-black/[0.05]">
+                      {s.cartons_per_pallet != null ? <span className="text-gray-700">{s.cartons_per_pallet}</span> : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-right tabular-nums border-b border-black/[0.05]">
+                      {s.pallet_gross_kg != null ? <span className="text-gray-700">{s.pallet_gross_kg}</span> : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-left border-b border-r-2 border-black/[0.05] whitespace-nowrap">
+                      {s.colorbox_dim_cm ? <span className="text-gray-700">{s.colorbox_dim_cm}</span> : <span className="text-gray-300">—</span>}
+                    </td>
+                  </>}
                   {warehouses.map((w, i) => {
                     const q = fmtQty(stockBySku[s.id]?.[w.name])
                     return (
