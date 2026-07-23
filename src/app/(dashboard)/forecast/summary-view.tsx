@@ -205,28 +205,38 @@ export function ForecastSummaryView({
     const MN = monthLabels.map(l => l.short)
 
     // ---- Sheet 1: Overview —— 与屏幕表格同构 ----
+    const LAST = months.length - 1                         // 每个国家块的最后一个月 → 右侧加分界线
+    const bd = (c: XCell): XCell => ({ ...c, bR: true })    // 给单元格加右分界线
+    // 把每个国家/月的取值函数铺成一行，块末月加分界线
+    const perMonthBlock = (fn: (code: string, m: string) => XCell) =>
+      tableCountries.flatMap(c => months.map((m, i) => i === LAST ? bd(fn(c.code, m)) : fn(c.code, m)))
+    const euBlock = (fn: (m: string) => XCell) =>
+      months.map((m, i) => i === LAST ? bd(fn(m)) : fn(m))
+
     const g = (v: any, span?: number, s = 'grp'): XCell => ({ v, span, s })
     const head1: XRow = [
       { v: 'SKU', s: 'hdrL' }, { v: 'PRODUCT', s: 'hdrL' },
-      ...tableCountries.map(c => g(`${c.flag_emoji} ${c.code} ${c.name_en}`, months.length)),
-      g('EU TTL', months.length),
+      ...tableCountries.map(c => bd(g(`${c.flag_emoji} ${c.code} ${c.name_en}`, months.length))),
+      bd(g('EU TTL', months.length)),
       g(`Total (${monthCount}-month sum)`, undefined, 'grpA'),
       g('Stock-FD', undefined, 'grpA'),
       g('Stock-HQ CN', undefined, 'grpA'),
       g('Stock-HQ Oversea', undefined, 'grpA'),
     ]
+    const mhdr = (m: string, i: number): XCell => i === LAST ? bd({ v: m, s: 'hdr' }) : { v: m, s: 'hdr' }
     const head2: XRow = [
       { v: '', s: 'hdr' }, { v: '', s: 'hdr' },
-      ...tableCountries.flatMap(() => MN.map(m => ({ v: m, s: 'hdr' } as XCell))),
-      ...MN.map(m => ({ v: m, s: 'hdr' } as XCell)),
+      ...tableCountries.flatMap(() => MN.map(mhdr)),
+      ...MN.map(mhdr),
       { v: '', s: 'hdr' }, { v: '', s: 'hdr' }, { v: '', s: 'hdr' }, { v: '', s: 'hdr' },
     ]
+
     const num = (n: number): XCell => n > 0 ? { v: n, num: true, s: 'n0' } : { v: '-', s: 'dim' }
     const ovRows: XRow[] = [head1, head2]
     tableRows.forEach(r => ovRows.push([
       { v: r.sku_code, s: 'code' }, { v: r.sku_name },
-      ...tableCountries.flatMap(c => months.map(m => num(r.countryMonthQty[c.code]?.[m] ?? 0))),
-      ...months.map(m => num(r.monthlyTtl[m] ?? 0)),
+      ...perMonthBlock((code, m) => num(r.countryMonthQty[code]?.[m] ?? 0)),
+      ...euBlock(m => num(r.monthlyTtl[m] ?? 0)),
       { v: r.subTotal, num: true, s: 'sub0' },
       num(fdStockBySkuCode?.[r.sku_code] ?? 0),
       num(hqCnStockBySkuCode?.[r.sku_code] ?? 0),
@@ -235,8 +245,8 @@ export function ForecastSummaryView({
     const sumOf = (rec?: Record<string, number>) => Object.values(rec ?? {}).reduce((s, v) => s + v, 0)
     ovRows.push([
       { v: 'TOTAL', s: 'tot' }, { v: `${tableRows.length} SKUs`, s: 'tot' },
-      ...tableCountries.flatMap(c => months.map(m => ({ v: footTotals.byCountryMonth[c.code]?.[m] ?? 0, num: true, s: 'tot0' } as XCell))),
-      ...months.map(m => ({ v: footTotals.byEuMonth[m] ?? 0, num: true, s: 'tot0' } as XCell)),
+      ...perMonthBlock((code, m) => ({ v: footTotals.byCountryMonth[code]?.[m] ?? 0, num: true, s: 'tot0' })),
+      ...euBlock(m => ({ v: footTotals.byEuMonth[m] ?? 0, num: true, s: 'tot0' })),
       { v: footTotals.grandTotal, num: true, s: 'tot0' },
       { v: sumOf(fdStockBySkuCode), num: true, s: 'tot0' },
       { v: sumOf(hqCnStockBySkuCode), num: true, s: 'tot0' },
@@ -288,12 +298,15 @@ export function ForecastSummaryView({
       cols.forEach(c => {
         const base = c.fd && c.fd !== c.ka.name ? `${c.fd} › ${c.ka.name}` : c.ka.name
         // 已停用但本周期仍有数据的渠道，标注出来（数据保留，避免与 Overview 对不上）
-        h1.push(g(c.ka.is_active === false ? `${base} (inactive)` : base, months.length))
+        h1.push(bd(g(c.ka.is_active === false ? `${base} (inactive)` : base, months.length)))
       })
-      h1.push(g('Sub-total', months.length, 'grpA'), g('Total', undefined, 'grpA'))
+      h1.push(bd(g('Sub-total', months.length, 'grpA')), g('Total', undefined, 'grpA'))
+      const mhdrC = (m: string, i: number): XCell => i === LAST ? bd({ v: m, s: 'hdr' }) : { v: m, s: 'hdr' }
       const h2: XRow = [{ v: '', s: 'hdr' }, { v: '', s: 'hdr' },
-        ...cols.flatMap(() => MN.map(m => ({ v: m, s: 'hdr' } as XCell))),
-        ...MN.map(m => ({ v: m, s: 'hdr' } as XCell)), { v: '', s: 'hdr' }]
+        ...cols.flatMap(() => MN.map(mhdrC)),  // 各渠道块末月分界
+        ...MN.map(mhdrC),                       // Sub-total 块
+        { v: '', s: 'hdr' },                    // Total
+      ]
 
       const rows: XRow[] = [h1, h2]
       const colTot: number[] = new Array(cols.length * months.length).fill(0)
@@ -306,7 +319,8 @@ export function ForecastSummaryView({
           const q = cellQty.get(`${sku.id}|${c.ka.id}|${m}`) ?? 0
           perMonth[mi] += q
           colTot[ci * months.length + mi] += q
-          cells.push(num(q))
+          const cell: XCell = q > 0 ? { v: q, num: true, s: 'n0' } : { v: '-', s: 'dim' }
+          cells.push(mi === LAST ? bd(cell) : cell)
         }))
         const rowTot = perMonth.reduce((s, v) => s + v, 0)
         if (hideZero && rowTot === 0) return
@@ -314,14 +328,17 @@ export function ForecastSummaryView({
         grand += rowTot
         rows.push([
           { v: sku.code, s: 'code' }, { v: sku.name }, ...cells,
-          ...perMonth.map(v => v > 0 ? ({ v, num: true, s: 'sub0' } as XCell) : ({ v: '-', s: 'dim' } as XCell)),
+          ...perMonth.map((v, i) => {
+            const cell: XCell = v > 0 ? { v, num: true, s: 'sub0' } : { v: '-', s: 'dim' }
+            return i === LAST ? bd(cell) : cell
+          }),
           rowTot > 0 ? { v: rowTot, num: true, s: 'sub0' } : { v: '-', s: 'dim' },
         ])
       })
       rows.push([
         { v: 'TOTAL', s: 'tot' }, { v: `${country.name_en}`, s: 'tot' },
-        ...colTot.map(v => ({ v, num: true, s: 'tot0' } as XCell)),
-        ...monTot.map(v => ({ v, num: true, s: 'tot0' } as XCell)),
+        ...colTot.map((v, idx) => { const cell: XCell = { v, num: true, s: 'tot0' }; return idx % months.length === LAST ? bd(cell) : cell }),
+        ...monTot.map((v, i) => { const cell: XCell = { v, num: true, s: 'tot0' }; return i === LAST ? bd(cell) : cell }),
         { v: grand, num: true, s: 'tot0' },
       ])
 

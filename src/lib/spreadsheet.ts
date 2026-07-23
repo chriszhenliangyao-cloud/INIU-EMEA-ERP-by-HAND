@@ -14,6 +14,7 @@ export type XCell = {
   num?: boolean        // true → 以数字写入（可参与 Excel 求和/透视）
   s?: string           // 样式 ID，见下方 STYLES
   span?: number        // 横向合并的列数（1 = 不合并）
+  bR?: boolean         // 右侧加粗分界线（用样式 ID 的 _r 变体）
 }
 export type XRow = XCell[]
 export type XSheet = { name: string; rows: XRow[]; widths?: number[]; freezeRows?: number }
@@ -44,14 +45,36 @@ const STYLES = `<Styles>`
   + `<Style ss:ID="tot0"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#475569" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0"/></Style>`
   + `<Style ss:ID="tot2"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#475569" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>`
   + `<Style ss:ID="note"><Font ss:Italic="1" ss:Color="#64748B"/></Style>`
+  + `<Style ss:ID="bdr"><Borders>${''}<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#475569"/></Borders></Style>`
   + `</Styles>`
+
+// 右侧粗分界线（用于国家 / 渠道分组的右缘）
+const RIGHT_BORDER = '<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#475569"/>'
+// 为每个基础样式派生一个 `<id>_r` 变体（在原样式上叠加右边框），bR:true 的单元格用它
+function withBorderVariants(stylesXml: string): string {
+  const inner = stylesXml.replace(/^<Styles>/, '').replace(/<\/Styles>$/, '')
+  let extra = ''
+  const re = /<Style ss:ID="([^"]+)">([\s\S]*?)<\/Style>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(inner)) !== null) {
+    const [, id, body] = m
+    if (id === 'Default' || id === 'bdr' || id.endsWith('_r')) continue
+    const merged = body.includes('<Borders>')
+      ? body.replace('</Borders>', RIGHT_BORDER + '</Borders>')   // 并入已有边框，保持位置
+      : `<Borders>${RIGHT_BORDER}</Borders>` + body               // 无边框则前置（Excel/WPS 容忍此顺序）
+    extra += `<Style ss:ID="${id}_r">${merged}</Style>`
+  }
+  return `<Styles>${inner}${extra}</Styles>`
+}
+const STYLES_ALL = withBorderVariants(STYLES)
 
 function sheetXml({ name, rows, widths, freezeRows = 1 }: XSheet): string {
   const cols = (widths ?? []).map(w => `<Column ss:Width="${w}"/>`).join('')
   const body = rows.map(r => {
     const cells = r.map(c => {
       const span = c.span && c.span > 1 ? ` ss:MergeAcross="${c.span - 1}"` : ''
-      const style = c.s ? ` ss:StyleID="${c.s}"` : ''
+      const sid = c.bR ? (c.s ? `${c.s}_r` : 'bdr') : c.s
+      const style = sid ? ` ss:StyleID="${sid}"` : ''
       if (c.v === null || c.v === '') return `<Cell${style}${span}/>`
       return `<Cell${style}${span}><Data ss:Type="${c.num ? 'Number' : 'String'}">${esc(c.v)}</Data></Cell>`
     }).join('')
@@ -73,7 +96,7 @@ export function buildWorkbook(sheets: XSheet[]): string {
     + ` xmlns:o="urn:schemas-microsoft-com:office:office"`
     + ` xmlns:x="urn:schemas-microsoft-com:office:excel"`
     + ` xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">`
-    + STYLES + sheets.map(sheetXml).join('') + `</Workbook>`
+    + STYLES_ALL + sheets.map(sheetXml).join('') + `</Workbook>`
 }
 
 /** 触发浏览器下载。filename 不含扩展名。 */
