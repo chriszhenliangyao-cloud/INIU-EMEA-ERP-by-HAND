@@ -17,6 +17,7 @@ import {
   deleteSKUPermanently, getSKUReferenceCount,
 } from './_actions/manage-sku'
 import type { SkuInput } from './_actions/manage-sku'
+import { buildWorkbook, downloadWorkbook, type XRow } from '@/lib/spreadsheet'
 
 type Sku = {
   id: number
@@ -84,6 +85,7 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [addOpen, setAddOpen] = useState(false)
   const [showCarton, setShowCarton] = useState(false)   // 箱规明细列（EAN/Qty/Carton/尺寸/托盘…）默认收起，聚焦库存
+  const [exportOpen, setExportOpen] = useState(false)   // 箱规导出选择器
   const [editingSku, setEditingSku] = useState<Sku | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -250,8 +252,13 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
             title="展开 / 收起箱规明细列（每箱数量·重量·尺寸·托盘·彩盒）"
           >
             <span className="text-gray-400 transition-transform" style={{ display: 'inline-block', transform: showCarton ? 'rotate(90deg)' : 'none' }}>▸</span>
-            {showCarton ? '收起箱规明细' : '展开箱规明细'}
+            {showCarton ? 'Hide carton specs' : 'Show carton specs'}
           </button>
+          <button
+            onClick={() => setExportOpen(true)}
+            className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-emerald-200 bg-emerald-50 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 transition"
+            title="导出箱规（可勾选要导出的 SKU）"
+          >⬇️ Export carton specs</button>
           {stockAsOf && <span className="shrink-0 text-[11px] font-semibold bg-[#e3eefc] text-[#1a56b3] px-2.5 py-1 rounded-full">as of {stockAsOf}</span>}
         </div>
         <div className="overflow-auto max-h-[750px]">
@@ -365,6 +372,109 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
           }}
         />
       )}
+
+      {exportOpen && <CartonExportModal skus={allSkus} onClose={() => setExportOpen(false)} />}
+    </div>
+  )
+}
+
+// ── 箱规导出选择器（勾选 SKU → 导出 .xls，交互仿 Shipment Workflow）──
+function CartonExportModal({ skus, onClose }: { skus: Sku[]; onClose: () => void }) {
+  const [sel, setSel] = useState<Set<number>>(new Set())
+  const [q, setQ] = useState('')
+  const [cat, setCat] = useState('')
+  const [onlyFilled, setOnlyFilled] = useState(false)
+  const hasSpec = (s: Sku) => s.box_qty != null || s.carton_gross_kg != null || s.carton_dim_cm != null ||
+    s.cartons_per_pallet != null || s.pallet_gross_kg != null || s.colorbox_dim_cm != null
+  const cats = useMemo(() => Array.from(new Set(skus.map(s => s.category).filter(Boolean) as string[])).sort(), [skus])
+  const shown = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    return skus.filter(s =>
+      (!t || `${s.code} ${s.name} ${s.name_zh ?? ''}`.toLowerCase().includes(t)) &&
+      (!cat || s.category === cat) &&
+      (!onlyFilled || hasSpec(s)))
+  }, [skus, q, cat, onlyFilled])
+  const allShownSelected = shown.length > 0 && shown.every(s => sel.has(s.id))
+  const toggle = (id: number) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleAll = () => setSel(s => { const n = new Set(s); if (allShownSelected) shown.forEach(x => n.delete(x.id)); else shown.forEach(x => n.add(x.id)); return n })
+
+  const doExport = () => {
+    const picked = skus.filter(s => sel.has(s.id))
+    if (!picked.length) { alert('请先勾选要导出的 SKU。'); return }
+    const dash = (v: any): any => v == null || v === '' ? '' : v
+    const head: XRow = ['SKU', 'Product', 'EAN', 'Qty/Carton', 'Carton weight (kg)', 'Carton size', 'Qty/Pallet', 'Pallet weight (kg)', 'Retail package size', 'Unit weight (g)']
+      .map(h => ({ v: h, s: 'hdrL' }))
+    const rows: XRow[] = [head]
+    picked.forEach(s => rows.push([
+      { v: s.code, s: 'code' }, { v: s.name }, { v: dash(s.ean) },
+      s.box_qty != null ? { v: s.box_qty, num: true, s: 'n0' } : { v: '' },
+      s.carton_gross_kg != null ? { v: Number(s.carton_gross_kg), num: true, s: 'n2' } : { v: '' },
+      { v: dash(s.carton_dim_cm) },
+      s.cartons_per_pallet != null ? { v: s.cartons_per_pallet, num: true, s: 'n0' } : { v: '' },
+      s.pallet_gross_kg != null ? { v: Number(s.pallet_gross_kg), num: true, s: 'n2' } : { v: '' },
+      { v: dash(s.colorbox_dim_cm) },
+      s.unit_weight_g != null ? { v: s.unit_weight_g, num: true, s: 'n0' } : { v: '' },
+    ]))
+    const today = new Date().toISOString().slice(0, 10)
+    downloadWorkbook(buildWorkbook([{ name: 'Carton specs', rows, freezeRows: 1, widths: [90, 175, 105, 60, 90, 130, 60, 95, 130, 75] }]), `INIU Carton Specs-${today.replace(/-/g, '')}`)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[720px] p-5 max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-lg font-semibold text-gray-900">⬇️ Export carton specs <span className="text-sm font-normal text-gray-400">· 导出箱规</span></div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="text-xs text-gray-400 mb-3">勾选要导出的 SKU。导出内容仅箱规：每箱数量 / 每箱重量·尺寸 / 每托箱数·重量 / 彩盒尺寸 / 单品重量（含 EAN 便于对照）。不含库存。</div>
+
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <div className="relative flex-1 min-w-[180px] max-w-[240px]">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">🔍</span>
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search code / name…" className="w-full pl-7 pr-3 h-[32px] text-[13px] border border-gray-300 rounded-md outline-none focus:ring-1 focus:ring-blue-300" />
+          </div>
+          <select value={cat} onChange={e => setCat(e.target.value)} className="h-[32px] text-[13px] border border-gray-300 rounded-md px-2 outline-none">
+            <option value="">All categories</option>
+            {cats.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={onlyFilled} onChange={e => setOnlyFilled(e.target.checked)} />Only with specs</label>
+          <button onClick={toggleAll} className="px-3 py-1.5 text-xs rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50">{allShownSelected ? 'Clear' : 'Select all'} ({shown.length})</button>
+          <span className="ml-auto text-xs text-gray-500">已选 <strong className="text-gray-800">{sel.size}</strong></span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg">
+          <table className="w-full text-[12.5px]">
+            <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-3 py-2 w-8 text-left"><input type="checkbox" checked={allShownSelected} onChange={toggleAll} /></th>
+                <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400">Code</th>
+                <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400">Name</th>
+                <th className="px-3 py-2 text-center text-[11px] font-medium text-gray-400">Specs</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {shown.map(s => {
+                const on = sel.has(s.id)
+                return (
+                  <tr key={s.id} className={`cursor-pointer ${on ? 'bg-emerald-50/60' : 'hover:bg-gray-50/60'} ${!s.is_active ? 'opacity-55' : ''}`} onClick={() => toggle(s.id)}>
+                    <td className="px-3 py-2 text-center"><input type="checkbox" checked={on} onChange={() => toggle(s.id)} onClick={e => e.stopPropagation()} /></td>
+                    <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{s.code}</td>
+                    <td className="px-3 py-2 text-gray-600">{s.name}</td>
+                    <td className="px-3 py-2 text-center">{hasSpec(s) ? <span className="text-emerald-600 text-xs">✓</span> : <span className="text-gray-300 text-xs">—</span>}</td>
+                  </tr>
+                )
+              })}
+              {!shown.length && <tr><td colSpan={4} className="py-10 text-center text-gray-300">No matching SKU</td></tr>}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 mt-3">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+          <button onClick={doExport} disabled={!sel.size} className="px-4 py-2 text-sm font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">⬇️ Export ({sel.size})</button>
+        </div>
+      </div>
     </div>
   )
 }
