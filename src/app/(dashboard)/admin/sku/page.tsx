@@ -19,6 +19,7 @@ export default async function AdminSkuPage() {
     .from('sku')
     .select(`
       id, code, name, name_zh, category, color, ean, box_qty, unit_weight_g,
+      carton_dim_cm, carton_gross_kg, cartons_per_pallet, pallet_gross_kg, colorbox_dim_cm,
       rrp_eur, rrp_usd, cost_usd, lifecycle, launch_date, region_scope,
       sort_order, is_active, notes, series, family,
       created_at, updated_at

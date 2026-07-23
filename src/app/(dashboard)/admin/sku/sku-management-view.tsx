@@ -28,6 +28,11 @@ type Sku = {
   ean: string | null
   box_qty: number | null
   unit_weight_g: number | null
+  carton_dim_cm: string | null
+  carton_gross_kg: number | null
+  cartons_per_pallet: number | null
+  pallet_gross_kg: number | null
+  colorbox_dim_cm: string | null
   rrp_eur: number | null
   rrp_usd: number | null
   cost_usd: number | null
@@ -589,13 +594,34 @@ function SkuFormDrawer({ open, onClose, mode, initial, onSubmit }: {
               <input value={form.ean ?? ''} onChange={(e) => setField('ean', e.target.value)} className={inputCls} placeholder="13-digit barcode" />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Box qty">
+              <Field label="Box qty（每箱数量）">
                 <input type="number" value={form.box_qty ?? ''} onChange={(e) => setNum('box_qty', e.target.value)} className={inputCls} />
               </Field>
-              <Field label="Unit weight (g)">
+              <Field label="Unit weight (g)（单品重量）">
                 <input type="number" value={form.unit_weight_g ?? ''} onChange={(e) => setNum('unit_weight_g', e.target.value)} className={inputCls} />
               </Field>
             </div>
+          </Section>
+
+          {/* Carton & Pallet（装箱 / 托盘）*/}
+          <Section title="Carton & Pallet（装箱 / 托盘）">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Carton size（每箱尺寸）">
+                <input value={form.carton_dim_cm ?? ''} onChange={(e) => setField('carton_dim_cm', e.target.value)} className={inputCls} placeholder="47*42*35cm" />
+              </Field>
+              <Field label="Carton weight kg（每箱重量）">
+                <input type="number" step="0.1" value={form.carton_gross_kg ?? ''} onChange={(e) => setNum('carton_gross_kg', e.target.value)} className={inputCls} placeholder="15.2" />
+              </Field>
+              <Field label="Cartons / pallet（每托箱数）">
+                <input type="number" value={form.cartons_per_pallet ?? ''} onChange={(e) => setNum('cartons_per_pallet', e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Pallet weight kg（每托重量）">
+                <input type="number" step="0.1" value={form.pallet_gross_kg ?? ''} onChange={(e) => setNum('pallet_gross_kg', e.target.value)} className={inputCls} />
+              </Field>
+            </div>
+            <Field label="Color box size（产品彩盒尺寸）">
+              <input value={form.colorbox_dim_cm ?? ''} onChange={(e) => setField('colorbox_dim_cm', e.target.value)} className={inputCls} placeholder="16*8*3cm" />
+            </Field>
           </Section>
 
           {/* Pricing */}
@@ -680,6 +706,7 @@ function normalize(s: Sku | undefined): SkuInput {
     return {
       code: '', name: '', name_zh: null, category: null, color: null, ean: null,
       box_qty: null, unit_weight_g: null,
+      carton_dim_cm: null, carton_gross_kg: null, cartons_per_pallet: null, pallet_gross_kg: null, colorbox_dim_cm: null,
       rrp_eur: null, rrp_usd: null, cost_usd: null,
       lifecycle: 'active', launch_date: null, region_scope: null,
       sort_order: 999, notes: null, series: null, family: null,
@@ -694,6 +721,11 @@ function normalize(s: Sku | undefined): SkuInput {
     ean: s.ean,
     box_qty: s.box_qty,
     unit_weight_g: s.unit_weight_g,
+    carton_dim_cm: s.carton_dim_cm,
+    carton_gross_kg: s.carton_gross_kg,
+    cartons_per_pallet: s.cartons_per_pallet,
+    pallet_gross_kg: s.pallet_gross_kg,
+    colorbox_dim_cm: s.colorbox_dim_cm,
     rrp_eur: s.rrp_eur,
     rrp_usd: s.rrp_usd,
     cost_usd: s.cost_usd,

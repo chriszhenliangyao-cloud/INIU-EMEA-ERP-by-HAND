@@ -36,6 +36,11 @@ export type SkuInput = {
   ean?: string | null
   box_qty?: number | null
   unit_weight_g?: number | null
+  carton_dim_cm?: string | null       // 每箱尺寸 L*W*H cm
+  carton_gross_kg?: number | null     // 每箱重量 kg
+  cartons_per_pallet?: number | null  // 每托箱数
+  pallet_gross_kg?: number | null     // 每托重量 kg
+  colorbox_dim_cm?: string | null     // 产品彩盒尺寸 L*W*H cm
   rrp_eur?: number | null
   rrp_usd?: number | null
   cost_usd?: number | null
@@ -74,6 +79,11 @@ export async function createSKU(input: SkuInput): Promise<ActionResult> {
     ean: input.ean?.trim() || null,
     box_qty: input.box_qty ?? null,
     unit_weight_g: input.unit_weight_g ?? null,
+    carton_dim_cm: input.carton_dim_cm?.trim() || null,
+    carton_gross_kg: input.carton_gross_kg ?? null,
+    cartons_per_pallet: input.cartons_per_pallet ?? null,
+    pallet_gross_kg: input.pallet_gross_kg ?? null,
+    colorbox_dim_cm: input.colorbox_dim_cm?.trim() || null,
     rrp_eur: input.rrp_eur ?? null,
     rrp_usd: input.rrp_usd ?? null,
     cost_usd: input.cost_usd ?? null,
@@ -126,6 +136,7 @@ export async function updateSKU(id: number, input: Partial<SkuInput>): Promise<A
   const trimStrFields: (keyof SkuInput)[] = [
     'code', 'name', 'name_zh', 'category', 'series', 'family',
     'color', 'ean', 'lifecycle', 'notes', 'launch_date',
+    'carton_dim_cm', 'colorbox_dim_cm',
   ]
   for (const f of trimStrFields) {
     if (input[f] !== undefined) {
@@ -136,7 +147,8 @@ export async function updateSKU(id: number, input: Partial<SkuInput>): Promise<A
 
   // 数字字段：直接赋值（含 null）
   const numFields: (keyof SkuInput)[] = [
-    'box_qty', 'unit_weight_g', 'rrp_eur', 'rrp_usd', 'cost_usd', 'sort_order',
+    'box_qty', 'unit_weight_g', 'carton_gross_kg', 'cartons_per_pallet', 'pallet_gross_kg',
+    'rrp_eur', 'rrp_usd', 'cost_usd', 'sort_order',
   ]
   for (const f of numFields) {
     if (input[f] !== undefined) patch[f] = input[f] ?? null
