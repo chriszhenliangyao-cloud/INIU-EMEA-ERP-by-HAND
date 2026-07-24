@@ -7,21 +7,9 @@ import { fmtNum } from '@/lib/utils'
 import { fmtMoney, stageOf, type Batch, type OpsRow, type Stage } from '../../po/_ops'
 import { PoDocsModal } from './po-docs-modal'
 
-export type SkuOpt = { id: number; code: string; name: string; ean?: string | null }
+export type SkuOpt = { id: number; code: string; name: string }
 export type CountryOpt = { id: number; code: string; name: string; flag: string }
 export type KaOpt = { id: number; name: string; country_id: number }
-export type SkuAlias = { norm: string; sku_id: number }
-
-// PO 导入预填：把 Gemini 解析结果映射成 AddPo 表单初值
-export type PoPrefill = {
-  countryId: number | ''
-  kaId: number | ''
-  poNumber: string
-  poDate: string
-  currency: string
-  lines: { skuCode: string; qty: string; price: string; raw?: string; matched: boolean }[]
-  warnings: string[]
-}
 
 type StageMeta = { key: Stage; icon: string; label: string; a: string; bg: string; bd: string; tx: string; desc: string }
 const STAGES: Record<Stage, StageMeta> = {
@@ -37,8 +25,8 @@ const STAGES: Record<Stage, StageMeta> = {
 const daysSince = (d: string) => Math.max(0, Math.round((Date.now() - new Date(d + 'T00:00:00').getTime()) / 86400000))
 const ageTone = (n: number) => n > 30 ? 'bg-rose-50 text-rose-700' : n > 14 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'
 
-export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas, skuAliases }: {
-  rows: OpsRow[]; batches: Batch[]; docCounts: Record<string, number>; plnToEur: number; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]; skuAliases: SkuAlias[]
+export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas }: {
+  rows: OpsRow[]; batches: Batch[]; docCounts: Record<string, number>; plnToEur: number; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]
 }) {
   const supabase = useRef(createClient()).current
   const router = useRouter()
@@ -50,83 +38,9 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas,
   const [poSearch, setPoSearch] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set())  // 展开的组 / 行
   const [addOpen, setAddOpen] = useState(false)
-  const [addPrefill, setAddPrefill] = useState<PoPrefill | null>(null)   // 从 PO 导入解析来的预填
-  const [importing, setImporting] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [poDetailsOpen, setPoDetailsOpen] = useState(false)
   const [docsPo, setDocsPo] = useState<string | null>(null)
-
-  // ── PO 导入：上传 PDF → Gemini 解析 → 映射 SKU → 打开预填的 Add PO 表单核对 ──
-  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, '').replace(/[_.]/g, '-').trim()
-  const skuByCodeN = useMemo(() => new Map(skus.map(s => [norm(s.code), s])), [skus])
-  const skuByEan = useMemo(() => new Map(skus.filter(s => s.ean).map(s => [String(s.ean), s])), [skus])
-  const skuByAlias = useMemo(() => {
-    const idToCode = new Map(skus.map(s => [s.id, s.code]))
-    return new Map(skuAliases.map(a => [norm(a.norm), idToCode.get(a.sku_id)]).filter(([, c]) => c) as [string, string][])
-  }, [skuAliases, skus])
-
-  const resolveSkuCode = (part?: string, ean?: string): string | null => {
-    if (ean && skuByEan.has(String(ean))) return skuByEan.get(String(ean))!.code
-    if (part) {
-      const p = norm(part)
-      if (skuByCodeN.has(p)) return skuByCodeN.get(p)!.code
-      if (skuByAlias.has(p)) return skuByAlias.get(p)!
-      // 宽松：去掉常见后缀再试（-1P / 空格颜色词等已被 norm 处理一部分）
-    }
-    return null
-  }
-
-  const onImportFile = async (file: File) => {
-    if (!file) return
-    if (file.type && file.type !== 'application/pdf') { alert('请选择 PDF 文件。'); return }
-    setImporting(true)
-    try {
-      const b64 = await new Promise<string>((res, rej) => {
-        const r = new FileReader()
-        r.onload = () => res(String(r.result).split(',')[1] || '')
-        r.onerror = () => rej(r.error)
-        r.readAsDataURL(file)
-      })
-      const resp = await fetch('/api/po/parse', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pdf: b64 }) })
-      const json = await resp.json()
-      if (!resp.ok) { alert(`解析失败：${json?.error ?? resp.status}`); return }
-      const p = json.parsed ?? {}
-      const warnings: string[] = []
-      // 币种
-      const cur = String(p.currency || '').toUpperCase().includes('PLN') ? 'PLN' : 'EUR'
-      // KA / 国家 由名称猜（可为空，人工在表单里选）
-      const custN = norm(String(p.customer_name || ''))
-      const kaMatch = custN ? kas.find(k => norm(k.name) === custN || (custN.length > 2 && norm(k.name).includes(custN))) : undefined
-      const countryId = kaMatch ? kaMatch.country_id : ''
-      if (p.customer_name && !kaMatch) warnings.push(`未识别客户「${p.customer_name}」，请手动选 Country/KA。`)
-      // 行
-      const rawLines: any[] = Array.isArray(p.lines) ? p.lines : []
-      const lines = rawLines.map(l => {
-        const code = resolveSkuCode(l.part_number, l.ean)
-        if (!code) warnings.push(`货号「${l.part_number ?? l.ean ?? '?'}」未匹配到 SKU，请手动选。`)
-        return {
-          skuCode: code ?? String(l.part_number ?? ''),
-          qty: l.qty != null ? String(Math.floor(Number(l.qty))) : '',
-          price: l.unit_price != null ? String(l.unit_price) : '',
-          raw: String(l.part_number ?? l.ean ?? ''),
-          matched: !!code,
-        }
-      })
-      if (!lines.length) warnings.push('未解析到任何明细行，请手动录入。')
-      setAddPrefill({
-        countryId, kaId: kaMatch ? kaMatch.id : '', poNumber: String(p.po_number || ''),
-        poDate: /^\d{4}-\d{2}-\d{2}$/.test(String(p.po_date)) ? String(p.po_date) : today,
-        currency: cur, lines: lines.length ? lines : [{ skuCode: '', qty: '', price: '', matched: false }], warnings,
-      })
-      setAddOpen(true)
-    } catch (e: any) {
-      alert(`导入出错：${e?.message ?? e}`)
-    } finally {
-      setImporting(false)
-      if (fileRef.current) fileRef.current.value = ''
-    }
-  }
 
   const batchesByPo = useMemo(() => {
     const m = new Map<number, Batch[]>()
@@ -293,14 +207,7 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas,
                 <input value={poSearch} onChange={e => setPoSearch(e.target.value)} placeholder="Search PO #…" className="fld pl-7 pr-7 w-[190px] h-[34px] text-[13px]" />
                 {poSearch && <button onClick={() => setPoSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm leading-none">×</button>}
               </div>
-              {active === 'new' && <>
-                <input ref={fileRef} type="file" accept="application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onImportFile(f) }} />
-                <button onClick={() => fileRef.current?.click()} disabled={importing}
-                  className="btn b-sky" style={{ padding: '7px 14px' }} title="上传 PO PDF，自动解析后预填表单核对">
-                  {importing ? '⏳ 解析中…' : '📄 Import PO (PDF)'}
-                </button>
-                <button onClick={() => { setAddPrefill(null); setAddOpen(true) }} className="btn b-indigo" style={{ padding: '7px 14px' }}>＋ Add PO manually</button>
-              </>}
+              {active === 'new' && <button onClick={() => setAddOpen(true)} className="btn b-indigo" style={{ padding: '7px 14px' }}>＋ Add PO manually</button>}
             </div>
           </div>
 
@@ -319,8 +226,8 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas,
         </div>
       </div>
 
-      {addOpen && <AddPoModal today={today} skus={skus} countries={countries} kas={kas} initial={addPrefill} onClose={() => { setAddOpen(false); setAddPrefill(null) }}
-        onDone={() => { setAddOpen(false); setAddPrefill(null); router.refresh() }} supabase={supabase} />}
+      {addOpen && <AddPoModal today={today} skus={skus} countries={countries} kas={kas} onClose={() => setAddOpen(false)}
+        onDone={() => { setAddOpen(false); router.refresh() }} supabase={supabase} />}
       {exportOpen && <ExportModal rows={rows} batchesByPo={batchesByPo} today={today} onClose={() => setExportOpen(false)} />}
       {poDetailsOpen && <PoDetailsExportModal rows={rows} today={today} onClose={() => setPoDetailsOpen(false)} />}
       {docsPo && <PoDocsModal poNumber={docsPo} onClose={() => setDocsPo(null)} onChanged={() => router.refresh()} />}
@@ -1214,22 +1121,18 @@ const lineTurnover = (l: PoLine): number | null => {
   return Math.round(q * p * 100) / 100
 }
 
-function AddPoModal({ today, skus, countries, kas, initial, onClose, onDone, supabase }: {
-  today: string; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]; initial?: PoPrefill | null
+function AddPoModal({ today, skus, countries, kas, onClose, onDone, supabase }: {
+  today: string; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]
   onClose: () => void; onDone: () => void; supabase: ReturnType<typeof createClient>
 }) {
-  const [countryId, setCountryId] = useState<number | ''>(initial?.countryId ?? '')
-  const [kaId, setKaId] = useState<number | ''>(initial?.kaId ?? '')
-  const [poNumber, setPoNumber] = useState(initial?.poNumber ?? '')
-  const [poDate, setPoDate] = useState(initial?.poDate || today)
-  const [currency, setCurrency] = useState(initial?.currency ?? 'EUR')
-  const [lines, setLines] = useState<PoLine[]>(
-    initial?.lines?.length
-      ? initial.lines.map((l, i) => ({ key: i + 1, skuCode: l.skuCode, qty: l.qty, price: l.price }))
-      : [{ key: 1, skuCode: '', qty: '', price: '' }])
-  const [warnings, setWarnings] = useState<string[]>(initial?.warnings ?? [])
+  const [countryId, setCountryId] = useState<number | ''>('')
+  const [kaId, setKaId] = useState<number | ''>('')
+  const [poNumber, setPoNumber] = useState('')
+  const [poDate, setPoDate] = useState(today)
+  const [currency, setCurrency] = useState('EUR')
+  const [lines, setLines] = useState<PoLine[]>([{ key: 1, skuCode: '', qty: '', price: '' }])
   const [saving, setSaving] = useState(false)
-  const nextKey = useRef((initial?.lines?.length ?? 1) + 1)
+  const nextKey = useRef(2)
 
   const kaOptions = kas.filter(k => k.country_id === countryId)
   const skuByCode = useMemo(() => new Map(skus.map(s => [s.code.toLowerCase(), s])), [skus])
@@ -1252,7 +1155,7 @@ function AddPoModal({ today, skus, countries, kas, initial, onClose, onDone, sup
         country_id: countryId, ka_id: kaId || null, sku_id: sku.id,
         po_number: poNumber.trim() || null, po_date: poDate, qty_ordered: q,
         currency, fd_buying_price: l.price ? Number(l.price) : null, turnover: lineTurnover(l),
-        source_file: initial ? 'po-import' : 'manual',
+        source_file: 'manual',
       })
     }
     const dup = rows.map(r => r.sku_id).filter((v, i, a) => a.indexOf(v) !== i)
@@ -1268,19 +1171,10 @@ function AddPoModal({ today, skus, countries, kas, initial, onClose, onDone, sup
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[720px] p-5 max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
-          <div className="text-lg font-semibold text-gray-900">{initial ? '📄 Import PO · 核对' : '🆕 Add PO manually'}</div>
+          <div className="text-lg font-semibold text-gray-900">🆕 Add PO manually</div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
-        <div className="text-xs text-gray-400 mb-3">{initial
-          ? <>已从 PDF 解析并预填，请<span className="text-amber-600 font-medium">逐行核对</span>数量 / 单价 / SKU 后再保存。</>
-          : <>新建的 PO 落入 <span className="text-indigo-600 font-medium">New PO</span>，核对后 Confirm 进入待发。一张 PO 可含多个 SKU，每个 SKU 存为一行。</>}</div>
-        {warnings.length > 0 && (
-          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
-            <div className="font-semibold mb-0.5">⚠️ 需人工确认（{warnings.length}）</div>
-            <ul className="list-disc pl-4 space-y-0.5">{warnings.slice(0, 8).map((w, i) => <li key={i}>{w}</li>)}</ul>
-            {warnings.length > 8 && <div className="text-amber-600 mt-0.5">…另有 {warnings.length - 8} 条</div>}
-          </div>
-        )}
+        <div className="text-xs text-gray-400 mb-4">新建的 PO 落入 <span className="text-indigo-600 font-medium">New PO</span>，核对后 Confirm 进入待发。一张 PO 可含多个 SKU，每个 SKU 存为一行。</div>
 
         <datalist id="sku-options">{skus.map(s => <option key={s.id} value={s.code}>{s.name}</option>)}</datalist>
 
@@ -1370,7 +1264,6 @@ function PosStyle() {
     .b-red{background:rgba(120,120,128,.12);border-color:rgba(255,255,255,.55);color:#be123c}.b-red:hover{background:rgba(225,29,72,.14)}
     .b-grey{background:#f3f4f6;border-color:#e5e7eb;color:#4b5563}.b-grey:hover{background:#e5e7eb}
     .b-indigo{background:rgba(99,102,241,.16);border-color:rgba(99,102,241,.32);color:#3730a3}.b-indigo:hover{background:rgba(99,102,241,.26)}
-    .b-sky{background:rgba(14,165,233,.14);border-color:rgba(14,165,233,.34);color:#0369a1}.b-sky:hover{background:rgba(14,165,233,.24)}.b-sky:disabled{opacity:.5;cursor:not-allowed}
     .fld{border:1px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:13px;outline:none;background:#fff}
     .fld:focus{box-shadow:0 0 0 2px rgba(99,102,241,.2);border-color:#a5b4fc}
   `}</style>
