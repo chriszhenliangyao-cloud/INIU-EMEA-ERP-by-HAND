@@ -55,7 +55,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
           <NavLink href="/psi">📦 PSI Dashboard</NavLink>
           <NavLink href="/performance">🏆 Performance</NavLink>
           {/* SKU 主数据对销售只读开放（写操作 UI 隐藏 + RLS 仅 admin 可写） */}
-          <NavLink href="/admin/sku">⚙️ SKU Master Data</NavLink>
+          <NavLink href="/admin/sku">⚙️ SKU Master Data (Stock)</NavLink>
 
           {me.isAdmin && (
             <>
