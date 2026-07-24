@@ -4,7 +4,7 @@ import { Fragment, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { fmtNum } from '@/lib/utils'
-import { fmtMoney, stageOf, type Batch, type OpsRow, type Stage } from '../../po/_ops'
+import { fmtMoney, stageOf, toEUR, type Batch, type OpsRow, type Stage } from '../../po/_ops'
 import { PoDocsModal } from './po-docs-modal'
 
 export type SkuOpt = { id: number; code: string; name: string }
@@ -25,7 +25,23 @@ const STAGES: Record<Stage, StageMeta> = {
 const daysSince = (d: string) => Math.max(0, Math.round((Date.now() - new Date(d + 'T00:00:00').getTime()) / 86400000))
 const ageTone = (n: number) => n > 30 ? 'bg-rose-50 text-rose-700' : n > 14 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'
 
-export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas }: {
+// ISO 周工具：周台账按 ISO 周（周一起）分组
+const isoWeekKey = (iso: string): string => {
+  const t = new Date(iso + 'T00:00:00Z')
+  const day = t.getUTCDay() || 7
+  t.setUTCDate(t.getUTCDate() + 4 - day)              // 移到本周四 → 决定属于哪个 ISO 年/周
+  const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1))
+  const wk = Math.ceil(((t.getTime() - y0.getTime()) / 86400000 + 1) / 7)
+  return `${t.getUTCFullYear()}-W${String(wk).padStart(2, '0')}`
+}
+const isoMonday = (iso: string): string => {
+  const d = new Date(iso + 'T00:00:00Z')
+  const day = d.getUTCDay() || 7
+  d.setUTCDate(d.getUTCDate() - day + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, countries, kas }: {
   rows: OpsRow[]; batches: Batch[]; docCounts: Record<string, number>; plnToEur: number; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]
 }) {
   const supabase = useRef(createClient()).current
@@ -41,6 +57,57 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
   const [exportOpen, setExportOpen] = useState(false)
   const [poDetailsOpen, setPoDetailsOpen] = useState(false)
   const [docsPo, setDocsPo] = useState<string | null>(null)
+  // 周台账：选中周 + 显示范围（周数）
+  const [ledgerWeek, setLedgerWeek] = useState<string | null>(null)
+  const [weeksBack, setWeeksBack] = useState(8)
+
+  // ===== 周台账数据：完全由已加载的 rows/batches 现算，router.refresh() 后自动同步 =====
+  const rowById = useMemo(() => new Map(rows.map(r => [r.id, r])), [rows])
+  type WkPo = { po: string; ka: string | null; ctry: string; flag: string; qty: number; eur: number; lines: number }
+  type WkShip = { po: string; ka: string | null; sku: string; qty: number; date: string; delivered: boolean }
+  const ledger = useMemo(() => {
+    const m = new Map<string, {
+      key: string; monday: string
+      poSet: Set<string>; inQty: number; inEur: number
+      outBatches: number; outQty: number; outDelivered: number
+      pos: Map<string, WkPo>; ships: WkShip[]
+    }>()
+    const slot = (iso: string) => {
+      const key = isoWeekKey(iso)
+      let s = m.get(key)
+      if (!s) { s = { key, monday: isoMonday(iso), poSet: new Set(), inQty: 0, inEur: 0, outBatches: 0, outQty: 0, outDelivered: 0, pos: new Map(), ships: [] }; m.set(key, s) }
+      return s
+    }
+    // 进单：按 po_date
+    rows.forEach(r => {
+      if (!r.po_date) return
+      const s = slot(r.po_date)
+      const eur = toEUR(r.turnover, r.currency, plnToEur)
+      const poKey = r.po_number ?? `(no PO#)-${r.id}`
+      s.poSet.add(poKey); s.inQty += r.qty; s.inEur += eur
+      const p = s.pos.get(poKey)
+      if (p) { p.qty += r.qty; p.eur += eur; p.lines += 1 }
+      else s.pos.set(poKey, { po: r.po_number ?? '(no PO#)', ka: r.ka_name, ctry: r.country_code, flag: r.country_flag, qty: r.qty, eur, lines: 1 })
+    })
+    // 发货：按批次 ship_date
+    batches.forEach(b => {
+      if (!b.ship_date) return
+      const parent = rowById.get(b.po_id)
+      const s = slot(b.ship_date)
+      s.outBatches += 1; s.outQty += b.qty
+      if (b.delivery_date) s.outDelivered += 1
+      s.ships.push({
+        po: parent?.po_number ?? '(no PO#)', ka: parent?.ka_name ?? null,
+        sku: parent?.sku_code ?? '—', qty: b.qty, date: b.ship_date, delivered: !!b.delivery_date,
+      })
+    })
+    return Array.from(m.values()).sort((a, z) => z.key.localeCompare(a.key))
+  }, [rows, batches, rowById, plnToEur])
+
+  const shownWeeks = useMemo(() => ledger.slice(0, weeksBack), [ledger, weeksBack])
+  const activeWeek = useMemo(
+    () => ledger.find(w => w.key === ledgerWeek) ?? shownWeeks[0] ?? null,
+    [ledger, ledgerWeek, shownWeeks])
 
   const batchesByPo = useMemo(() => {
     const m = new Map<number, Batch[]>()
@@ -84,6 +151,8 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
   const addBatches = async (b: { po_id: number; qty: number; ship_date: string }[], key: string) => {
     setBusy(key)
     const { error } = await supabase.from('po_shipment').insert(b)
+    // 发货成功 → 周台账自动跳到这批货所属的那一周
+    if (!error && b[0]?.ship_date) setLedgerWeek(isoWeekKey(b[0].ship_date))
     after(error, key)
   }
   const markShipped = (lines: OpsRow[], key: string) => {
@@ -226,11 +295,149 @@ export function PoShipmentView({ rows, batches, docCounts, skus, countries, kas 
         </div>
       </div>
 
+      <WeeklyLedger weeks={shownWeeks} active={activeWeek} onPick={setLedgerWeek}
+        weeksBack={weeksBack} setWeeksBack={setWeeksBack} total={ledger.length} />
+
       {addOpen && <AddPoModal today={today} skus={skus} countries={countries} kas={kas} onClose={() => setAddOpen(false)}
         onDone={() => { setAddOpen(false); router.refresh() }} supabase={supabase} />}
       {exportOpen && <ExportModal rows={rows} batchesByPo={batchesByPo} today={today} onClose={() => setExportOpen(false)} />}
       {poDetailsOpen && <PoDetailsExportModal rows={rows} today={today} onClose={() => setPoDetailsOpen(false)} />}
       {docsPo && <PoDocsModal poNumber={docsPo} onClose={() => setDocsPo(null)} onChanged={() => router.refresh()} />}
+    </div>
+  )
+}
+
+// ===== 周台账：每周进单 vs 发货，点某周看明细。数据由 rows/batches 现算，随页面刷新自动更新 =====
+type WkRow = {
+  key: string; monday: string
+  poSet: Set<string>; inQty: number; inEur: number
+  outBatches: number; outQty: number; outDelivered: number
+  pos: Map<string, { po: string; ka: string | null; ctry: string; flag: string; qty: number; eur: number; lines: number }>
+  ships: { po: string; ka: string | null; sku: string; qty: number; date: string; delivered: boolean }[]
+}
+function WeeklyLedger({ weeks, active, onPick, weeksBack, setWeeksBack, total }: {
+  weeks: WkRow[]; active: WkRow | null; onPick: (k: string) => void
+  weeksBack: number; setWeeksBack: (n: number) => void; total: number
+}) {
+  const max = Math.max(1, ...weeks.map(w => Math.max(w.inQty, w.outQty)))
+  const md = (iso: string) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`
+  const eur = (n: number) => '€' + fmtNum(Math.round(n))
+
+  return (
+    <div className="bg-white rounded-2xl border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] p-4 mt-5">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <span className="text-base font-semibold text-gray-900">🗓️ 周台账</span>
+        <span className="text-xs text-gray-400">每周进单 vs 发货 · 点某周看明细</span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <span className="text-[11px] text-gray-400 mr-0.5">显示</span>
+          {[8, 12, 26, 999].map(n => (
+            <button key={n} onClick={() => setWeeksBack(n)}
+              className={`px-2 py-1 text-[11px] rounded-md border transition ${weeksBack === n
+                ? 'bg-gray-800 text-white border-gray-800'
+                : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
+              {n === 999 ? `全部 (${total})` : `${n} 周`}
+            </button>
+          ))}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3 mb-2 text-[11px] text-gray-500">
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-1.5 rounded-sm bg-indigo-500" />进单</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-1.5 rounded-sm bg-emerald-500" />发货</span>
+      </div>
+
+      <div className="border border-gray-100 rounded-xl p-1.5 max-h-[300px] overflow-y-auto">
+        {weeks.map(w => {
+          const on = active?.key === w.key
+          return (
+            <button key={w.key} onClick={() => onPick(w.key)}
+              className={`w-full grid items-center gap-3 px-2.5 py-2 rounded-lg text-left transition ${on ? 'bg-gray-50 ring-1 ring-gray-300' : 'hover:bg-gray-50/70'}`}
+              style={{ gridTemplateColumns: '78px 1fr 104px 104px' }}>
+              <span>
+                <span className="block text-[13px] font-semibold text-gray-800">{w.key.slice(5)}</span>
+                <span className="block text-[10.5px] text-gray-400">{md(w.monday)} 起</span>
+              </span>
+              <span className="block">
+                <span className="flex items-center gap-1.5 mb-0.5">
+                  <span className="h-[6px] rounded bg-indigo-500" style={{ width: `${Math.max(2, w.inQty / max * 100)}%` }} />
+                  <span className="text-[10.5px] text-gray-400 tabular-nums">{fmtNum(w.inQty)}</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-[6px] rounded bg-emerald-500" style={{ width: `${Math.max(2, w.outQty / max * 100)}%` }} />
+                  <span className="text-[10.5px] text-gray-400 tabular-nums">{fmtNum(w.outQty)}</span>
+                </span>
+              </span>
+              <span className="text-right">
+                <span className="block text-[12px] text-gray-800 tabular-nums">{w.poSet.size} PO</span>
+                <span className="block text-[10.5px] text-gray-400 tabular-nums">{w.inEur > 0 ? eur(w.inEur) : '—'}</span>
+              </span>
+              <span className="text-right">
+                <span className="block text-[12px] text-gray-800 tabular-nums">{w.outBatches} 批</span>
+                <span className="block text-[10.5px] text-gray-400 tabular-nums">{w.outDelivered} 已达</span>
+              </span>
+            </button>
+          )
+        })}
+        {!weeks.length && <div className="py-10 text-center text-gray-300 text-sm">暂无数据</div>}
+      </div>
+
+      {active && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2">
+              <span className="text-[13px] font-semibold text-indigo-700">📥 本周进单</span>
+              <span className="ml-auto text-[11px] text-gray-400">{active.key.slice(5)} · {active.pos.size} PO</span>
+            </div>
+            {active.pos.size ? (
+              <table className="w-full text-[12px]">
+                <thead><tr className="text-left text-[10.5px] text-gray-500 border-b border-gray-100">
+                  <th className="py-1.5 px-3 font-semibold">PO #</th><th className="py-1.5 px-2 font-semibold">KA</th>
+                  <th className="py-1.5 px-2 font-semibold text-right">SKU</th><th className="py-1.5 px-2 font-semibold text-right">Qty</th>
+                  <th className="py-1.5 px-3 font-semibold text-right">金额</th>
+                </tr></thead>
+                <tbody className="divide-y divide-gray-50">
+                  {Array.from(active.pos.values()).sort((a, b) => b.qty - a.qty).map(p => (
+                    <tr key={p.po} className="hover:bg-gray-50/60">
+                      <td className="py-1.5 px-3 font-mono text-[11px] font-semibold text-gray-800 whitespace-nowrap">{p.po}</td>
+                      <td className="py-1.5 px-2 whitespace-nowrap"><span className="px-1.5 py-0.5 rounded text-[11px] bg-blue-50 text-blue-600">{p.ka ?? '-'}</span> <span className="text-[10.5px] text-gray-400">{p.flag} {p.ctry}</span></td>
+                      <td className="py-1.5 px-2 text-right text-gray-500 tabular-nums">{p.lines}</td>
+                      <td className="py-1.5 px-2 text-right tabular-nums font-medium">{fmtNum(p.qty)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums text-gray-600">{p.eur > 0 ? eur(p.eur) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <div className="py-8 text-center text-gray-300 text-[12px]">本周没有新进单</div>}
+          </div>
+
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2">
+              <span className="text-[13px] font-semibold text-emerald-700">🚚 本周发货</span>
+              <span className="ml-auto text-[11px] text-gray-400">{active.key.slice(5)} · {active.ships.length} 批 · {fmtNum(active.outQty)} 台</span>
+            </div>
+            {active.ships.length ? (
+              <table className="w-full text-[12px]">
+                <thead><tr className="text-left text-[10.5px] text-gray-500 border-b border-gray-100">
+                  <th className="py-1.5 px-3 font-semibold">PO #</th><th className="py-1.5 px-2 font-semibold">SKU</th>
+                  <th className="py-1.5 px-2 font-semibold text-right">Qty</th><th className="py-1.5 px-3 font-semibold">发货日</th>
+                </tr></thead>
+                <tbody className="divide-y divide-gray-50">
+                  {active.ships.slice().sort((a, b) => a.date.localeCompare(b.date) || a.po.localeCompare(b.po)).map((s, i) => (
+                    <tr key={i} className="hover:bg-gray-50/60">
+                      <td className="py-1.5 px-3 font-mono text-[11px] font-semibold text-gray-800 whitespace-nowrap">{s.po}</td>
+                      <td className="py-1.5 px-2 whitespace-nowrap"><span className="font-mono text-[11px] text-gray-700">{s.sku}</span> <span className="text-[10.5px] text-gray-400">{s.ka ?? ''}</span></td>
+                      <td className="py-1.5 px-2 text-right tabular-nums font-medium">{fmtNum(s.qty)}</td>
+                      <td className="py-1.5 px-3 font-mono text-[11px] text-gray-500 whitespace-nowrap">
+                        {s.date}{s.delivered && <span className="ml-1 text-emerald-600" title="已送达">✓</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <div className="py-8 text-center text-gray-300 text-[12px]">本周没有发货</div>}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
