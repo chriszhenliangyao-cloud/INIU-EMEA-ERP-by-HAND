@@ -943,12 +943,24 @@ function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCo
     }).sort((a, z) => (z.lastDelivery ?? '').localeCompare(a.lastDelivery ?? ''))
   }, [rows, batchesByPo])
 
+  const [viewCcy, setViewCcy] = useState('CNY')   // 运费列显示币种（纯前端换算，不改存储）
+
   return (
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
           <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKUs</Th>
-          <Th right>Total Qty</Th><Th right>Total Value</Th><Th>PO Date</Th><Th>Shipped</Th><Th>Delivered</Th><Th right>Delivery fee</Th><Th right>Avg / unit</Th>
+          <Th right>Total Qty</Th><Th right>Total Value</Th><Th>PO Date</Th><Th>Shipped</Th><Th>Delivered</Th>
+          <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 whitespace-nowrap">
+            <span className="inline-flex items-center gap-1.5">
+              Delivery fee
+              <select value={viewCcy} onChange={e => setViewCcy(e.target.value)} title="显示币种（按汇率换算，仅显示）"
+                className="text-[10px] font-medium text-gray-600 border border-gray-300 rounded px-1 py-0.5 bg-white outline-none">
+                {FEE_CCYS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </span>
+          </th>
+          <Th right>Avg / unit</Th>
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
@@ -973,16 +985,15 @@ function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCo
                 <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">{g.lastDelivery ?? '–'}</span></td>
                 <td className="px-3 py-2 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                   {g.po_number
-                    ? <FreightCell po={g.po_number} rec={freight[g.po_number]} defCurrency={g.currency} onSave={onSaveFreight} busy={busy} fxToEur={fxToEur} />
+                    ? <FreightCell po={g.po_number} rec={freight[g.po_number]} viewCcy={viewCcy} onSave={onSaveFreight} busy={busy} fxToEur={fxToEur} />
                     : <span className="text-gray-300">–</span>}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-gray-600">
                   {(() => {
-                    const fee = g.po_number ? freight[g.po_number]?.fee : null
-                    const cur = (g.po_number && freight[g.po_number]?.currency) || 'CNY'
-                    return fee != null && g.qty > 0
-                      ? fmtMoney(fee / g.qty, cur)
-                      : <span className="text-gray-300">–</span>
+                    const rec = g.po_number ? freight[g.po_number] : null
+                    if (rec?.fee == null || g.qty <= 0) return <span className="text-gray-300">–</span>
+                    const feeView = convertMoney(rec.fee, rec.currency || 'CNY', viewCcy, fxToEur)
+                    return fmtMoney(feeView / g.qty, viewCcy)
                   })()}
                 </td>
               </tr>
@@ -1028,52 +1039,42 @@ function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCo
   )
 }
 
-// 实际运费单元格：数字点击编辑（失焦/回车存，空=清除）+ 币种下拉（切换即按汇率换算并保存）。
+// 实际运费单元格：按表头选的 viewCcy 换算显示（纯前端，不改存储）。点击编辑=以 viewCcy 录入。
 const FEE_CCYS = ['CNY', 'EUR', 'PLN']
-function FreightCell({ po, rec, defCurrency, onSave, busy, fxToEur }: {
-  po: string; rec?: { fee: number | null; currency: string | null }; defCurrency: string | null
+function FreightCell({ po, rec, viewCcy, onSave, busy, fxToEur }: {
+  po: string; rec?: { fee: number | null; currency: string | null }; viewCcy: string
   onSave: (po: string, fee: number | null, currency: string | null, key: string) => void
   busy: string | null; fxToEur: Record<string, number>
 }) {
   const [editing, setEditing] = useState(false)
-  const cur = rec?.currency || defCurrency || 'CNY'
-  const [val, setVal] = useState(rec?.fee != null ? String(rec.fee) : '')
-  useEffect(() => { if (!editing) setVal(rec?.fee != null ? String(rec.fee) : '') }, [rec?.fee, editing])
+  const [val, setVal] = useState('')
   const key = `freight:${po}`
+  // 存储值换算到当前显示币种
+  const feeView = rec?.fee != null ? Math.round(convertMoney(rec.fee, rec.currency || 'CNY', viewCcy, fxToEur) * 100) / 100 : null
+  useEffect(() => { if (!editing) setVal(feeView != null ? String(feeView) : '') }, [feeView, editing])
   const commit = () => {
     const next = val.trim() === '' ? null : Number(val)
-    if (next != null && !Number.isFinite(next)) { setEditing(false); return }
     setEditing(false)
-    if (next !== (rec?.fee ?? null)) onSave(po, next, cur, key)
+    if (next != null && !Number.isFinite(next)) return
+    if (next !== (feeView ?? null)) onSave(po, next, viewCcy, key)   // 以显示币种录入并保存
   }
-  // 切币种：把现有金额按汇率换算到新币，连同新币种一起保存
-  const switchCcy = (to: string) => {
-    if (to === cur || rec?.fee == null) { if (rec == null) onSave(po, null, to, key); return }
-    onSave(po, Math.round(convertMoney(rec.fee, cur, to, fxToEur) * 100) / 100, to, key)
+  if (editing) {
+    return (
+      <input autoFocus type="text" inputMode="decimal" value={val} disabled={busy === key}
+        onChange={e => setVal(e.target.value.replace(/[^\d.]/g, ''))}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') setEditing(false) }}
+        onBlur={commit} placeholder="运费"
+        className="w-24 text-right tabular-nums text-[12px] border border-blue-300 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-blue-200" />
+    )
   }
   return (
-    <span className="inline-flex items-center gap-1 justify-end" onClick={e => e.stopPropagation()}>
-      {editing ? (
-        <input autoFocus type="text" inputMode="decimal" value={val} disabled={busy === key}
-          onChange={e => setVal(e.target.value.replace(/[^\d.]/g, ''))}
-          onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') { setVal(rec?.fee != null ? String(rec.fee) : ''); setEditing(false) } }}
-          onBlur={commit} placeholder="运费"
-          className="w-20 text-right tabular-nums text-[12px] border border-blue-300 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-blue-200" />
-      ) : (
-        <button onClick={() => setEditing(true)} title="点击录入实际运费"
-          className="group inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-blue-50 transition-colors">
-          {rec?.fee != null
-            ? <span className="tabular-nums text-gray-700">{Number(rec.fee).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            : <span className="text-gray-300">＋</span>}
-          <span className="text-[10px] text-gray-300 opacity-0 group-hover:opacity-100">✎</span>
-        </button>
-      )}
-      <select value={cur} onChange={e => switchCcy(e.target.value)} disabled={busy === key}
-        title="切换币种（按汇率自动换算）"
-        className="text-[11px] text-gray-500 border border-gray-200 rounded px-0.5 py-0.5 bg-white outline-none hover:border-gray-300">
-        {FEE_CCYS.map(c => <option key={c} value={c}>{c}</option>)}
-      </select>
-    </span>
+    <button onClick={() => setEditing(true)} title="点击录入实际运费"
+      className="group inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-blue-50 transition-colors">
+      {feeView != null
+        ? <span className="tabular-nums text-gray-700">{fmtMoney(feeView, viewCcy)}</span>
+        : <span className="text-gray-300">＋ 运费</span>}
+      <span className="text-[10px] text-gray-300 opacity-0 group-hover:opacity-100">✎</span>
+    </button>
   )
 }
 
