@@ -4,7 +4,7 @@ import { Fragment, useMemo, useRef, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { fmtNum } from '@/lib/utils'
-import { fmtMoney, stageOf, toEUR, type Batch, type OpsRow, type Stage } from '../../po/_ops'
+import { fmtMoney, stageOf, toEUR, convertMoney, type Batch, type OpsRow, type Stage } from '../../po/_ops'
 import { PoDocsModal } from './po-docs-modal'
 
 export type SkuOpt = { id: number; code: string; name: string }
@@ -41,9 +41,10 @@ const isoMonday = (iso: string): string => {
   return d.toISOString().slice(0, 10)
 }
 
-export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, countries, kas, freight }: {
+export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, countries, kas, freight, fxToEur }: {
   rows: OpsRow[]; batches: Batch[]; docCounts: Record<string, number>; plnToEur: number; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]
   freight: Record<string, { fee: number | null; currency: string | null }>
+  fxToEur: Record<string, number>
 }) {
   const supabase = useRef(createClient()).current
   const router = useRouter()
@@ -299,7 +300,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
               {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
                 onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} onDeliverGroup={deliverGroup} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
               {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
-              {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} freight={freight} onSaveFreight={saveFreight} busy={busy} />}
+              {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} freight={freight} onSaveFreight={saveFreight} busy={busy} fxToEur={fxToEur} />}
             </div>
           </div>
         </div>
@@ -918,12 +919,12 @@ function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, toda
 }
 
 // ===== Delivered：按 PO # 归并，展开逐 SKU 逐批次追溯 =====
-function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCounts, onDocs, freight, onSaveFreight, busy }: {
+function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCounts, onDocs, freight, onSaveFreight, busy, fxToEur }: {
   meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; poSearch: string
   docCounts: Record<string, number>; onDocs: (po: string) => void
   freight: Record<string, { fee: number | null; currency: string | null }>
   onSaveFreight: (po: string, fee: number | null, currency: string | null, key: string) => void
-  busy: string | null
+  busy: string | null; fxToEur: Record<string, number>
 }) {
   const groups = useMemo(() => {
     const gs = groupByPo(rows)
@@ -947,7 +948,7 @@ function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCo
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
           <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKUs</Th>
-          <Th right>Total Qty</Th><Th right>Total Value</Th><Th>PO Date</Th><Th>Shipped</Th><Th>Delivered</Th><Th right>Delivery fee</Th>
+          <Th right>Total Qty</Th><Th right>Total Value</Th><Th>PO Date</Th><Th>Shipped</Th><Th>Delivered</Th><Th right>Delivery fee</Th><Th right>Avg / unit</Th>
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
@@ -972,14 +973,23 @@ function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCo
                 <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">{g.lastDelivery ?? '–'}</span></td>
                 <td className="px-3 py-2 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                   {g.po_number
-                    ? <FreightCell po={g.po_number} rec={freight[g.po_number]} defCurrency={g.currency} onSave={onSaveFreight} busy={busy} />
+                    ? <FreightCell po={g.po_number} rec={freight[g.po_number]} defCurrency={g.currency} onSave={onSaveFreight} busy={busy} fxToEur={fxToEur} />
                     : <span className="text-gray-300">–</span>}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-gray-600">
+                  {(() => {
+                    const fee = g.po_number ? freight[g.po_number]?.fee : null
+                    const cur = (g.po_number && freight[g.po_number]?.currency) || 'CNY'
+                    return fee != null && g.qty > 0
+                      ? fmtMoney(fee / g.qty, cur)
+                      : <span className="text-gray-300">–</span>
+                  })()}
                 </td>
               </tr>
               {o && (
                 <tr className="bg-slate-50/60">
                   <td></td>
-                  <td colSpan={10} className="px-3 py-2.5">
+                  <td colSpan={11} className="px-3 py-2.5">
                     <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">发货明细 · {g.lines.length} 个 SKU · {g.batchCount} 批发运</div>
                     <table className="w-full text-[12px]">
                       <thead><tr className="text-left text-[10.5px] text-gray-500 border-b border-gray-200">
@@ -1012,19 +1022,21 @@ function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCo
             </Fragment>
           )
         })}
-        {!groups.length && <tr><td colSpan={11} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
+        {!groups.length && <tr><td colSpan={12} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
       </tbody>
     </table>
   )
 }
 
-// 实际运费单元格：点击编辑，失焦/回车保存（空=清除）。币种默认取该 PO 的币种。
-function FreightCell({ po, rec, defCurrency, onSave, busy }: {
+// 实际运费单元格：数字点击编辑（失焦/回车存，空=清除）+ 币种下拉（切换即按汇率换算并保存）。
+const FEE_CCYS = ['CNY', 'EUR', 'PLN']
+function FreightCell({ po, rec, defCurrency, onSave, busy, fxToEur }: {
   po: string; rec?: { fee: number | null; currency: string | null }; defCurrency: string | null
-  onSave: (po: string, fee: number | null, currency: string | null, key: string) => void; busy: string | null
+  onSave: (po: string, fee: number | null, currency: string | null, key: string) => void
+  busy: string | null; fxToEur: Record<string, number>
 }) {
   const [editing, setEditing] = useState(false)
-  const cur = rec?.currency || defCurrency || 'EUR'
+  const cur = rec?.currency || defCurrency || 'CNY'
   const [val, setVal] = useState(rec?.fee != null ? String(rec.fee) : '')
   useEffect(() => { if (!editing) setVal(rec?.fee != null ? String(rec.fee) : '') }, [rec?.fee, editing])
   const key = `freight:${po}`
@@ -1034,26 +1046,34 @@ function FreightCell({ po, rec, defCurrency, onSave, busy }: {
     setEditing(false)
     if (next !== (rec?.fee ?? null)) onSave(po, next, cur, key)
   }
-  if (editing) {
-    return (
-      <span className="inline-flex items-center gap-1 justify-end">
-        <span className="text-[11px] text-gray-400">{cur}</span>
+  // 切币种：把现有金额按汇率换算到新币，连同新币种一起保存
+  const switchCcy = (to: string) => {
+    if (to === cur || rec?.fee == null) { if (rec == null) onSave(po, null, to, key); return }
+    onSave(po, Math.round(convertMoney(rec.fee, cur, to, fxToEur) * 100) / 100, to, key)
+  }
+  return (
+    <span className="inline-flex items-center gap-1 justify-end" onClick={e => e.stopPropagation()}>
+      {editing ? (
         <input autoFocus type="text" inputMode="decimal" value={val} disabled={busy === key}
           onChange={e => setVal(e.target.value.replace(/[^\d.]/g, ''))}
           onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') { setVal(rec?.fee != null ? String(rec.fee) : ''); setEditing(false) } }}
           onBlur={commit} placeholder="运费"
           className="w-20 text-right tabular-nums text-[12px] border border-blue-300 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-blue-200" />
-      </span>
-    )
-  }
-  return (
-    <button onClick={() => setEditing(true)} title="点击录入实际运费"
-      className="group inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-blue-50 transition-colors">
-      {rec?.fee != null
-        ? <span className="tabular-nums text-gray-700">{fmtMoney(rec.fee, cur)}</span>
-        : <span className="text-gray-300">＋ 运费</span>}
-      <span className="text-[10px] text-gray-300 opacity-0 group-hover:opacity-100">✎</span>
-    </button>
+      ) : (
+        <button onClick={() => setEditing(true)} title="点击录入实际运费"
+          className="group inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-blue-50 transition-colors">
+          {rec?.fee != null
+            ? <span className="tabular-nums text-gray-700">{Number(rec.fee).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            : <span className="text-gray-300">＋</span>}
+          <span className="text-[10px] text-gray-300 opacity-0 group-hover:opacity-100">✎</span>
+        </button>
+      )}
+      <select value={cur} onChange={e => switchCcy(e.target.value)} disabled={busy === key}
+        title="切换币种（按汇率自动换算）"
+        className="text-[11px] text-gray-500 border border-gray-200 rounded px-0.5 py-0.5 bg-white outline-none hover:border-gray-300">
+        {FEE_CCYS.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
+    </span>
   )
 }
 

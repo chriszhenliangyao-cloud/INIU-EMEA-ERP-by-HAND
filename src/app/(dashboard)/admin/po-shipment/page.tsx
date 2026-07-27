@@ -16,11 +16,12 @@ export const dynamic = 'force-dynamic'
  * 公开 /po 页现为只读看板；所有发货操作都在这里。国家隔离仍由 channel_po 的 RLS 兜底（admin 可见全部）。
  */
 
-async function getPlnToEur(): Promise<number> {
+// 某币种 → EUR 的汇率（ECB 周缓存，双源兜底）。用于 PLN、CNY 换算。
+async function getToEur(base: string, fallback: number): Promise<number> {
   const WEEK = 60 * 60 * 24 * 7
   const sources: Array<{ url: string; pick: (j: any) => unknown }> = [
-    { url: 'https://api.frankfurter.dev/v1/latest?base=PLN&symbols=EUR', pick: (j) => j?.rates?.EUR },
-    { url: 'https://open.er-api.com/v6/latest/PLN', pick: (j) => j?.rates?.EUR },
+    { url: `https://api.frankfurter.dev/v1/latest?base=${base}&symbols=EUR`, pick: (j) => j?.rates?.EUR },
+    { url: `https://open.er-api.com/v6/latest/${base}`, pick: (j) => j?.rates?.EUR },
   ]
   for (const s of sources) {
     try {
@@ -30,7 +31,7 @@ async function getPlnToEur(): Promise<number> {
       if (typeof r === 'number' && r > 0 && r < 1) return r
     } catch { /* 试下一个源 */ }
   }
-  return 0.23
+  return fallback
 }
 
 export default async function AdminPoShipmentPage() {
@@ -38,7 +39,7 @@ export default async function AdminPoShipmentPage() {
   if (!me.isAdmin) redirect('/po')
 
   const supabase = createClient()
-  const plnToEur = await getPlnToEur()
+  const [plnToEur, cnyToEur] = await Promise.all([getToEur('PLN', 0.23), getToEur('CNY', 0.128)])
 
   const [{ data: pos, error }, { data: shipList }, { data: docList }, { data: skuList }, { data: countryList }, { data: kaList }, { data: freightList }] = await Promise.all([
     supabase.from('channel_po').select(`
@@ -103,7 +104,10 @@ export default async function AdminPoShipmentPage() {
   const freight: Record<string, { fee: number | null; currency: string | null }> = {}
   ;(freightList ?? []).forEach((f: any) => { freight[f.po_number] = { fee: f.delivery_fee != null ? Number(f.delivery_fee) : null, currency: f.currency ?? null } })
 
-  return <PoShipmentView rows={rows} batches={batches} docCounts={docCounts} plnToEur={plnToEur} skus={skus} countries={countries} kas={kas} freight={freight} />
+  // 各币种 → EUR 的换算因子（EUR=1），供运费币种切换用
+  const fxToEur: Record<string, number> = { EUR: 1, PLN: plnToEur, CNY: cnyToEur }
+
+  return <PoShipmentView rows={rows} batches={batches} docCounts={docCounts} plnToEur={plnToEur} skus={skus} countries={countries} kas={kas} freight={freight} fxToEur={fxToEur} />
 }
 
 export const metadata = { title: 'Shipment Workflow · INIU ERP' }

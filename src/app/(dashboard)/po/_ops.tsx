@@ -4,8 +4,15 @@
 // 发货判定：有 ship_date 或 delivery_date 任一即视为已发（物流偶尔漏填 ship_date，用送达日兜底）
 export const isShipped = (r: { ship_date: string | null; delivery_date: string | null }) => !!(r.ship_date || r.delivery_date)
 
-// 金额按原币种展示（不折算、不取整，保留真实 2 位小数）：EUR→€ · PLN→zł
-export const CCY_SYM: Record<string, string> = { EUR: '€', PLN: 'zł ' }
+// 金额按原币种展示（不折算、不取整，保留真实 2 位小数）：EUR→€ · PLN→zł · CNY→¥
+export const CCY_SYM: Record<string, string> = { EUR: '€', PLN: 'zł ', CNY: '¥' }
+
+// 币种互换：fxToEur 是「各币种→EUR」的因子（EUR=1）。amount(from) → amount(to)
+export const convertMoney = (v: number, from: string, to: string, fxToEur: Record<string, number>): number => {
+  if (from === to) return v
+  const rf = fxToEur[from] ?? 1, rt = fxToEur[to] ?? 1
+  return v * rf / rt   // 先折到 EUR 再折到目标币
+}
 
 // Value 模式把营业额统一折算成 EUR（明细列仍存原币，不受影响）。汇率经 page.tsx 注入。
 export const toEUR = (turnover: number | null, currency: string | null, rate: number) =>
