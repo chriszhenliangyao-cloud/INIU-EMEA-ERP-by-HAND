@@ -40,7 +40,7 @@ export default async function AdminPoShipmentPage() {
   const supabase = createClient()
   const plnToEur = await getPlnToEur()
 
-  const [{ data: pos, error }, { data: shipList }, { data: docList }, { data: skuList }, { data: countryList }, { data: kaList }] = await Promise.all([
+  const [{ data: pos, error }, { data: shipList }, { data: docList }, { data: skuList }, { data: countryList }, { data: kaList }, { data: freightList }] = await Promise.all([
     supabase.from('channel_po').select(`
       id, po_number, po_date, qty_ordered, ship_date, delivery_date, notes, fd_buying_price, turnover, currency, po_status, delivered_qty,
       sku:sku_id ( code, name, ean ),
@@ -55,6 +55,7 @@ export default async function AdminPoShipmentPage() {
     supabase.from('sku').select('id, code, name').eq('is_active', true).order('code'),
     supabase.from('country').select('id, code, name_en, flag_emoji').eq('is_active', true).order('sort_order'),
     supabase.from('ka').select('id, name, country_id').eq('is_active', true).order('name'),
+    supabase.from('po_freight').select('po_number, delivery_fee, currency'),   // 实际运费（按 PO）
   ])
 
   if (error) {
@@ -98,8 +99,11 @@ export default async function AdminPoShipmentPage() {
   const skus: SkuOpt[] = (skuList ?? []).map((s: any) => ({ id: s.id, code: s.code, name: s.name }))
   const countries: CountryOpt[] = (countryList ?? []).map((c: any) => ({ id: c.id, code: c.code, name: c.name_en, flag: c.flag_emoji }))
   const kas: KaOpt[] = (kaList ?? []).map((k: any) => ({ id: k.id, name: k.name, country_id: k.country_id }))
+  // 实际运费：po_number → { fee, currency }
+  const freight: Record<string, { fee: number | null; currency: string | null }> = {}
+  ;(freightList ?? []).forEach((f: any) => { freight[f.po_number] = { fee: f.delivery_fee != null ? Number(f.delivery_fee) : null, currency: f.currency ?? null } })
 
-  return <PoShipmentView rows={rows} batches={batches} docCounts={docCounts} plnToEur={plnToEur} skus={skus} countries={countries} kas={kas} />
+  return <PoShipmentView rows={rows} batches={batches} docCounts={docCounts} plnToEur={plnToEur} skus={skus} countries={countries} kas={kas} freight={freight} />
 }
 
 export const metadata = { title: 'Shipment Workflow · INIU ERP' }
