@@ -36,6 +36,7 @@ const STYLES = `<Styles>`
   + `<Style ss:ID="n0"><NumberFormat ss:Format="#,##0"/></Style>`
   + `<Style ss:ID="n2"><NumberFormat ss:Format="#,##0.00"/></Style>`
   + `<Style ss:ID="dim"><Font ss:Color="#CBD5E1"/><Alignment ss:Horizontal="Right"/></Style>`
+  + `<Style ss:ID="zc"><NumberFormat ss:Format="#,##0;-#,##0;&quot;-&quot;"/></Style>`
   + `<Style ss:ID="sub"><Font ss:Bold="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/></Style>`
   + `<Style ss:ID="sub0"><Font ss:Bold="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0"/></Style>`
   + `<Style ss:ID="sub2"><Font ss:Bold="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>`

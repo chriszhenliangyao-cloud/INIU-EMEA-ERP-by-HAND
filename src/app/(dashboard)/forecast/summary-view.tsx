@@ -218,7 +218,7 @@ export function ForecastSummaryView({
     const LAST = months.length - 1                         // 每个国家块的最后一个月 → 右侧加分界线
     const bd = (c: XCell): XCell => ({ ...c, bR: true })    // 给单元格加右分界线
     const g = (v: any, span?: number, s = 'grp'): XCell => ({ v, span, s })
-    const num = (n: number): XCell => n > 0 ? { v: n, num: true, s: 'n0' } : { v: '-', s: 'dim' }
+    const num = (n: number): XCell => ({ v: n, num: true, s: 'zc' })   // 0 由数字格式显示为 "-"，字色正常
     // R1C1 公式：
     const euMonthF = `=SUM(${Array.from({ length: C }, (_, c) => `RC[${(c - C) * M}]`).join(',')})`  // EU TTL 该月 = 各国该月之和
     const subF = `=SUM(RC[-${M}]:RC[-1])`                                                            // 行小计 = 该行 EU TTL 各月之和
@@ -291,7 +291,7 @@ export function ForecastSummaryView({
           const q = cellQty.get(`${sku.id}|${c.ka.id}|${m}`) ?? 0
           perMonth[mi] += q
           colTot[ci * months.length + mi] += q
-          const cell: XCell = q > 0 ? { v: q, num: true, s: 'n0' } : { v: '-', s: 'dim' }   // 可编辑数据
+          const cell: XCell = { v: q, num: true, s: 'zc' }   // 可编辑数据：0 由数字格式显示为 "-"，字色正常，填入的数字与其它一致
           cells.push(mi === LAST ? bd(cell) : cell)
         }))
         const rowTot = perMonth.reduce((s, v) => s + v, 0)
@@ -353,14 +353,14 @@ export function ForecastSummaryView({
     const linkCell = (skuCode: string, code: string, val: number, mi: number): XCell => {
       const meta = cmeta[code], r = meta?.rowOf.get(skuCode)
       if (!meta || !r) return num(val)
-      return { v: val, num: true, s: 'n0', f: `='${meta.sheetName}'!R${r}C${meta.subCol0 + mi}` }
+      return { v: val, num: true, s: 'zc', f: `='${meta.sheetName}'!R${r}C${meta.subCol0 + mi}` }
     }
 
     const ovRows: XRow[] = [head1, head2]
     tableRows.forEach(r => ovRows.push([
       { v: r.sku_code, s: 'code' }, { v: r.sku_name },
       ...perMonthBlock((code, m, mi) => linkCell(r.sku_code, code, r.countryMonthQty[code]?.[m] ?? 0, mi)),  // 跨表引用国家子表
-      ...euBlock(m => ({ v: r.monthlyTtl[m] ?? 0, num: true, s: 'n0', f: euMonthF })),                        // EU TTL：本行各国之和
+      ...euBlock(m => ({ v: r.monthlyTtl[m] ?? 0, num: true, s: 'zc', f: euMonthF })),                        // EU TTL：本行各国之和
       { v: r.subTotal, num: true, s: 'sub0', f: subF },
       num(fdStockBySkuCode?.[r.sku_code] ?? 0),
       num(hqCnStockBySkuCode?.[r.sku_code] ?? 0),
