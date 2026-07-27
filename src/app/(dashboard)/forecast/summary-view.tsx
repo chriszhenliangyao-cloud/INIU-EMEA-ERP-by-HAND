@@ -215,78 +215,28 @@ export function ForecastSummaryView({
   const exportWorkbook = () => {
     const MN = monthLabels.map(l => l.short)
     const M = months.length, C = tableCountries.length, N = tableRows.length
-    // R1C1 公式（相对引用，SUM 自动跳过 '-' 文本格）：
-    const euMonthF = `=SUM(${Array.from({ length: C }, (_, c) => `RC[${(c - C) * M}]`).join(',')})`  // 该月 = 各国该月之和
+    const LAST = months.length - 1                         // 每个国家块的最后一个月 → 右侧加分界线
+    const bd = (c: XCell): XCell => ({ ...c, bR: true })    // 给单元格加右分界线
+    const g = (v: any, span?: number, s = 'grp'): XCell => ({ v, span, s })
+    const num = (n: number): XCell => n > 0 ? { v: n, num: true, s: 'n0' } : { v: '-', s: 'dim' }
+    // R1C1 公式：
+    const euMonthF = `=SUM(${Array.from({ length: C }, (_, c) => `RC[${(c - C) * M}]`).join(',')})`  // EU TTL 该月 = 各国该月之和
     const subF = `=SUM(RC[-${M}]:RC[-1])`                                                            // 行小计 = 该行 EU TTL 各月之和
     const colSumF = (rowsUp: number) => `=SUM(R[-${rowsUp}]C:R[-1]C)`                                // 列合计 = 上方数据行之和
 
-    // ---- Sheet 1: Overview —— 与屏幕表格同构 ----
-    const LAST = months.length - 1                         // 每个国家块的最后一个月 → 右侧加分界线
-    const bd = (c: XCell): XCell => ({ ...c, bR: true })    // 给单元格加右分界线
-    // 把每个国家/月的取值函数铺成一行，块末月加分界线
-    const perMonthBlock = (fn: (code: string, m: string) => XCell) =>
-      tableCountries.flatMap(c => months.map((m, i) => i === LAST ? bd(fn(c.code, m)) : fn(c.code, m)))
-    const euBlock = (fn: (m: string) => XCell) =>
-      months.map((m, i) => i === LAST ? bd(fn(m)) : fn(m))
-
-    const g = (v: any, span?: number, s = 'grp'): XCell => ({ v, span, s })
-    const head1: XRow = [
-      { v: 'SKU', s: 'hdrL' }, { v: 'PRODUCT', s: 'hdrL' },
-      ...tableCountries.map(c => bd(g(`${c.flag_emoji} ${c.code} ${c.name_en}`, months.length))),
-      bd(g('EU TTL', months.length)),
-      g(`Total (${monthCount}-month sum)`, undefined, 'grpA'),
-      g('Stock-FD', undefined, 'grpA'),
-      g('Stock-HQ CN', undefined, 'grpA'),
-      g('Stock-HQ Oversea', undefined, 'grpA'),
-    ]
-    const mhdr = (m: string, i: number): XCell => i === LAST ? bd({ v: m, s: 'hdr' }) : { v: m, s: 'hdr' }
-    const head2: XRow = [
-      { v: '', s: 'hdr' }, { v: '', s: 'hdr' },
-      ...tableCountries.flatMap(() => MN.map(mhdr)),
-      ...MN.map(mhdr),
-      { v: '', s: 'hdr' }, { v: '', s: 'hdr' }, { v: '', s: 'hdr' }, { v: '', s: 'hdr' },
-    ]
-
-    const num = (n: number): XCell => n > 0 ? { v: n, num: true, s: 'n0' } : { v: '-', s: 'dim' }
-    const ovRows: XRow[] = [head1, head2]
-    tableRows.forEach(r => ovRows.push([
-      { v: r.sku_code, s: 'code' }, { v: r.sku_name },
-      ...perMonthBlock((code, m) => num(r.countryMonthQty[code]?.[m] ?? 0)),                       // 各国×月：可编辑数据
-      ...euBlock(m => ({ v: r.monthlyTtl[m] ?? 0, num: true, s: 'n0', f: euMonthF })),               // EU TTL：公式（v 为缓存值）
-      { v: r.subTotal, num: true, s: 'sub0', f: subF },                                            // 行小计：公式
-      num(fdStockBySkuCode?.[r.sku_code] ?? 0),
-      num(hqCnStockBySkuCode?.[r.sku_code] ?? 0),
-      num(hqOvsStockBySkuCode?.[r.sku_code] ?? 0),
-    ]))
-    const sumOf = (rec?: Record<string, number>) => Object.values(rec ?? {}).reduce((s, v) => s + v, 0)
-    ovRows.push([
-      { v: 'TOTAL', s: 'tot' }, { v: `${N} SKUs`, s: 'tot' },
-      ...perMonthBlock((code, m) => ({ v: footTotals.byCountryMonth[code]?.[m] ?? 0, num: true, s: 'tot0', f: colSumF(N) })),
-      ...euBlock(m => ({ v: footTotals.byEuMonth[m] ?? 0, num: true, s: 'tot0', f: colSumF(N) })),
-      { v: footTotals.grandTotal, num: true, s: 'tot0', f: colSumF(N) },
-      { v: sumOf(fdStockBySkuCode), num: true, s: 'tot0', f: colSumF(N) },
-      { v: sumOf(hqCnStockBySkuCode), num: true, s: 'tot0', f: colSumF(N) },
-      { v: sumOf(hqOvsStockBySkuCode), num: true, s: 'tot0', f: colSumF(N) },
-    ])
-    const sheets: XSheet[] = [{
-      name: 'Overview',
-      rows: ovRows,
-      freezeRows: 2,
-      widths: [80, 175, ...tableCountries.flatMap(() => months.map(() => 46)), ...months.map(() => 46), 62, 55, 55, 62],
-    }]
-
-    // ---- Sheet 2..N: 每个国家 —— 还原填报格式（SKU × KA × 月）----
-    // KA 列：本国 active、非 group 节点；顶层 KA 后紧跟其子渠道，和填报表的 FD 分组同序
+    // ========== 先建国家子表，并记录每个 SKU 的行号 + Sub-total 起始列，供总表跨表引用 ==========
     const cellQty = new Map<string, number>()   // `${sku_id}|${ka_id}|YYYY-MM` -> qty
     kaCells.forEach(c => {
       const k = `${c.sku_id}|${c.ka_id}|${c.month.slice(0, 7)}`
       cellQty.set(k, (cellQty.get(k) ?? 0) + (c.qty ?? 0))
     })
     const byOrder = (a: Ka, b: Ka) => (a.sort_order ?? 999) - (b.sort_order ?? 999) || a.name.localeCompare(b.name)
-
-    // 本周期有数据的 KA —— 即使已停用也必须出列，否则导出会静默丢数、与 Overview 对不上
-    // （Overview 走 forecast_eu_summary，该视图不过滤 is_active）
     const kaWithData = new Set(kaCells.filter(c => (c.qty ?? 0) !== 0).map(c => c.ka_id))
+
+    // 联动映射：国家 code → { sheetName, subCol0(Sub-total 首月 1-based 列号), rowOf(sku_code→行号) }
+    type CMeta = { sheetName: string; subCol0: number; rowOf: Map<string, number> }
+    const cmeta: Record<string, CMeta> = {}
+    const countrySheets: XSheet[] = []
 
     tableCountries.forEach(country => {
       const countryKas = kas.filter(k =>
@@ -332,6 +282,7 @@ export function ForecastSummaryView({
       const rows: XRow[] = [h1, h2]
       const colTot: number[] = new Array(cols.length * months.length).fill(0)
       const monTot: number[] = new Array(months.length).fill(0)
+      const rowOf = new Map<string, number>()   // sku_code → 本表 1-based 行号
       let grand = 0
       allSkus.forEach(sku => {
         const perMonth = months.map(() => 0)
@@ -355,6 +306,7 @@ export function ForecastSummaryView({
           }),
           { v: rowTot, num: true, s: 'sub0', f: rowTotF },                                    // 行 Total：公式
         ])
+        rowOf.set(sku.code, rows.length)   // 刚 push 后 rows.length = 该行 1-based 行号（h1=1,h2=2,首个数据=3）
       })
       const nData = rows.length - 2                                                           // 本表数据行数（用于列合计公式）
       const colF = nData > 0 ? colSumF(nData) : undefined
@@ -365,15 +317,71 @@ export function ForecastSummaryView({
         { v: grand, num: true, s: 'tot0', f: colF },
       ])
 
-      sheets.push({
-        name: `${country.code} ${country.name_en}`,
+      const sheetName = `${country.code} ${country.name_en}`
+      countrySheets.push({
+        name: sheetName,
         rows,
         freezeRows: 2,
         widths: [80, 175, ...cols.flatMap(() => months.map(() => 46)), ...months.map(() => 46), 62],
       })
+      cmeta[country.code] = { sheetName, subCol0: 3 + K * M, rowOf }   // Sub-total 首月列 = 3 + K*M（1-based）
     })
 
-    downloadWorkbook(buildWorkbook(sheets), `${selectedRun.code}-FCST`)
+    // ========== 再建 Overview：各国×月格子跨表引用对应国家子表的 Sub-total 格（改子表→总表联动）==========
+    const perMonthBlock = (fn: (code: string, m: string, mi: number) => XCell) =>
+      tableCountries.flatMap(c => months.map((m, i) => i === LAST ? bd(fn(c.code, m, i)) : fn(c.code, m, i)))
+    const euBlock = (fn: (m: string) => XCell) =>
+      months.map((m, i) => i === LAST ? bd(fn(m)) : fn(m))
+
+    const head1: XRow = [
+      { v: 'SKU', s: 'hdrL' }, { v: 'PRODUCT', s: 'hdrL' },
+      ...tableCountries.map(c => bd(g(`${c.flag_emoji} ${c.code} ${c.name_en}`, months.length))),
+      bd(g('EU TTL', months.length)),
+      g(`Total (${monthCount}-month sum)`, undefined, 'grpA'),
+      g('Stock-FD', undefined, 'grpA'),
+      g('Stock-HQ CN', undefined, 'grpA'),
+      g('Stock-HQ Oversea', undefined, 'grpA'),
+    ]
+    const mhdr = (m: string, i: number): XCell => i === LAST ? bd({ v: m, s: 'hdr' }) : { v: m, s: 'hdr' }
+    const head2: XRow = [
+      { v: '', s: 'hdr' }, { v: '', s: 'hdr' },
+      ...tableCountries.flatMap(() => MN.map(mhdr)),
+      ...MN.map(mhdr),
+      { v: '', s: 'hdr' }, { v: '', s: 'hdr' }, { v: '', s: 'hdr' }, { v: '', s: 'hdr' },
+    ]
+    // 各国×月 = 引用该国子表里此 SKU 的 Sub-total 该月格；子表里没这行(hideZero 隐藏)则填字面 0
+    const linkCell = (skuCode: string, code: string, val: number, mi: number): XCell => {
+      const meta = cmeta[code], r = meta?.rowOf.get(skuCode)
+      if (!meta || !r) return num(val)
+      return { v: val, num: true, s: 'n0', f: `='${meta.sheetName}'!R${r}C${meta.subCol0 + mi}` }
+    }
+
+    const ovRows: XRow[] = [head1, head2]
+    tableRows.forEach(r => ovRows.push([
+      { v: r.sku_code, s: 'code' }, { v: r.sku_name },
+      ...perMonthBlock((code, m, mi) => linkCell(r.sku_code, code, r.countryMonthQty[code]?.[m] ?? 0, mi)),  // 跨表引用国家子表
+      ...euBlock(m => ({ v: r.monthlyTtl[m] ?? 0, num: true, s: 'n0', f: euMonthF })),                        // EU TTL：本行各国之和
+      { v: r.subTotal, num: true, s: 'sub0', f: subF },
+      num(fdStockBySkuCode?.[r.sku_code] ?? 0),
+      num(hqCnStockBySkuCode?.[r.sku_code] ?? 0),
+      num(hqOvsStockBySkuCode?.[r.sku_code] ?? 0),
+    ]))
+    const sumOf = (rec?: Record<string, number>) => Object.values(rec ?? {}).reduce((s, v) => s + v, 0)
+    ovRows.push([
+      { v: 'TOTAL', s: 'tot' }, { v: `${N} SKUs`, s: 'tot' },
+      ...perMonthBlock((code, m) => ({ v: footTotals.byCountryMonth[code]?.[m] ?? 0, num: true, s: 'tot0', f: colSumF(N) })),
+      ...euBlock(m => ({ v: footTotals.byEuMonth[m] ?? 0, num: true, s: 'tot0', f: colSumF(N) })),
+      { v: footTotals.grandTotal, num: true, s: 'tot0', f: colSumF(N) },
+      { v: sumOf(fdStockBySkuCode), num: true, s: 'tot0', f: colSumF(N) },
+      { v: sumOf(hqCnStockBySkuCode), num: true, s: 'tot0', f: colSumF(N) },
+      { v: sumOf(hqOvsStockBySkuCode), num: true, s: 'tot0', f: colSumF(N) },
+    ])
+    const overview: XSheet = {
+      name: 'Overview', rows: ovRows, freezeRows: 2,
+      widths: [80, 175, ...tableCountries.flatMap(() => months.map(() => 46)), ...months.map(() => 46), 62, 55, 55, 62],
+    }
+
+    downloadWorkbook(buildWorkbook([overview, ...countrySheets]), `${selectedRun.code}-FCST`)
   }
 
   // ============== 导出 Stock CSV（仓库级明细，给客户的下载版本）==============

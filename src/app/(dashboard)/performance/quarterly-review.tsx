@@ -111,7 +111,7 @@ export function QuarterlyReview({
             {list.map(row => (
               <tr key={row.name} className="group align-top hover:bg-gray-50/60">
                 <td className="sticky left-0 bg-white group-hover:bg-gray-50 px-3 py-2 text-sm font-medium text-gray-800 border-b border-r border-gray-100" style={{ minWidth: 120 }}>
-                  {row.name}{row.ka_id == null && <span className="ml-1 text-[10px] text-blue-400" title="复盘自加(不在 KA map)">＋</span>}
+                  {row.name}{row.ka_id == null && <span className="ml-1 text-[10px] text-blue-400" title="Added in review (not in KA map)">＋</span>}
                 </td>
                 {which === 'front' && (
                   <td className="border-b border-r border-gray-100 bg-indigo-50/30 px-2 py-1.5 align-top text-xs text-indigo-900 whitespace-pre-line" style={{ minWidth: 140 }}>
@@ -158,7 +158,7 @@ export function QuarterlyReview({
           className="px-3 py-1.5 rounded-md text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 hover:border-blue-400 transition flex items-center gap-1.5">
           <span className="text-base">⟳</span> Flip to {flipped ? 'Progress' : 'Action Plan'}
         </button>
-        <span className="text-xs text-gray-400">{flipped ? `背面：下季 (${nextY} Q${nextQ}) 行动计划` : `正面：本季 (${year} Q${quarter}) 复盘`}</span>
+        <span className="text-xs text-gray-400">{flipped ? `Back · next quarter (${nextY} Q${nextQ}) action plan` : `Front · this quarter (${year} Q${quarter}) review`}</span>
         <div className="ml-auto flex items-center gap-3">
           {msg && <span className="text-xs text-gray-500">{msg}</span>}
           <button onClick={save} disabled={busy || !changed}
@@ -174,16 +174,16 @@ export function QuarterlyReview({
           {renderFace('back')}
         </div>
       </div>
-      <p className="mt-2 text-xs text-gray-400">渠道列表为复盘自有(增删只动本表,<strong>不影响 KA channel map</strong>,后者仅 admin 可改)。悬停行尾显示 ×。编辑后点 Save。</p>
+      <p className="mt-2 text-xs text-gray-400">The channel list is owned by this review (add/remove only affects this table, <strong>not the KA channel map</strong>, which only admins can edit). Hover a row to reveal ×. Click Save after editing.</p>
 
       {confirmDel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setConfirmDel(null)}>
           <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-bold text-gray-900 mb-1">确认删除「{confirmDel}」这一行?</h3>
-            <p className="text-sm text-gray-500 mb-5">仅从本季度复盘中移除该渠道行(<strong>不影响 KA channel map</strong>)。保存后生效。</p>
+            <h3 className="text-base font-bold text-gray-900 mb-1">Remove the row “{confirmDel}”?</h3>
+            <p className="text-sm text-gray-500 mb-5">Removes this channel row from this quarter's review only (<strong>does not affect the KA channel map</strong>). Takes effect after saving.</p>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmDel(null)} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50">取消</button>
-              <button onClick={() => removeRow(confirmDel)} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700">确认删除</button>
+              <button onClick={() => setConfirmDel(null)} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
+              <button onClick={() => removeRow(confirmDel)} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700">Remove</button>
             </div>
           </div>
         </div>

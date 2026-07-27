@@ -54,6 +54,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
   const [busy, setBusy] = useState<string | null>(null)     // 'line:12' / 'grp:PO123'
   const [dates, setDates] = useState<Record<string, string>>({})   // 行/组 → 发货日
   const [poSearch, setPoSearch] = useState('')
+  const [kaFilter, setKaFilter] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set())  // 展开的组 / 行
   const [addOpen, setAddOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -124,11 +125,18 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
     return b
   }, [rows])
 
+  // KA 筛选（表头下拉，跨车道保留）。选项 = 当前车道里出现的 KA
+  const kaOptions = useMemo(
+    () => Array.from(new Set(buckets[active].map(r => r.ka_name).filter(Boolean) as string[])).sort(),
+    [buckets, active])
   const list = useMemo(() => {
     const base = buckets[active]
     const q = poSearch.trim().toLowerCase()
-    return q ? base.filter(r => (r.po_number ?? '').toLowerCase().includes(q)) : base
-  }, [buckets, active, poSearch])
+    return base.filter(r =>
+      (!q || (r.po_number ?? '').toLowerCase().includes(q)) &&
+      (!kaFilter || r.ka_name === kaFilter))
+  }, [buckets, active, poSearch, kaFilter])
+  const kaProps = { value: kaFilter, onChange: setKaFilter, options: kaOptions }
 
   const toggle = (k: string) => setOpen(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
   const dateOf = (k: string) => dates[k] || today
@@ -294,13 +302,13 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
           <div className="rounded-[10px] overflow-hidden mt-2.5" style={{ borderLeft: `3px solid ${m.a}` }}>
             <div className="overflow-x-auto max-h-[600px] overflow-y-auto border border-gray-100 border-l-0 rounded-r-[10px]">
               {grouped && <GroupedTable stage={active} meta={m} rows={list} open={open} toggle={toggle} busy={busy} dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today}
-                onConfirm={confirmPo} onCancel={cancelPo} onShip={markShipped} onPartial={markPartial} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
+                onConfirm={confirmPo} onCancel={cancelPo} onShip={markShipped} onPartial={markPartial} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'partial' && <PartialGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
-                dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipGroup={markShipped} onShipRemaining={shipRemaining} onPartialRemaining={partialRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
+                dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipGroup={markShipped} onShipRemaining={shipRemaining} onPartialRemaining={partialRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
-                onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} onDeliverGroup={deliverGroup} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
-              {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} />}
-              {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} freight={freight} onSaveFreight={saveFreight} busy={busy} fxToEur={fxToEur} />}
+                onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} onDeliverGroup={deliverGroup} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
+              {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
+              {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} freight={freight} onSaveFreight={saveFreight} busy={busy} fxToEur={fxToEur} kaProps={kaProps} />}
             </div>
           </div>
         </div>
@@ -479,12 +487,12 @@ function groupByPo(rows: OpsRow[]): Grp[] {
   return out.sort((a, z) => z.po_date.localeCompare(a.po_date))
 }
 
-function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, today, onConfirm, onCancel, onShip, onPartial, poSearch, docCounts, onDocs }: {
+function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, today, onConfirm, onCancel, onShip, onPartial, poSearch, docCounts, onDocs, kaProps }: {
   stage: Stage; meta: StageMeta; rows: OpsRow[]; open: Set<string>; toggle: (k: string) => void; busy: string | null
   dateOf: (k: string) => string; setDate: (k: string, v: string) => void; today: string
   onConfirm: (ids: number[], key: string) => void; onCancel: (ids: number[], key: string) => void
   onShip: (lines: OpsRow[], key: string) => void; onPartial: (l: OpsRow, key: string) => void; poSearch: string
-  docCounts: Record<string, number>; onDocs: (po: string) => void
+  docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps
 }) {
   const groups = useMemo(() => groupByPo(rows), [rows])
   const isNew = stage === 'new'
@@ -493,7 +501,7 @@ function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, 
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
-          <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKUs</Th><Th right>Total Qty</Th><Th>PO Date</Th>
+          <Th> </Th><Th>PO #</Th><Th>Country</Th><KaTh {...kaProps} /><Th center>SKUs</Th><Th right>Total Qty</Th><Th>PO Date</Th>
           {!isNew && <Th center>Waiting</Th>}
           <Th center>整张 PO 操作</Th>
         </tr>
@@ -593,7 +601,7 @@ function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, 
 
 // ===== Shipped / Partial：逐 SKU 行，展开看批次并逐批录送达日 =====
 // ===== Partial：按 PO # 归并。主行可「整单发余量」，展开逐 SKU 单发 / 逐批录送达日 =====
-function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, dateOf, setDate, today, onShipGroup, onShipRemaining, onPartialRemaining, onReopen, onPatchBatch, onSaveNotes, poSearch, docCounts, onDocs }: {
+function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, dateOf, setDate, today, onShipGroup, onShipRemaining, onPartialRemaining, onReopen, onPatchBatch, onSaveNotes, poSearch, docCounts, onDocs, kaProps }: {
   meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; busy: string | null
   dateOf: (k: string) => string; setDate: (k: string, v: string) => void; today: string
   onShipGroup: (lines: OpsRow[], key: string) => void
@@ -601,7 +609,7 @@ function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, date
   onReopen: (id: number, key: string) => void
   onPatchBatch: (batchId: number, patch: Record<string, any>, key: string) => void
   onSaveNotes: (id: number, notes: string, key: string) => void; poSearch: string
-  docCounts: Record<string, number>; onDocs: (po: string) => void
+  docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps
 }) {
   const groups = useMemo(() => groupByPo(rows).map(g => {
     const delivered = g.lines.reduce((s, l) => s + (l.delivered_qty ?? 0), 0)
@@ -612,7 +620,7 @@ function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, date
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
-          <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKUs</Th>
+          <Th> </Th><Th>PO #</Th><Th>Country</Th><KaTh {...kaProps} /><Th center>SKUs</Th>
           <Th right>Ordered</Th><Th right className="text-emerald-600">Delivered</Th><Th right className="text-amber-600">Remaining ⏳</Th>
           <Th>PO Date</Th><Th center>整单发余量 / 逐 SKU</Th>
         </tr>
@@ -780,12 +788,12 @@ function LineNotes({ line, busy, onSave }: { line: OpsRow; busy: string | null; 
   )
 }
 
-function CancelledTable({ meta, rows, busy, onReopen, poSearch, docCounts, onDocs }: { meta: StageMeta; rows: OpsRow[]; busy: string | null; onReopen: (id: number, key: string) => void; poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void }) {
+function CancelledTable({ meta, rows, busy, onReopen, poSearch, docCounts, onDocs, kaProps }: { meta: StageMeta; rows: OpsRow[]; busy: string | null; onReopen: (id: number, key: string) => void; poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps }) {
   return (
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
-          <Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th>SKU</Th><Th>Product</Th><Th right>Qty</Th>
+          <Th>PO #</Th><Th>Country</Th><KaTh {...kaProps} /><Th>SKU</Th><Th>Product</Th><Th right>Qty</Th>
           <Th right>Unit Price</Th><Th right>Turnover</Th><Th>PO Date</Th><Th>Notes</Th><Th center>Action</Th>
         </tr>
       </thead>
@@ -817,13 +825,13 @@ function CancelledTable({ meta, rows, busy, onReopen, poSearch, docCounts, onDoc
 }
 
 // ===== Shipped：按 PO # 归并（📎 挂 PO 主行），展开逐 SKU 逐批录送达日 + Reopen =====
-function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, today, onReopen, onPatchBatch, onSaveNotes, onDeliverGroup, poSearch, docCounts, onDocs }: {
+function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, today, onReopen, onPatchBatch, onSaveNotes, onDeliverGroup, poSearch, docCounts, onDocs, kaProps }: {
   meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; busy: string | null; today: string
   onReopen: (id: number, key: string) => void
   onPatchBatch: (batchId: number, patch: Record<string, any>, key: string) => void
   onSaveNotes: (id: number, notes: string, key: string) => void
   onDeliverGroup: (lineIds: number[], date: string, key: string) => void
-  poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void
+  poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps
 }) {
   const [gdate, setGdate] = useState<Record<string, string>>({})
   const groups = useMemo(() => groupByPo(rows).map(g => {
@@ -836,7 +844,7 @@ function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, toda
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
-          <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKUs</Th><Th right>Total Qty</Th><Th>PO Date</Th><Th>Shipped</Th><Th center>整单送达 / 逐批</Th>
+          <Th> </Th><Th>PO #</Th><Th>Country</Th><KaTh {...kaProps} /><Th center>SKUs</Th><Th right>Total Qty</Th><Th>PO Date</Th><Th>Shipped</Th><Th center>整单送达 / 逐批</Th>
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
@@ -919,9 +927,9 @@ function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, toda
 }
 
 // ===== Delivered：按 PO # 归并，展开逐 SKU 逐批次追溯 =====
-function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCounts, onDocs, freight, onSaveFreight, busy, fxToEur }: {
+function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCounts, onDocs, freight, onSaveFreight, busy, fxToEur, kaProps }: {
   meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; poSearch: string
-  docCounts: Record<string, number>; onDocs: (po: string) => void
+  docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps
   freight: Record<string, { fee: number | null; currency: string | null }>
   onSaveFreight: (po: string, fee: number | null, currency: string | null, key: string) => void
   busy: string | null; fxToEur: Record<string, number>
@@ -949,7 +957,7 @@ function DeliveredTable({ meta, rows, batchesByPo, open, toggle, poSearch, docCo
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
-          <Th> </Th><Th>PO #</Th><Th>Country</Th><Th>KA</Th><Th center>SKUs</Th>
+          <Th> </Th><Th>PO #</Th><Th>Country</Th><KaTh {...kaProps} /><Th center>SKUs</Th>
           <Th right>Total Qty</Th><Th right>Total Value</Th><Th>PO Date</Th><Th>Shipped</Th><Th>Delivered</Th>
           <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 whitespace-nowrap">
             <span className="inline-flex items-center gap-1.5">
@@ -1395,6 +1403,23 @@ function RailBranch({ meta, count, active, onClick }: { meta: StageMeta; count: 
 }
 function Th({ children, right, center, className = '' }: { children: React.ReactNode; right?: boolean; center?: boolean; className?: string }) {
   return <th className={`px-3 py-2.5 text-xs font-semibold text-gray-600 ${right ? 'text-right' : center ? 'text-center' : 'text-left'} ${className}`}>{children}</th>
+}
+
+// KA 列表头 + 筛选下拉（各车道通用）。选中即只显示该 KA；选 All KAs 清除。
+type KaProps = { value: string; onChange: (v: string) => void; options: string[] }
+function KaTh({ value, onChange, options }: KaProps) {
+  return (
+    <th className="px-3 py-2.5 text-xs font-semibold text-gray-600 text-left whitespace-nowrap">
+      <span className="inline-flex items-center gap-1.5">
+        KA
+        <select value={value} onChange={e => onChange(e.target.value)} onClick={e => e.stopPropagation()} title="按 KA 筛选"
+          className={`text-[10px] font-medium border rounded px-1 py-0.5 bg-white outline-none ${value ? 'text-blue-600 border-blue-300' : 'text-gray-500 border-gray-300'}`}>
+          <option value="">All KAs</option>
+          {options.map(k => <option key={k} value={k}>{k}</option>)}
+        </select>
+      </span>
+    </th>
+  )
 }
 
 // ===== 手动新建 PO（落 New PO；一张 PO 多个 SKU，每个 SKU 存一行）=====

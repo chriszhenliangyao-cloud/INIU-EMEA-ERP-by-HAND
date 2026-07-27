@@ -286,7 +286,7 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
                   <th className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06]">Qty/Carton</th>
                   <th title="每箱重量 (gross kg)" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Carton kg</th>
                   <th title="每箱尺寸 L*W*H" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Carton size</th>
-                  <th title="每托箱数" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Qty/Pallet</th>
+                  <th title="每托箱数" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Carton qty/Pallet</th>
                   <th title="每托重量 (gross kg)" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-medium text-gray-400 border-b border-black/[0.06] whitespace-nowrap">Pallet weight</th>
                   <th title="产品彩盒尺寸 L*W*H" className="sticky top-0 z-20 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-r-2 border-black/[0.06] whitespace-nowrap">Retail package size</th>
                 </>}
@@ -426,7 +426,7 @@ function CartonExportModal({ skus, onClose }: { skus: Sku[]; onClose: () => void
     const picked = skus.filter(s => sel.has(s.id))
     if (!picked.length) { alert('Please select at least one SKU to export.'); return }
     const dash = (v: any): any => v == null || v === '' ? '' : v
-    const head: XRow = ['SKU', 'Product', 'EAN', 'Qty/Carton', 'Carton weight (kg)', 'Carton size', 'Qty/Pallet', 'Pallet weight (kg)', 'Retail package size', 'Unit weight (g)']
+    const head: XRow = ['SKU', 'Product', 'EAN', 'Qty/Carton', 'Carton weight (kg)', 'Carton size', 'Carton qty/Pallet', 'Pallet weight (kg)', 'Retail package size', 'Unit weight (g)']
       .map(h => ({ v: h, s: 'hdrL' }))
     const rows: XRow[] = [head]
     picked.forEach(s => rows.push([
