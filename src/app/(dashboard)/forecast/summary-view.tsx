@@ -214,6 +214,11 @@ export function ForecastSummaryView({
   // ============== 导出 Excel：Tab1 总览 + 每国一个 Tab（还原填报格式）==============
   const exportWorkbook = () => {
     const MN = monthLabels.map(l => l.short)
+    const M = months.length, C = tableCountries.length, N = tableRows.length
+    // R1C1 公式（相对引用，SUM 自动跳过 '-' 文本格）：
+    const euMonthF = `=SUM(${Array.from({ length: C }, (_, c) => `RC[${(c - C) * M}]`).join(',')})`  // 该月 = 各国该月之和
+    const subF = `=SUM(RC[-${M}]:RC[-1])`                                                            // 行小计 = 该行 EU TTL 各月之和
+    const colSumF = (rowsUp: number) => `=SUM(R[-${rowsUp}]C:R[-1]C)`                                // 列合计 = 上方数据行之和
 
     // ---- Sheet 1: Overview —— 与屏幕表格同构 ----
     const LAST = months.length - 1                         // 每个国家块的最后一个月 → 右侧加分界线
@@ -246,22 +251,22 @@ export function ForecastSummaryView({
     const ovRows: XRow[] = [head1, head2]
     tableRows.forEach(r => ovRows.push([
       { v: r.sku_code, s: 'code' }, { v: r.sku_name },
-      ...perMonthBlock((code, m) => num(r.countryMonthQty[code]?.[m] ?? 0)),
-      ...euBlock(m => num(r.monthlyTtl[m] ?? 0)),
-      { v: r.subTotal, num: true, s: 'sub0' },
+      ...perMonthBlock((code, m) => num(r.countryMonthQty[code]?.[m] ?? 0)),                       // 各国×月：可编辑数据
+      ...euBlock(m => ({ v: r.monthlyTtl[m] ?? 0, num: true, s: 'n0', f: euMonthF })),               // EU TTL：公式（v 为缓存值）
+      { v: r.subTotal, num: true, s: 'sub0', f: subF },                                            // 行小计：公式
       num(fdStockBySkuCode?.[r.sku_code] ?? 0),
       num(hqCnStockBySkuCode?.[r.sku_code] ?? 0),
       num(hqOvsStockBySkuCode?.[r.sku_code] ?? 0),
     ]))
     const sumOf = (rec?: Record<string, number>) => Object.values(rec ?? {}).reduce((s, v) => s + v, 0)
     ovRows.push([
-      { v: 'TOTAL', s: 'tot' }, { v: `${tableRows.length} SKUs`, s: 'tot' },
-      ...perMonthBlock((code, m) => ({ v: footTotals.byCountryMonth[code]?.[m] ?? 0, num: true, s: 'tot0' })),
-      ...euBlock(m => ({ v: footTotals.byEuMonth[m] ?? 0, num: true, s: 'tot0' })),
-      { v: footTotals.grandTotal, num: true, s: 'tot0' },
-      { v: sumOf(fdStockBySkuCode), num: true, s: 'tot0' },
-      { v: sumOf(hqCnStockBySkuCode), num: true, s: 'tot0' },
-      { v: sumOf(hqOvsStockBySkuCode), num: true, s: 'tot0' },
+      { v: 'TOTAL', s: 'tot' }, { v: `${N} SKUs`, s: 'tot' },
+      ...perMonthBlock((code, m) => ({ v: footTotals.byCountryMonth[code]?.[m] ?? 0, num: true, s: 'tot0', f: colSumF(N) })),
+      ...euBlock(m => ({ v: footTotals.byEuMonth[m] ?? 0, num: true, s: 'tot0', f: colSumF(N) })),
+      { v: footTotals.grandTotal, num: true, s: 'tot0', f: colSumF(N) },
+      { v: sumOf(fdStockBySkuCode), num: true, s: 'tot0', f: colSumF(N) },
+      { v: sumOf(hqCnStockBySkuCode), num: true, s: 'tot0', f: colSumF(N) },
+      { v: sumOf(hqOvsStockBySkuCode), num: true, s: 'tot0', f: colSumF(N) },
     ])
     const sheets: XSheet[] = [{
       name: 'Overview',
@@ -319,6 +324,11 @@ export function ForecastSummaryView({
         { v: '', s: 'hdr' },                    // Total
       ]
 
+      const K = cols.length
+      // 公式：Sub-total 该月 = 各渠道该月之和；行 Total = 该行 Sub-total 各月之和
+      const subMonthF = `=SUM(${Array.from({ length: K }, (_, k) => `RC[${(k - K) * M}]`).join(',')})`
+      const rowTotF = `=SUM(RC[-${M}]:RC[-1])`
+
       const rows: XRow[] = [h1, h2]
       const colTot: number[] = new Array(cols.length * months.length).fill(0)
       const monTot: number[] = new Array(months.length).fill(0)
@@ -330,7 +340,7 @@ export function ForecastSummaryView({
           const q = cellQty.get(`${sku.id}|${c.ka.id}|${m}`) ?? 0
           perMonth[mi] += q
           colTot[ci * months.length + mi] += q
-          const cell: XCell = q > 0 ? { v: q, num: true, s: 'n0' } : { v: '-', s: 'dim' }
+          const cell: XCell = q > 0 ? { v: q, num: true, s: 'n0' } : { v: '-', s: 'dim' }   // 可编辑数据
           cells.push(mi === LAST ? bd(cell) : cell)
         }))
         const rowTot = perMonth.reduce((s, v) => s + v, 0)
@@ -340,17 +350,19 @@ export function ForecastSummaryView({
         rows.push([
           { v: sku.code, s: 'code' }, { v: sku.name }, ...cells,
           ...perMonth.map((v, i) => {
-            const cell: XCell = v > 0 ? { v, num: true, s: 'sub0' } : { v: '-', s: 'dim' }
+            const cell: XCell = { v, num: true, s: 'sub0', f: subMonthF }                    // Sub-total 月：公式
             return i === LAST ? bd(cell) : cell
           }),
-          rowTot > 0 ? { v: rowTot, num: true, s: 'sub0' } : { v: '-', s: 'dim' },
+          { v: rowTot, num: true, s: 'sub0', f: rowTotF },                                    // 行 Total：公式
         ])
       })
+      const nData = rows.length - 2                                                           // 本表数据行数（用于列合计公式）
+      const colF = nData > 0 ? colSumF(nData) : undefined
       rows.push([
         { v: 'TOTAL', s: 'tot' }, { v: `${country.name_en}`, s: 'tot' },
-        ...colTot.map((v, idx) => { const cell: XCell = { v, num: true, s: 'tot0' }; return idx % months.length === LAST ? bd(cell) : cell }),
-        ...monTot.map((v, i) => { const cell: XCell = { v, num: true, s: 'tot0' }; return i === LAST ? bd(cell) : cell }),
-        { v: grand, num: true, s: 'tot0' },
+        ...colTot.map((v, idx) => { const cell: XCell = { v, num: true, s: 'tot0', f: colF }; return idx % months.length === LAST ? bd(cell) : cell }),
+        ...monTot.map((v, i) => { const cell: XCell = { v, num: true, s: 'tot0', f: colF }; return i === LAST ? bd(cell) : cell }),
+        { v: grand, num: true, s: 'tot0', f: colF },
       ])
 
       sheets.push({

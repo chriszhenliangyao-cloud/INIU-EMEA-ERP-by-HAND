@@ -15,6 +15,7 @@ export type XCell = {
   s?: string           // 样式 ID，见下方 STYLES
   span?: number        // 横向合并的列数（1 = 不合并）
   bR?: boolean         // 右侧加粗分界线（用样式 ID 的 _r 变体）
+  f?: string           // Excel 公式（R1C1 记法，如 "=SUM(RC[-3]:RC[-1])"）；v 作为缓存值，Excel 打开后自动重算
 }
 export type XRow = XCell[]
 export type XSheet = { name: string; rows: XRow[]; widths?: number[]; freezeRows?: number }
@@ -75,6 +76,9 @@ function sheetXml({ name, rows, widths, freezeRows = 1 }: XSheet): string {
       const span = c.span && c.span > 1 ? ` ss:MergeAcross="${c.span - 1}"` : ''
       const sid = c.bR ? (c.s ? `${c.s}_r` : 'bdr') : c.s
       const style = sid ? ` ss:StyleID="${sid}"` : ''
+      if (c.f) {   // 公式单元格：写 R1C1 公式 + 缓存值（Number），Excel 打开自动重算
+        return `<Cell${style}${span} ss:Formula="${esc(c.f)}"><Data ss:Type="Number">${Number(c.v) || 0}</Data></Cell>`
+      }
       if (c.v === null || c.v === '') return `<Cell${style}${span}/>`
       return `<Cell${style}${span}><Data ss:Type="${c.num ? 'Number' : 'String'}">${esc(c.v)}</Data></Cell>`
     }).join('')

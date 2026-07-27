@@ -9,7 +9,7 @@ type Field = typeof FIELDS[number]
 export type ReviewRow = { country_id: number; year: number; quarter: number; channel_name: string; ka_id: number | null }
   & Partial<Record<Field, string | null>>
 
-const FRONT: [Field, string][] = [['progress', 'Progress'], ['win', 'Win'], ['loss', 'Loss'], ['competitor_reaction', 'Competitor reaction']]
+const FRONT: [Field, string][] = [['progress', 'Progress'], ['win', 'Win'], ['loss', 'Loss'], ['competitor_reaction', 'Competition thinking']]
 const BACK: [Field, string][] = [['next_move', 'Next move'], ['target', 'Target'], ['supports_needed', 'Supports / resources needed']]
 
 export function QuarterlyReview({
