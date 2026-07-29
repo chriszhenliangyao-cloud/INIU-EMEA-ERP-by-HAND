@@ -196,18 +196,26 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     .replace(/\s*[-–]\s*(Black|White|Orange|Blue|Titan|Desert ?Titan|Red|Light ?Blue|LB|Cherry|Green|Camouflage)\b.*$/i, '').trim()
   const modelNameMap: Record<string, string> = {}
   ;(skus ?? []).forEach((s: any) => { const mc = stripColor(s.code); if (!modelNameMap[mc]) modelNameMap[mc] = cleanName(s.name) || mc })
-  const modelAggMap: Record<string, { qty: number; value: number }> = {}
+  const ccodeById: Record<number, string> = {}; countries.forEach((c: any) => { ccodeById[c.id] = c.code })
+  // 按 国家×机型 聚合，再加一个 ALL 汇总键
+  const modelAgg: Record<string, Record<string, { qty: number; value: number }>> = { ALL: {} }
   ;(pos ?? []).forEach((p: any) => {
+    const ccode = ccodeById[p.country_id]; if (!ccode) return  // RLS 外国家跳过
     const code = skuCode[p.sku_id]; const mc = code ? stripColor(code) : 'Other'
-    const a = (modelAggMap[mc] ??= { qty: 0, value: 0 })
-    a.qty += Number(p.qty_ordered) || 0
-    a.value += toEur(p.turnover, p.currency)
+    const qty = Number(p.qty_ordered) || 0, value = toEur(p.turnover, p.currency)
+    for (const key of [ccode, 'ALL']) {
+      const a = ((modelAgg[key] ??= {})[mc] ??= { qty: 0, value: 0 })
+      a.qty += qty; a.value += value
+    }
   })
-  const pnlModels = Object.entries(modelAggMap)
-    .map(([mc, a]) => ({ model: mc, name: modelNameMap[mc] || mc, qty: a.qty, value: a.value }))
-    .sort((a, b) => b.value - a.value)
+  const pnlModelsByCountry: Record<string, Array<{ model: string; name: string; qty: number; value: number }>> = {}
+  for (const [key, m] of Object.entries(modelAgg)) {
+    pnlModelsByCountry[key] = Object.entries(m)
+      .map(([mc, a]) => ({ model: mc, name: modelNameMap[mc] || mc, qty: a.qty, value: a.value }))
+      .sort((a, b) => b.value - a.value)
+  }
 
-  const initialCountryCode = (searchParams?.country && countries.some((c: any) => c.code === searchParams.country))
+  const initialCountryCode = (searchParams?.country === 'ALL' || (searchParams?.country && countries.some((c: any) => c.code === searchParams.country)))
     ? searchParams.country : (countries[0] as any)?.code ?? ''
 
   return (
@@ -229,7 +237,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       viewerIsAdmin={me.isAdmin}
       yearly={yearly}
       pnl={pnl}
-      pnlModels={pnlModels}
+      pnlModelsByCountry={pnlModelsByCountry}
     />
   )
 }

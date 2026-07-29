@@ -28,7 +28,7 @@ export type PnlRow = {
 
 const eur = (v: number) => `€${fmtNum(Math.round(v))}`
 
-export function ProfitabilityPanel({ rows, periodLabel }: { rows: PnlRow[]; periodLabel: string }) {
+export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries', isAll = true }: { rows: PnlRow[]; periodLabel: string; scope?: string; isAll?: boolean }) {
   const ttl = useMemo(() => rows.reduce(
     (a, r) => ({
       pos: a.pos + r.pos, units: a.units + r.units,
@@ -44,18 +44,16 @@ export function ProfitabilityPanel({ rows, periodLabel }: { rows: PnlRow[]; peri
     <div>
       <div className="flex items-baseline gap-2 mb-1">
         <h2 className="text-lg font-semibold text-gray-900">💶 Profitability <span className="text-gray-400 font-medium text-base">(P&amp;L)</span></h2>
-        <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">Overall by country</span>
+        <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">{isAll ? 'Overall by country' : scope}</span>
         <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
       </div>
       <p className="text-sm text-gray-500 mb-4">
-        Revenue − BOM − Freight = <b>Gross Profit</b> · GP − Credit Notes = <b>Net Profit</b>. Revenue and freight are live; BOM and CN light up once their data is loaded.
+        Revenue − Freight − product cost = <b>Gross Profit</b> · GP − Credit Notes = <b>Net Profit</b>. Revenue and freight are live; GP and NP light up once cost &amp; CN data are loaded.
       </p>
 
-      {/* P&L 链条 KPI 条 */}
+      {/* P&L 链条 KPI 条（BOM 参与 GP 计算但不单独展示）*/}
       <div className="flex gap-2 items-stretch overflow-x-auto pb-1 mb-4">
         <Tile label="Revenue" value={eur(ttl.revenue)} sub={`${ttl.pos} POs · ${fmtNum(ttl.units)} units`} />
-        <Op>−</Op>
-        <Tile label="BOM" cost pendingTag />
         <Op>−</Op>
         <Tile label="Freight" cost value={eur(ttl.freight)} sub={`${cov(ttl.freightPos, ttl.pos)}% of POs`} />
         <Op>=</Op>
@@ -76,7 +74,6 @@ export function ProfitabilityPanel({ rows, periodLabel }: { rows: PnlRow[]; peri
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Units</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Revenue</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Freight</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">BOM</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">GP</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">CN</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">NP</th>
@@ -96,11 +93,10 @@ export function ProfitabilityPanel({ rows, periodLabel }: { rows: PnlRow[]; peri
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
               </tr>
             ))}
             {!rows.length && (
-              <tr><td colSpan={9} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
+              <tr><td colSpan={8} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
             )}
           </tbody>
           {rows.length > 0 && (
@@ -114,7 +110,6 @@ export function ProfitabilityPanel({ rows, periodLabel }: { rows: PnlRow[]; peri
                 <td className="px-3 py-2 text-right border-t-2 border-gray-300">{pending}</td>
                 <td className="px-3 py-2 text-right border-t-2 border-gray-300">{pending}</td>
                 <td className="px-3 py-2 text-right border-t-2 border-gray-300">{pending}</td>
-                <td className="px-3 py-2 text-right border-t-2 border-gray-300">{pending}</td>
               </tr>
             </tfoot>
           )}
@@ -124,7 +119,7 @@ export function ProfitabilityPanel({ rows, periodLabel }: { rows: PnlRow[]; peri
       <p className="mt-3 text-xs text-gray-400 leading-relaxed">
         <b className="text-gray-500">Revenue</b> = PO units × unit price (turnover), by PO date, converted to EUR (PLN/CNY via live ECB rate). ·
         <b className="text-gray-500"> Freight</b> = actual delivery fee from the Shipment Workflow, converted to EUR — currently on a subset of POs (coverage shown). ·
-        <b className="text-gray-500 text-rose-500"> BOM / GP / CN / NP</b> = pending: BOM waits on the per-SKU cost list; CN on the credit-note feed. Step 2 will drill Country → KA → SKU.
+        <b className="text-gray-500 text-rose-500"> GP / CN / NP</b> = pending: GP waits on the per-SKU cost (used in the calc, not shown); CN on the credit-note feed. Step 2 will drill Country → KA → SKU.
       </p>
     </div>
   )
@@ -167,7 +162,6 @@ export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[
               <ArrowTh k="qty">SI Qty</ArrowTh>
               <ArrowTh k="value">SI Value</ArrowTh>
               <DimTh>log</DimTh>
-              <DimTh>BOM</DimTh>
               <DimTh>GP</DimTh>
               <DimTh>GP %</DimTh>
               <DimTh>Cost (CN)</DimTh>
@@ -190,11 +184,10 @@ export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
               </tr>
             ))}
             {!sorted.length && (
-              <tr><td colSpan={10} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
+              <tr><td colSpan={9} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
             )}
           </tbody>
           {sorted.length > 0 && (
@@ -203,7 +196,7 @@ export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[
                 <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} models</td>
                 <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.qty)}</td>
                 <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttl.value)}</td>
-                <td className="px-3 py-2 text-right border-t-2 border-gray-300" colSpan={7}>{pending}</td>
+                <td className="px-3 py-2 text-right border-t-2 border-gray-300" colSpan={6}>{pending}</td>
               </tr>
             </tfoot>
           )}
@@ -212,7 +205,7 @@ export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[
 
       {/* 公式说明（按手绘口径）*/}
       <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500">
-        <span><b className="text-gray-700">GP</b> = SI Value − log − BOM &nbsp;·&nbsp; <b className="text-gray-700">GP %</b> = GP ÷ SI Value</span>
+        <span><b className="text-gray-700">GP</b> = SI Value − log − product cost &nbsp;·&nbsp; <b className="text-gray-700">GP %</b> = GP ÷ SI Value</span>
         <span><b className="text-gray-700">NP</b> = GP − CN &nbsp;·&nbsp; <b className="text-gray-700">NP %</b> = NP ÷ (SI Value − CN)</span>
       </div>
     </div>

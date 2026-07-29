@@ -24,7 +24,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModels,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModelsByCountry,
 }: {
   years: number[]
   selectedYear: number
@@ -43,7 +43,7 @@ export function PerformanceView({
   viewerIsAdmin: boolean
   yearly: YCountry[]
   pnl: PnlRow[]
-  pnlModels: PnlModelRow[]
+  pnlModelsByCountry: Record<string, PnlModelRow[]>
 }) {
   const router = useRouter()
   const [countryCode, setCountryCode] = useState(initialCountryCode)
@@ -127,6 +127,11 @@ export function PerformanceView({
         <span className="mx-1 text-gray-300">|</span>
         <label className="text-sm text-gray-600 font-medium">🌍 Country:</label>
         <div className="flex gap-1.5 flex-wrap">
+          <button onClick={() => setCountryCode('ALL')}
+            className={`px-3 py-1.5 rounded-full text-sm border transition ${countryCode === 'ALL' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+            title="All countries (totals) — used by the Profitability P&L view">
+            🌐 All
+          </button>
           {countries.map(c => (
             <button key={c.id} onClick={() => setCountryCode(c.code)}
               className={`px-3 py-1.5 rounded-full text-sm border transition ${c.code === countryCode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
@@ -156,7 +161,12 @@ export function PerformanceView({
         ))}
       </div>
 
-      {tab === 'kpi' && (<>
+      {tab === 'kpi' && countryCode === 'ALL' && (
+        <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-10 text-center">
+          <p className="text-gray-500 text-sm">The FCST Scorecard is shown per country. Pick a country above (🌐 All is for the Profitability view).</p>
+        </div>
+      )}
+      {tab === 'kpi' && countryCode !== 'ALL' && (<>
       {/* 评分标准（可折叠下拉，默认收起）*/}
       <details className="group bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl mb-5">
         <summary className="list-none cursor-pointer select-none px-4 py-3 text-sm font-medium text-gray-700 flex items-center gap-2 hover:bg-gray-50 rounded-xl [&::-webkit-details-marker]:hidden">
@@ -290,7 +300,12 @@ export function PerformanceView({
             ))}
           </div>
 
-          {reviewSub === 'sales' && (
+          {reviewSub === 'sales' && countryCode === 'ALL' && (
+            <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-10 text-center">
+              <p className="text-gray-500 text-sm">Sales Review is filled per country. Pick a country above (🌐 All is for the Profitability view).</p>
+            </div>
+          )}
+          {reviewSub === 'sales' && countryCode !== 'ALL' && (
             <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
               <div className="flex items-baseline gap-2 mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">📝 Sales Review</h2>
@@ -311,12 +326,18 @@ export function PerformanceView({
             </div>
           )}
 
-          {reviewSub === 'pnl' && (
-            <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
-              <ProfitabilityPanel rows={pnl} periodLabel={`${selectedYear} ${qLabel}`} />
-              <ProfitabilityByModel rows={pnlModels} periodLabel={`${selectedYear} ${qLabel}`} />
-            </div>
-          )}
+          {reviewSub === 'pnl' && (() => {
+            const isAll = countryCode === 'ALL'
+            const pnlRows = isAll ? pnl : pnl.filter(r => r.code === countryCode)
+            const modelRows = pnlModelsByCountry[isAll ? 'ALL' : countryCode] ?? []
+            const scope = isAll ? 'All countries' : `${country?.flag_emoji} ${country?.code}`
+            return (
+              <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
+                <ProfitabilityPanel rows={pnlRows} periodLabel={`${selectedYear} ${qLabel}`} scope={scope} isAll={isAll} />
+                <ProfitabilityByModel rows={modelRows} periodLabel={`${selectedYear} ${qLabel} · ${scope}`} />
+              </div>
+            )
+          })()}
         </div>
       )}
 
