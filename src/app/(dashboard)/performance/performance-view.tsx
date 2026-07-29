@@ -6,6 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { fmtNum } from '@/lib/utils'
 import { QuarterlyReview, type ReviewRow } from './quarterly-review'
 import { YearlyReview, type YCountry } from './yearly-review'
+import { ProfitabilityPanel, type PnlRow } from './profitability'
 
 type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number }
@@ -23,7 +24,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl,
 }: {
   years: number[]
   selectedYear: number
@@ -41,6 +42,7 @@ export function PerformanceView({
   viewerName: string
   viewerIsAdmin: boolean
   yearly: YCountry[]
+  pnl: PnlRow[]
 }) {
   const router = useRouter()
   const [countryCode, setCountryCode] = useState(initialCountryCode)
@@ -103,7 +105,7 @@ export function PerformanceView({
       <div className="mb-4">
         <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">🏆 Performance</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Forecast vs Achievement · KPI Scorecard · Quarterly Review · Yearly Review · {viewerIsAdmin ? 'all countries' : 'your assigned countries only'}
+          Forecast vs Achievement · FCST Scorecard · Quarterly Review · Yearly Review · {viewerIsAdmin ? 'all countries' : 'your assigned countries only'}
         </p>
       </div>
 
@@ -141,7 +143,7 @@ export function PerformanceView({
       {/* Tab 切换 */}
       <div className="flex gap-2 mb-5 border-b border-gray-200">
         {([
-          ['kpi', '📊 KPI Scorecard'],
+          ['kpi', '📊 FCST Scorecard'],
           ['review', '📝 Quarterly Review'],
           ...(viewerIsAdmin ? [['yearly', '📅 Yearly Review']] : []),  // Yearly Review 暂仅 admin 可见
         ] as ['kpi' | 'review' | 'yearly', string][]).map(([t, label]) => (
@@ -272,17 +274,32 @@ export function PerformanceView({
       </>)}
 
       {tab === 'review' && (
-        <QuarterlyReview
-          key={`${countryCode}-${selectedYear}-Q${selectedQuarter}`}
-          channels={channels.filter(ch => ch.country_id === country?.id)}
-          saved={reviews.filter(r => r.country_id === country?.id)}
-          prevTargets={prevReviews.filter(r => r.country_id === country?.id)}
-          prevQuarterLabel={prevQuarterLabel}
-          year={selectedYear}
-          quarter={selectedQuarter}
-          countryCode={countryCode}
-          countryId={country?.id}
-        />
+        <div className="space-y-5">
+          {/* 模块 A — Sales Review：销售定性填写（Quarter Progress + Action Plan），展现不变 */}
+          <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
+            <div className="flex items-baseline gap-2 mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">📝 Sales Review</h2>
+              <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{country?.flag_emoji} {country?.code}</span>
+              <span className="ml-auto text-xs text-gray-400">Quarter Progress · Action Plan — filled by sales</span>
+            </div>
+            <QuarterlyReview
+              key={`${countryCode}-${selectedYear}-Q${selectedQuarter}`}
+              channels={channels.filter(ch => ch.country_id === country?.id)}
+              saved={reviews.filter(r => r.country_id === country?.id)}
+              prevTargets={prevReviews.filter(r => r.country_id === country?.id)}
+              prevQuarterLabel={prevQuarterLabel}
+              year={selectedYear}
+              quarter={selectedQuarter}
+              countryCode={countryCode}
+              countryId={country?.id}
+            />
+          </div>
+
+          {/* 模块 B — Profitability(P&L)：跨国家总体经营，营收/运费实时，BOM/CN 待补 */}
+          <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
+            <ProfitabilityPanel rows={pnl} periodLabel={`${selectedYear} ${qLabel}`} />
+          </div>
+        </div>
       )}
 
       {tab === 'yearly' && viewerIsAdmin && (

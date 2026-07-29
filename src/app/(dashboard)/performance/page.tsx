@@ -20,6 +20,26 @@ const QUARTER_MONTHS: Record<number, number[]> = { 1: [1, 2, 3], 2: [4, 5, 6], 3
 const pad = (n: number) => String(n).padStart(2, '0')
 const addMonths = (iso: string, n: number) => { const d = new Date(iso + 'T00:00:00'); d.setMonth(d.getMonth() + n); return d.toISOString().slice(0, 10) }
 
+// Profitability(P&L) 折算成 EUR 用的实时汇率：ECB(frankfurter) 主源、er-api 兜底、周缓存。
+// base→EUR 应 <1（外币比 EUR 小），失败回退给定 fallback。
+async function getToEur(base: string, fallback: number): Promise<number> {
+  const WEEK = 60 * 60 * 24 * 7
+  const sources = [
+    `https://api.frankfurter.dev/v1/latest?base=${base}&symbols=EUR`,
+    `https://open.er-api.com/v6/latest/${base}`,
+  ]
+  for (const url of sources) {
+    try {
+      const res = await fetch(url, { next: { revalidate: WEEK } })
+      if (!res.ok) continue
+      const j: any = await res.json()
+      const r = j?.rates?.EUR
+      if (typeof r === 'number' && r > 0 && r < 5) return r
+    } catch { /* 试下一个源 */ }
+  }
+  return fallback
+}
+
 export default async function PerformancePage({ searchParams }: { searchParams?: SearchParams }) {
   const me = await getCurrentUser()
   const supabase = createClient()
@@ -53,7 +73,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     supabase.from('sku').select('id, code, name, category, sort_order').eq('is_active', true).order('sort_order').order('code'),
     supabase.from('country').select('id, code, name_en, flag_emoji, region, sort_order').eq('region', 'EU').eq('is_active', true).order('sort_order'),
     supabase.from('forecast_cell').select('run_id, sku_id, ka_id, month, qty').gte('month', periodStart).lt('month', endExclusive).range(0, 49999),
-    supabase.from('channel_po').select('sku_id, country_id, po_date, qty_ordered').gte('po_date', periodStart).lt('po_date', endExclusive).range(0, 49999),
+    supabase.from('channel_po').select('sku_id, country_id, po_date, qty_ordered, turnover, currency, po_number').gte('po_date', periodStart).lt('po_date', endExclusive).range(0, 49999),
     supabase.from('channel_quarterly_review').select('*').eq('year', year).eq('quarter', q),
     supabase.from('channel_quarterly_review').select('country_id, channel_name, target').eq('year', prevY).eq('quarter', prevQ),
   ])
@@ -93,6 +113,35 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     const mi = monthIndex[String(p.po_date).slice(0, 7)]; if (mi == null) return
     ;((achieve[p.country_id] ??= {})[p.sku_id] ??= Array(M).fill(0))[mi] += Number(p.qty_ordered) || 0
   })
+
+  // ── Profitability(P&L) Step 1：按国家汇总本季营收 + 实际运费（都折成 EUR）──
+  const [{ data: freightRows }, plnToEur, cnyToEur] = await Promise.all([
+    supabase.from('po_freight').select('po_number, delivery_fee, currency').range(0, 9999),
+    getToEur('PLN', 0.23),
+    getToEur('CNY', 0.13),
+  ])
+  const fxToEur: Record<string, number> = { EUR: 1, PLN: plnToEur, CNY: cnyToEur }
+  const toEur = (v: number, ccy: string | null) => (Number(v) || 0) * (fxToEur[ccy ?? 'EUR'] ?? 1)
+  // 归一化 po_number（去掉尾部 .0），映射到运费
+  const normPo = (s: any) => String(s ?? '').replace(/\.0$/, '')
+  const freightByPo: Record<string, { fee: number; ccy: string }> = {}
+  ;(freightRows ?? []).forEach((f: any) => { freightByPo[normPo(f.po_number)] = { fee: Number(f.delivery_fee) || 0, ccy: f.currency || 'EUR' } })
+
+  // 每国：营收(EUR)、件数、PO 集合；再按 PO 匹配运费（有记录才计入 + 统计覆盖率）
+  const plAgg: Record<number, { revenue: number; units: number; poSet: Set<string> }> = {}
+  ;(pos ?? []).forEach((p: any) => {
+    const a = (plAgg[p.country_id] ??= { revenue: 0, units: 0, poSet: new Set() })
+    a.revenue += toEur(p.turnover, p.currency)
+    a.units += Number(p.qty_ordered) || 0
+    a.poSet.add(normPo(p.po_number))
+  })
+  const pnl = countries.map((c: any) => {
+    const a = plAgg[c.id]
+    if (!a) return { code: c.code, flag: c.flag_emoji, name: c.name_en, pos: 0, units: 0, revenue: 0, freight: 0, freightPos: 0 }
+    let freight = 0, freightPos = 0
+    a.poSet.forEach(po => { const f = freightByPo[po]; if (f) { freight += toEur(f.fee, f.ccy); freightPos++ } })
+    return { code: c.code, flag: c.flag_emoji, name: c.name_en, pos: a.poSet.size, units: a.units, revenue: a.revenue, freight, freightPos }
+  }).filter(r => r.pos > 0).sort((a, b) => b.revenue - a.revenue)
 
   // ── Yearly Review：annual_plan(FCST，销售填的年度预测) vs channel_po(实际达成，按计划单价估值成 EUR) ──
   const COLOR_WORDS = new Set(['Black', 'White', 'Orange', 'Blue', 'Titan', 'DesertTitan', 'Red', 'LB'])
@@ -162,6 +211,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       viewerName={me.displayName}
       viewerIsAdmin={me.isAdmin}
       yearly={yearly}
+      pnl={pnl}
     />
   )
 }
