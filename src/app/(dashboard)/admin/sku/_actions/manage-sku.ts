@@ -44,6 +44,7 @@ export type SkuInput = {
   rrp_eur?: number | null
   rrp_usd?: number | null
   cost_usd?: number | null
+  bom_cost_rmb?: number | null  // BOM 单位成本（人民币）；GP 计算按实时 CNY→EUR 折算
   lifecycle?: string | null   // active / eol / discontinued / 等
   launch_date?: string | null // YYYY-MM-DD
   region_scope?: string[] | null
@@ -87,6 +88,7 @@ export async function createSKU(input: SkuInput): Promise<ActionResult> {
     rrp_eur: input.rrp_eur ?? null,
     rrp_usd: input.rrp_usd ?? null,
     cost_usd: input.cost_usd ?? null,
+    bom_cost_rmb: input.bom_cost_rmb ?? null,
     lifecycle: input.lifecycle?.trim() || 'active',
     launch_date: input.launch_date || null,
     region_scope: input.region_scope ?? null,
@@ -148,7 +150,7 @@ export async function updateSKU(id: number, input: Partial<SkuInput>): Promise<A
   // 数字字段：直接赋值（含 null）
   const numFields: (keyof SkuInput)[] = [
     'box_qty', 'unit_weight_g', 'carton_gross_kg', 'cartons_per_pallet', 'pallet_gross_kg',
-    'rrp_eur', 'rrp_usd', 'cost_usd', 'sort_order',
+    'rrp_eur', 'rrp_usd', 'cost_usd', 'bom_cost_rmb', 'sort_order',
   ]
   for (const f of numFields) {
     if (input[f] !== undefined) patch[f] = input[f] ?? null

@@ -37,6 +37,7 @@ type Sku = {
   rrp_eur: number | null
   rrp_usd: number | null
   cost_usd: number | null
+  bom_cost_rmb: number | null
   lifecycle: string | null
   launch_date: string | null
   region_scope: string[] | null
@@ -66,12 +67,13 @@ const WH_FULL: Record<string, string> = {
 type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number }
 
 type Warehouse = { name: string; location: string }
-export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, warehouses, stockAsOf }: {
+export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, warehouses, stockAsOf, cnyToEur = 0.13 }: {
   allSkus: Sku[]; viewerName: string
   canEdit: boolean                       // admin 才为 true；false = 销售只读，隐藏全部写操作
   stockBySku: Record<number, Record<string, number>>
   warehouses: Warehouse[]
   stockAsOf: string
+  cnyToEur?: number                      // 实时 CNY→EUR，用于 BOM(RMB) 旁的 €≈ 提示
 }) {
   const router = useRouter()
   // 库存列：仓库显示码（DB 里的中文名是数据 key，这里只做展示映射）+ 数字格式化；行合计 = 各仓相加
@@ -371,6 +373,7 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
         open={addOpen}
         onClose={() => setAddOpen(false)}
         mode="create"
+        cnyToEur={cnyToEur}
         onSubmit={async (input) => {
           const r = await createSKU(input as SkuInput)
           if (!r.ok) { flash('error', r.error); return false }
@@ -387,6 +390,7 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
           onClose={() => setEditingSku(null)}
           mode="edit"
           initial={editingSku}
+          cnyToEur={cnyToEur}
           onSubmit={async (input) => {
             const r = await updateSKU(editingSku.id, input)
             if (!r.ok) { flash('error', r.error); return false }
@@ -669,12 +673,13 @@ function DeleteButton({ sku, disabled, onDelete }: {
 // ────────────────────────────────────────────
 // Drawer form — 共用 create/edit
 // ────────────────────────────────────────────
-function SkuFormDrawer({ open, onClose, mode, initial, onSubmit }: {
+function SkuFormDrawer({ open, onClose, mode, initial, onSubmit, cnyToEur = 0.13 }: {
   open: boolean
   onClose: () => void
   mode: 'create' | 'edit'
   initial?: Sku
   onSubmit: (input: SkuInput) => Promise<boolean>
+  cnyToEur?: number
 }) {
   const [form, setForm] = useState<SkuInput>(() => normalize(initial))
   const [isPending, startTransition] = useTransition()
@@ -793,15 +798,17 @@ function SkuFormDrawer({ open, onClose, mode, initial, onSubmit }: {
 
           {/* Pricing */}
           <Section title="Pricing (admin internal)">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <Field label="RRP €">
                 <input type="number" step="0.01" value={form.rrp_eur ?? ''} onChange={(e) => setNum('rrp_eur', e.target.value)} className={inputCls} />
               </Field>
-              <Field label="RRP $">
-                <input type="number" step="0.01" value={form.rrp_usd ?? ''} onChange={(e) => setNum('rrp_usd', e.target.value)} className={inputCls} />
-              </Field>
-              <Field label="Cost $">
-                <input type="number" step="0.01" value={form.cost_usd ?? ''} onChange={(e) => setNum('cost_usd', e.target.value)} className={inputCls} />
+              <Field label="BOM ¥ (RMB · 成本)">
+                <input type="number" step="0.01" value={form.bom_cost_rmb ?? ''} onChange={(e) => setNum('bom_cost_rmb', e.target.value)} className={inputCls} />
+                <p className="mt-1 text-[11px] text-gray-400">
+                  {form.bom_cost_rmb != null && form.bom_cost_rmb !== undefined && Number(form.bom_cost_rmb) > 0
+                    ? <>≈ €{(Number(form.bom_cost_rmb) * cnyToEur).toFixed(2)} @ live rate · used in GP</>
+                    : <>Stored in RMB; GP uses the live CNY→EUR rate</>}
+                </p>
               </Field>
             </div>
           </Section>
@@ -874,7 +881,7 @@ function normalize(s: Sku | undefined): SkuInput {
       code: '', name: '', name_zh: null, category: null, color: null, ean: null,
       box_qty: null, unit_weight_g: null,
       carton_dim_cm: null, carton_gross_kg: null, cartons_per_pallet: null, pallet_gross_kg: null, colorbox_dim_cm: null,
-      rrp_eur: null, rrp_usd: null, cost_usd: null,
+      rrp_eur: null, rrp_usd: null, cost_usd: null, bom_cost_rmb: null,
       lifecycle: 'active', launch_date: null, region_scope: null,
       sort_order: 999, notes: null, series: null, family: null,
     }
@@ -896,6 +903,7 @@ function normalize(s: Sku | undefined): SkuInput {
     rrp_eur: s.rrp_eur,
     rrp_usd: s.rrp_usd,
     cost_usd: s.cost_usd,
+    bom_cost_rmb: s.bom_cost_rmb,
     lifecycle: s.lifecycle,
     launch_date: s.launch_date,
     region_scope: s.region_scope,

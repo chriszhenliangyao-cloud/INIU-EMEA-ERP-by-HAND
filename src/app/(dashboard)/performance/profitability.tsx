@@ -24,21 +24,25 @@ export type PnlRow = {
   revenue: number    // EUR
   freight: number    // EUR（仅有运费记录的 PO 之和）
   freightPos: number // 有运费记录的 PO 数
+  bom: number        // EUR（BOM 成本，实时 CNY→EUR；不单独展示，仅参与 GP）
 }
 
 const eur = (v: number) => `€${fmtNum(Math.round(v))}`
+const pctText = (v: number, base: number) => (base > 0 ? `${(v / base * 100).toFixed(1)}%` : '—')
 
 export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries', isAll = true }: { rows: PnlRow[]; periodLabel: string; scope?: string; isAll?: boolean }) {
   const ttl = useMemo(() => rows.reduce(
     (a, r) => ({
       pos: a.pos + r.pos, units: a.units + r.units,
-      revenue: a.revenue + r.revenue, freight: a.freight + r.freight, freightPos: a.freightPos + r.freightPos,
+      revenue: a.revenue + r.revenue, freight: a.freight + r.freight, freightPos: a.freightPos + r.freightPos, bom: a.bom + r.bom,
     }),
-    { pos: 0, units: 0, revenue: 0, freight: 0, freightPos: 0 },
+    { pos: 0, units: 0, revenue: 0, freight: 0, freightPos: 0, bom: 0 },
   ), [rows])
 
   const pending = <span className="text-gray-300" title="待补数据">—</span>
   const cov = (fp: number, p: number) => (p > 0 ? Math.round((fp / p) * 100) : 0)
+  const gpOf = (r: { revenue: number; freight: number; bom: number }) => r.revenue - r.freight - r.bom
+  const ttlGp = gpOf(ttl)
 
   return (
     <div>
@@ -48,7 +52,7 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
         <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
       </div>
       <p className="text-sm text-gray-500 mb-4">
-        Revenue − Freight − product cost = <b>Gross Profit</b> · GP − Credit Notes = <b>Net Profit</b>. Revenue and freight are live; GP and NP light up once cost &amp; CN data are loaded.
+        Revenue − Freight − product cost = <b>Gross Profit</b> · GP − Credit Notes = <b>Net Profit</b>. Revenue, freight and <b>GP are live</b> (product cost from BOM, converted at the live CNY→EUR rate); NP lights up once credit-note data are loaded.
       </p>
 
       {/* P&L 链条 KPI 条（BOM 参与 GP 计算但不单独展示）*/}
@@ -57,7 +61,7 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
         <Op>−</Op>
         <Tile label="Freight" cost value={eur(ttl.freight)} sub={`${cov(ttl.freightPos, ttl.pos)}% of POs`} />
         <Op>=</Op>
-        <Tile label="Gross Profit" gp pendingTag />
+        <Tile label="Gross Profit" gp value={eur(ttlGp)} sub={`GP ${pctText(ttlGp, ttl.revenue)}`} />
         <Op>−</Op>
         <Tile label="Credit Notes" cost pendingTag />
         <Op>=</Op>
@@ -74,7 +78,8 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Units</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Revenue</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Freight</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">GP</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-emerald-700">GP</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-emerald-700">GP %</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">CN</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">NP</th>
             </tr>
@@ -90,13 +95,14 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
                   {r.freightPos > 0 ? eur(r.freight) : pending}
                   {r.freightPos > 0 && r.freightPos < r.pos && <span className="ml-1 text-[10px] text-gray-400">({r.freightPos}/{r.pos})</span>}
                 </td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right font-semibold text-emerald-700 border-b border-gray-100">{eur(gpOf(r))}</td>
+                <td className="px-3 py-2 text-right text-emerald-700 border-b border-gray-100">{pctText(gpOf(r), r.revenue)}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
               </tr>
             ))}
             {!rows.length && (
-              <tr><td colSpan={8} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
+              <tr><td colSpan={9} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
             )}
           </tbody>
           {rows.length > 0 && (
@@ -107,7 +113,8 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
                 <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.units)}</td>
                 <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttl.revenue)}</td>
                 <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.freightPos > 0 ? eur(ttl.freight) : pending}</td>
-                <td className="px-3 py-2 text-right border-t-2 border-gray-300">{pending}</td>
+                <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{eur(ttlGp)}</td>
+                <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{pctText(ttlGp, ttl.revenue)}</td>
                 <td className="px-3 py-2 text-right border-t-2 border-gray-300">{pending}</td>
                 <td className="px-3 py-2 text-right border-t-2 border-gray-300">{pending}</td>
               </tr>
@@ -119,7 +126,8 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
       <p className="mt-3 text-xs text-gray-400 leading-relaxed">
         <b className="text-gray-500">Revenue</b> = PO units × unit price (turnover), by PO date, converted to EUR (PLN/CNY via live ECB rate). ·
         <b className="text-gray-500"> Freight</b> = actual delivery fee from the Shipment Workflow, converted to EUR — currently on a subset of POs (coverage shown). ·
-        <b className="text-gray-500 text-rose-500"> GP / CN / NP</b> = pending: GP waits on the per-SKU cost (used in the calc, not shown); CN on the credit-note feed. Step 2 will drill Country → KA → SKU.
+        <b className="text-gray-500"> GP</b> = Revenue − Freight − BOM (BOM in RMB → EUR at live rate; not shown separately). Where freight coverage &lt; 100%, GP is slightly overstated by the missing fees. ·
+        <b className="text-gray-500 text-rose-500"> CN / NP</b> = pending on the credit-note feed. Step 2 will drill Country → KA → SKU.
       </p>
     </div>
   )

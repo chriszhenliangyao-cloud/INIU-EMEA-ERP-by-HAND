@@ -70,7 +70,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
 
   const [{ data: kas }, { data: skus }, { data: allCountries }, { data: cells }, { data: pos }, { data: reviewRows }, { data: prevReviewRows }] = await Promise.all([
     supabase.from('ka').select('id, name, country_id, sort_order, ka_type').eq('is_active', true).order('country_id').order('sort_order').order('name'),
-    supabase.from('sku').select('id, code, name, category, sort_order').eq('is_active', true).order('sort_order').order('code'),
+    supabase.from('sku').select('id, code, name, category, sort_order, bom_cost_rmb').eq('is_active', true).order('sort_order').order('code'),
     supabase.from('country').select('id, code, name_en, flag_emoji, region, sort_order').eq('region', 'EU').eq('is_active', true).order('sort_order'),
     supabase.from('forecast_cell').select('run_id, sku_id, ka_id, month, qty').gte('month', periodStart).lt('month', endExclusive).range(0, 49999),
     supabase.from('channel_po').select('sku_id, country_id, po_date, qty_ordered, turnover, currency, po_number').gte('po_date', periodStart).lt('po_date', endExclusive).range(0, 49999),
@@ -127,20 +127,26 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const freightByPo: Record<string, { fee: number; ccy: string }> = {}
   ;(freightRows ?? []).forEach((f: any) => { freightByPo[normPo(f.po_number)] = { fee: Number(f.delivery_fee) || 0, ccy: f.currency || 'EUR' } })
 
-  // 每国：营收(EUR)、件数、PO 集合；再按 PO 匹配运费（有记录才计入 + 统计覆盖率）
-  const plAgg: Record<number, { revenue: number; units: number; poSet: Set<string> }> = {}
+  // BOM 单位成本(RMB) 映射，GP 计算时 × 实时 CNY→EUR
+  const skuBomRmb: Record<number, number> = {}
+  ;(skus ?? []).forEach((s: any) => { if (s.bom_cost_rmb != null) skuBomRmb[s.id] = Number(s.bom_cost_rmb) })
+
+  // 每国：营收(EUR)、件数、BOM(EUR)、PO 集合；再按 PO 匹配运费（有记录才计入 + 统计覆盖率）
+  const plAgg: Record<number, { revenue: number; units: number; bom: number; poSet: Set<string> }> = {}
   ;(pos ?? []).forEach((p: any) => {
-    const a = (plAgg[p.country_id] ??= { revenue: 0, units: 0, poSet: new Set() })
+    const a = (plAgg[p.country_id] ??= { revenue: 0, units: 0, bom: 0, poSet: new Set() })
+    const qty = Number(p.qty_ordered) || 0
     a.revenue += toEur(p.turnover, p.currency)
-    a.units += Number(p.qty_ordered) || 0
+    a.units += qty
+    a.bom += (skuBomRmb[p.sku_id] ?? 0) * qty * cnyToEur   // RMB→EUR，实时汇率
     a.poSet.add(normPo(p.po_number))
   })
   const pnl = countries.map((c: any) => {
     const a = plAgg[c.id]
-    if (!a) return { code: c.code, flag: c.flag_emoji, name: c.name_en, pos: 0, units: 0, revenue: 0, freight: 0, freightPos: 0 }
+    if (!a) return { code: c.code, flag: c.flag_emoji, name: c.name_en, pos: 0, units: 0, revenue: 0, freight: 0, freightPos: 0, bom: 0 }
     let freight = 0, freightPos = 0
     a.poSet.forEach(po => { const f = freightByPo[po]; if (f) { freight += toEur(f.fee, f.ccy); freightPos++ } })
-    return { code: c.code, flag: c.flag_emoji, name: c.name_en, pos: a.poSet.size, units: a.units, revenue: a.revenue, freight, freightPos }
+    return { code: c.code, flag: c.flag_emoji, name: c.name_en, pos: a.poSet.size, units: a.units, revenue: a.revenue, freight, freightPos, bom: a.bom }
   }).filter(r => r.pos > 0).sort((a, b) => b.revenue - a.revenue)
 
   // ── Yearly Review：annual_plan(FCST，销售填的年度预测) vs channel_po(实际达成，按计划单价估值成 EUR) ──

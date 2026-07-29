@@ -2,6 +2,20 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/lib/auth/current-user'
 import { SkuManagementView } from './sku-management-view'
 
+// BOM(RMB) 在抽屉里显示 €≈ 折算用的实时汇率：ECB(frankfurter) 主、er-api 兜底、周缓存。
+async function getCnyToEur(): Promise<number> {
+  const WEEK = 60 * 60 * 24 * 7
+  for (const url of ['https://api.frankfurter.dev/v1/latest?base=CNY&symbols=EUR', 'https://open.er-api.com/v6/latest/CNY']) {
+    try {
+      const res = await fetch(url, { next: { revalidate: WEEK } })
+      if (!res.ok) continue
+      const r = (await res.json())?.rates?.EUR
+      if (typeof r === 'number' && r > 0 && r < 1) return r
+    } catch { /* 下一个源 */ }
+  }
+  return 0.13
+}
+
 /**
  * /admin/sku — SKU Master Data
  *
@@ -20,7 +34,7 @@ export default async function AdminSkuPage() {
     .select(`
       id, code, name, name_zh, category, color, ean, box_qty, unit_weight_g,
       carton_dim_cm, carton_gross_kg, cartons_per_pallet, pallet_gross_kg, colorbox_dim_cm,
-      rrp_eur, rrp_usd, cost_usd, lifecycle, launch_date, region_scope,
+      rrp_eur, rrp_usd, cost_usd, bom_cost_rmb, lifecycle, launch_date, region_scope,
       sort_order, is_active, notes, series, family,
       created_at, updated_at
     `)
@@ -64,6 +78,8 @@ export default async function AdminSkuPage() {
     .sort((a, b) => (whLoc[a] === 'domestic' ? 0 : 1) - (whLoc[b] === 'domestic' ? 0 : 1) || a.localeCompare(b, 'zh'))
     .map(name => ({ name, location: whLoc[name] }))
 
+  const cnyToEur = await getCnyToEur()
+
   return (
     <SkuManagementView
       allSkus={allSkus ?? []}
@@ -72,6 +88,7 @@ export default async function AdminSkuPage() {
       stockBySku={stockBySku}
       warehouses={warehouses}
       stockAsOf={stockAsOf}
+      cnyToEur={cnyToEur}
     />
   )
 }
