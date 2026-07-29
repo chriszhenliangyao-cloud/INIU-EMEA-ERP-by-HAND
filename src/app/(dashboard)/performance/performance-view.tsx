@@ -6,7 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { fmtNum } from '@/lib/utils'
 import { QuarterlyReview, type ReviewRow } from './quarterly-review'
 import { YearlyReview, type YCountry } from './yearly-review'
-import { ProfitabilityPanel, type PnlRow } from './profitability'
+import { ProfitabilityPanel, ProfitabilityByModel, type PnlRow, type PnlModelRow } from './profitability'
 
 type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number }
@@ -24,7 +24,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModels,
 }: {
   years: number[]
   selectedYear: number
@@ -43,6 +43,7 @@ export function PerformanceView({
   viewerIsAdmin: boolean
   yearly: YCountry[]
   pnl: PnlRow[]
+  pnlModels: PnlModelRow[]
 }) {
   const router = useRouter()
   const [countryCode, setCountryCode] = useState(initialCountryCode)
@@ -313,6 +314,7 @@ export function PerformanceView({
           {reviewSub === 'pnl' && (
             <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
               <ProfitabilityPanel rows={pnl} periodLabel={`${selectedYear} ${qLabel}`} />
+              <ProfitabilityByModel rows={pnlModels} periodLabel={`${selectedYear} ${qLabel}`} />
             </div>
           )}
         </div>

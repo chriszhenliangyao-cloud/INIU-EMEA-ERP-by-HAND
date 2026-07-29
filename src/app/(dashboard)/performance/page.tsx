@@ -190,6 +190,23 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     code: cMeta[cid].code, name: cMeta[cid].name_en, flag: cMeta[cid].flag_emoji, fcst: fin(yc[cid].fcst), ach: fin(yc[cid].ach),
   })).sort((a, b) => a.code.localeCompare(b.code))
 
+  // ── Profitability by model：本季(跨国家)按机型聚合 SI Qty + SI Value(EUR)。第一列=product name（非 SKU，颜色合并）。
+  //    log/BOM/GP/CN/NP 待数据到位后点亮。
+  const cleanName = (n: string) => (n || '')
+    .replace(/\s*[-–]\s*(Black|White|Orange|Blue|Titan|Desert ?Titan|Red|Light ?Blue|LB|Cherry|Green|Camouflage)\b.*$/i, '').trim()
+  const modelNameMap: Record<string, string> = {}
+  ;(skus ?? []).forEach((s: any) => { const mc = stripColor(s.code); if (!modelNameMap[mc]) modelNameMap[mc] = cleanName(s.name) || mc })
+  const modelAggMap: Record<string, { qty: number; value: number }> = {}
+  ;(pos ?? []).forEach((p: any) => {
+    const code = skuCode[p.sku_id]; const mc = code ? stripColor(code) : 'Other'
+    const a = (modelAggMap[mc] ??= { qty: 0, value: 0 })
+    a.qty += Number(p.qty_ordered) || 0
+    a.value += toEur(p.turnover, p.currency)
+  })
+  const pnlModels = Object.entries(modelAggMap)
+    .map(([mc, a]) => ({ model: mc, name: modelNameMap[mc] || mc, qty: a.qty, value: a.value }))
+    .sort((a, b) => b.value - a.value)
+
   const initialCountryCode = (searchParams?.country && countries.some((c: any) => c.code === searchParams.country))
     ? searchParams.country : (countries[0] as any)?.code ?? ''
 
@@ -212,6 +229,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       viewerIsAdmin={me.isAdmin}
       yearly={yearly}
       pnl={pnl}
+      pnlModels={pnlModels}
     />
   )
 }

@@ -12,7 +12,7 @@
  * Step 2（以后）：下钻到 KA / SKU 级的具体经营。
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { fmtNum } from '@/lib/utils'
 
 export type PnlRow = {
@@ -126,6 +126,95 @@ export function ProfitabilityPanel({ rows, periodLabel }: { rows: PnlRow[]; peri
         <b className="text-gray-500"> Freight</b> = actual delivery fee from the Shipment Workflow, converted to EUR — currently on a subset of POs (coverage shown). ·
         <b className="text-gray-500 text-rose-500"> BOM / GP / CN / NP</b> = pending: BOM waits on the per-SKU cost list; CN on the credit-note feed. Step 2 will drill Country → KA → SKU.
       </p>
+    </div>
+  )
+}
+
+// ── 按机型(product)的 P&L 明细：Model | SI Qty | SI Value | log | BOM | GP | GP% | Cost(CN) | NP | NP% ──
+export type PnlModelRow = { model: string; name: string; qty: number; value: number }
+type SortKey = 'qty' | 'value'
+
+export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[]; periodLabel: string }) {
+  const [sort, setSort] = useState<SortKey>('value')
+  const sorted = useMemo(() => [...rows].sort((a, b) => b[sort] - a[sort]), [rows, sort])
+  const ttl = useMemo(() => rows.reduce((a, r) => ({ qty: a.qty + r.qty, value: a.value + r.value }), { qty: 0, value: 0 }), [rows])
+  const pending = <span className="text-gray-300" title="待补数据">—</span>
+
+  const ArrowTh = ({ k, children }: { k: SortKey; children: React.ReactNode }) => (
+    <th onClick={() => setSort(k)}
+      className={`px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 cursor-pointer select-none hover:text-gray-800 ${sort === k ? 'text-blue-700' : 'text-gray-600'}`}>
+      {children} <span className={sort === k ? 'opacity-100' : 'opacity-25'}>▾</span>
+    </th>
+  )
+  const DimTh = ({ children }: { children: React.ReactNode }) => (
+    <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">{children}</th>
+  )
+
+  return (
+    <div className="mt-8 pt-6 border-t border-gray-200">
+      <div className="flex items-baseline gap-2 mb-1">
+        <h2 className="text-lg font-semibold text-gray-900">📦 P&amp;L by model</h2>
+        <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">By product · all countries</span>
+        <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
+      </div>
+      <p className="text-sm text-gray-500 mb-4">Per product (colour SKUs merged). SI Qty and SI Value are live; the rest light up once BOM / logistics / CN data is loaded. Click a header to sort.</p>
+
+      <div className="overflow-x-auto border border-gray-200 rounded-xl">
+        <table className="w-full text-sm border-collapse" style={{ minWidth: 900 }}>
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">Model</th>
+              <ArrowTh k="qty">SI Qty</ArrowTh>
+              <ArrowTh k="value">SI Value</ArrowTh>
+              <DimTh>log</DimTh>
+              <DimTh>BOM</DimTh>
+              <DimTh>GP</DimTh>
+              <DimTh>GP %</DimTh>
+              <DimTh>Cost (CN)</DimTh>
+              <DimTh>NP</DimTh>
+              <DimTh>NP %</DimTh>
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {sorted.map(r => (
+              <tr key={r.model} className="hover:bg-gray-50/60">
+                <td className="px-3 py-2 text-left border-b border-gray-100 whitespace-nowrap">
+                  <span className="font-medium text-gray-800">{r.name}</span>
+                  <span className="ml-2 text-[11px] font-mono text-gray-400">{r.model}</span>
+                </td>
+                <td className="px-3 py-2 text-right text-gray-700 border-b border-gray-100">{fmtNum(r.qty)}</td>
+                <td className="px-3 py-2 text-right font-semibold text-gray-900 border-b border-gray-100">{eur(r.value)}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+              </tr>
+            ))}
+            {!sorted.length && (
+              <tr><td colSpan={10} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
+            )}
+          </tbody>
+          {sorted.length > 0 && (
+            <tfoot>
+              <tr className="font-bold bg-gray-50">
+                <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} models</td>
+                <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.qty)}</td>
+                <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttl.value)}</td>
+                <td className="px-3 py-2 text-right border-t-2 border-gray-300" colSpan={7}>{pending}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      {/* 公式说明（按手绘口径）*/}
+      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500">
+        <span><b className="text-gray-700">GP</b> = SI Value − log − BOM &nbsp;·&nbsp; <b className="text-gray-700">GP %</b> = GP ÷ SI Value</span>
+        <span><b className="text-gray-700">NP</b> = GP − CN &nbsp;·&nbsp; <b className="text-gray-700">NP %</b> = NP ÷ (SI Value − CN)</span>
+      </div>
     </div>
   )
 }
