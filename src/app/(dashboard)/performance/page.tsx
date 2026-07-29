@@ -114,12 +114,17 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     ;((achieve[p.country_id] ??= {})[p.sku_id] ??= Array(M).fill(0))[mi] += Number(p.qty_ordered) || 0
   })
 
-  // ── Profitability(P&L) Step 1：按国家汇总本季营收 + 实际运费（都折成 EUR）──
-  const [{ data: freightRows }, plnToEur, cnyToEur] = await Promise.all([
+  // ── Profitability(P&L)：营收 + 运费 + BOM + CN（都折成 EUR）──
+  const [{ data: freightRows }, { data: cnRows }, plnToEur, cnyToEur] = await Promise.all([
     supabase.from('po_freight').select('po_number, delivery_fee, currency').range(0, 9999),
+    supabase.from('credit_note').select('country_id, base_model, amount, currency').gte('cn_date', periodStart).lt('cn_date', endExclusive).range(0, 9999),
     getToEur('PLN', 0.23),
     getToEur('CNY', 0.13),
   ])
+  const cnEur = (amt: any, ccy: string | null) => (Number(amt) || 0) * (ccy === 'PLN' ? plnToEur : 1)
+  // CN 按国家（EUR）
+  const cnByCountry: Record<number, number> = {}
+  ;(cnRows ?? []).forEach((r: any) => { if (r.country_id != null) cnByCountry[r.country_id] = (cnByCountry[r.country_id] ?? 0) + cnEur(r.amount, r.currency) })
   const fxToEur: Record<string, number> = { EUR: 1, PLN: plnToEur, CNY: cnyToEur }
   const toEur = (v: number, ccy: string | null) => (Number(v) || 0) * (fxToEur[ccy ?? 'EUR'] ?? 1)
   // 归一化 po_number（去掉尾部 .0），映射到运费
@@ -143,10 +148,10 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   })
   const pnl = countries.map((c: any) => {
     const a = plAgg[c.id]
-    if (!a) return { code: c.code, flag: c.flag_emoji, name: c.name_en, pos: 0, units: 0, revenue: 0, freight: 0, freightPos: 0, bom: 0 }
+    if (!a) return { code: c.code, flag: c.flag_emoji, name: c.name_en, pos: 0, units: 0, revenue: 0, freight: 0, freightPos: 0, bom: 0, cn: cnByCountry[c.id] ?? 0 }
     let freight = 0, freightPos = 0
     a.poSet.forEach(po => { const f = freightByPo[po]; if (f) { freight += toEur(f.fee, f.ccy); freightPos++ } })
-    return { code: c.code, flag: c.flag_emoji, name: c.name_en, pos: a.poSet.size, units: a.units, revenue: a.revenue, freight, freightPos, bom: a.bom }
+    return { code: c.code, flag: c.flag_emoji, name: c.name_en, pos: a.poSet.size, units: a.units, revenue: a.revenue, freight, freightPos, bom: a.bom, cn: cnByCountry[c.id] ?? 0 }
   }).filter(r => r.pos > 0).sort((a, b) => b.revenue - a.revenue)
 
   // ── Yearly Review：annual_plan(FCST，销售填的年度预测) vs channel_po(实际达成，按计划单价估值成 EUR) ──
@@ -155,7 +160,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const [{ data: planRows }, { data: yPos }, { data: skuAll }] = await Promise.all([
     supabase.from('annual_plan').select('country_id, quarter, ka_id, customer_raw, model_code, product_name, category, si_qty, so_qty, iniu_si_value, ka_si_value, gp, net_profit').eq('year', 2026).range(0, 9999),
     supabase.from('channel_po').select('country_id, ka_id, sku_id, po_date, qty_ordered').gte('po_date', '2026-01-01').lt('po_date', '2027-01-01').range(0, 49999),
-    supabase.from('sku').select('id, code').range(0, 9999),
+    supabase.from('sku').select('id, code, name').range(0, 9999),
   ])
   const skuCode: Record<number, string> = {}; (skuAll ?? []).forEach((s: any) => { skuCode[s.id] = s.code })
   const kaName2: Record<number, string> = {}; (kas ?? []).forEach((k: any) => { kaName2[k.id] = k.name })
@@ -196,12 +201,11 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     code: cMeta[cid].code, name: cMeta[cid].name_en, flag: cMeta[cid].flag_emoji, fcst: fin(yc[cid].fcst), ach: fin(yc[cid].ach),
   })).sort((a, b) => a.code.localeCompare(b.code))
 
-  // ── Profitability by model：本季(跨国家)按机型聚合 SI Qty + SI Value(EUR)。第一列=product name（非 SKU，颜色合并）。
-  //    log/BOM/GP/CN/NP 待数据到位后点亮。
-  const cleanName = (n: string) => (n || '')
-    .replace(/\s*[-–]\s*(Black|White|Orange|Blue|Titan|Desert ?Titan|Red|Light ?Blue|LB|Cherry|Green|Camouflage)\b.*$/i, '').trim()
-  const modelNameMap: Record<string, string> = {}
-  ;(skus ?? []).forEach((s: any) => { const mc = stripColor(s.code); if (!modelNameMap[mc]) modelNameMap[mc] = cleanName(s.name) || mc })
+  // ── Profitability by SKU：本季按 SKU（区分颜色）聚合 SI Qty/SI Value/运费/BOM/GP。
+  //    CN 源表大多按机型记 → 把每个机型的 CN 按其"在本范围有 PO 的各 SKU 的 SI Value 占比"分摊到 SKU
+  //    （单一 SKU 的机型自动拿 100% = 精确；多色机型按销量近似）；机型无 SKU 有 PO → Others。
+  const skuNameById: Record<number, string> = {}
+  ;(skuAll ?? []).forEach((s: any) => { skuNameById[s.id] = s.name || skuCode[s.id] || String(s.id) })
   const ccodeById: Record<number, string> = {}; countries.forEach((c: any) => { ccodeById[c.id] = c.code })
 
   // 每个 PO 的「每台平均运费(EUR)」= 该 PO 总运费 ÷ 该 PO 总台数（运费整单算）
@@ -210,32 +214,49 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const poFreightPerUnit: Record<string, number> = {}
   for (const [po, f] of Object.entries(freightByPo)) { const u = poUnits[po]; if (u > 0) poFreightPerUnit[po] = toEur(f.fee, f.ccy) / u }
 
-  // 按 国家×机型 聚合（+ ALL 汇总）：qty、SI Value、BOM(RMB 加权)、涉及的 PO 集合
-  const modelAgg: Record<string, Record<string, { qty: number; value: number; bomRmbW: number; poSet: Set<string> }>> = { ALL: {} }
+  // 按 国家×SKU 聚合（+ ALL 汇总）
+  const skuAgg: Record<string, Record<number, { qty: number; value: number; bomRmbW: number; poSet: Set<string> }>> = { ALL: {} }
   ;(pos ?? []).forEach((p: any) => {
-    const ccode = ccodeById[p.country_id]; if (!ccode) return  // RLS 外国家跳过
-    const code = skuCode[p.sku_id]; const mc = code ? stripColor(code) : 'Other'
+    const ccode = ccodeById[p.country_id]; if (!ccode) return
+    const code = skuCode[p.sku_id]; if (!code) return
     const qty = Number(p.qty_ordered) || 0, value = toEur(p.turnover, p.currency), bomRmb = skuBomRmb[p.sku_id] ?? 0
     const npo = normPo(p.po_number)
     for (const key of [ccode, 'ALL']) {
-      const a = ((modelAgg[key] ??= {})[mc] ??= { qty: 0, value: 0, bomRmbW: 0, poSet: new Set() })
+      const a = ((skuAgg[key] ??= {})[p.sku_id] ??= { qty: 0, value: 0, bomRmbW: 0, poSet: new Set() })
       a.qty += qty; a.value += value; a.bomRmbW += qty * bomRmb; a.poSet.add(npo)
     }
   })
-  const pnlModelsByCountry: Record<string, Array<{ model: string; name: string; qty: number; value: number; log: number; bom: number; logPos: number }>> = {}
-  for (const [key, m] of Object.entries(modelAgg)) {
-    pnlModelsByCountry[key] = Object.entries(m).map(([mc, a]) => {
-      // log 每台 = 含该机型的各 PO 的「每台运费」求平均（仅统计有运费记录的 PO）；log 合计 = 每台 × 台数
+  // CN 按 scope×机型 汇总；base_model 为空 → 直接进 Others
+  const cnModelScope: Record<string, Record<string, number>> = {}
+  const cnOthersByCountry: Record<string, number> = {}
+  ;(cnRows ?? []).forEach((r: any) => {
+    const ccode = ccodeById[r.country_id]; if (!ccode) return
+    const eur = cnEur(r.amount, r.currency), bm = r.base_model
+    for (const key of [ccode, 'ALL']) {
+      if (!bm) cnOthersByCountry[key] = (cnOthersByCountry[key] ?? 0) + eur
+      else (cnModelScope[key] ??= {})[bm] = (cnModelScope[key]?.[bm] ?? 0) + eur
+    }
+  })
+  const pnlModelsByCountry: Record<string, Array<{ model: string; name: string; qty: number; value: number; log: number; bom: number; logPos: number; cn: number }>> = {}
+  for (const [key, agg] of Object.entries(skuAgg)) {
+    // 每个 SKU 的基础行
+    const rows = Object.entries(agg).map(([sidStr, a]) => {
+      const sid = Number(sidStr), code = skuCode[sid] || String(sid)
       let s = 0, n = 0
       a.poSet.forEach(po => { const v = poFreightPerUnit[po]; if (v != null) { s += v; n++ } })
       const logPerUnit = n > 0 ? s / n : 0
-      return {
-        model: mc, name: modelNameMap[mc] || mc, qty: a.qty, value: a.value,
-        log: logPerUnit * a.qty,          // 运费合计(EUR)
-        bom: a.bomRmbW * cnyToEur,        // BOM 合计(EUR)，RMB→EUR 实时汇率
-        logPos: n,                        // 有运费的 PO 数（覆盖提示）
-      }
-    }).sort((a, b) => b.value - a.value)
+      return { _base: stripColor(code), model: code, name: skuNameById[sid] || code, qty: a.qty, value: a.value,
+        log: logPerUnit * a.qty, bom: a.bomRmbW * cnyToEur, logPos: n, cn: 0 }
+    })
+    // CN 分摊：机型 CN 按其各 SKU 的 SI Value 占比摊到 SKU；机型无 SKU 有 PO(或占比为0) → Others
+    const byBase: Record<string, typeof rows> = {}
+    rows.forEach(r => (byBase[r._base] ??= []).push(r))
+    for (const [bm, cnAmt] of Object.entries(cnModelScope[key] ?? {})) {
+      const grp = byBase[bm], tv = grp ? grp.reduce((s, r) => s + r.value, 0) : 0
+      if (!grp || tv <= 0) { cnOthersByCountry[key] = (cnOthersByCountry[key] ?? 0) + cnAmt; continue }
+      grp.forEach(r => { r.cn += cnAmt * (r.value / tv) })
+    }
+    pnlModelsByCountry[key] = rows.map(({ _base, ...r }) => r).sort((a, b) => b.value - a.value)
   }
 
   const initialCountryCode = (searchParams?.country === 'ALL' || (searchParams?.country && countries.some((c: any) => c.code === searchParams.country)))
@@ -261,6 +282,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       yearly={yearly}
       pnl={pnl}
       pnlModelsByCountry={pnlModelsByCountry}
+      cnOthersByCountry={cnOthersByCountry}
     />
   )
 }

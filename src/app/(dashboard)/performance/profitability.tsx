@@ -25,6 +25,7 @@ export type PnlRow = {
   freight: number    // EUR（仅有运费记录的 PO 之和）
   freightPos: number // 有运费记录的 PO 数
   bom: number        // EUR（BOM 成本，实时 CNY→EUR；不单独展示，仅参与 GP）
+  cn: number         // EUR（Credit Note，实时折算）
 }
 
 const eur = (v: number) => `€${fmtNum(Math.round(v))}`
@@ -34,15 +35,16 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
   const ttl = useMemo(() => rows.reduce(
     (a, r) => ({
       pos: a.pos + r.pos, units: a.units + r.units,
-      revenue: a.revenue + r.revenue, freight: a.freight + r.freight, freightPos: a.freightPos + r.freightPos, bom: a.bom + r.bom,
+      revenue: a.revenue + r.revenue, freight: a.freight + r.freight, freightPos: a.freightPos + r.freightPos, bom: a.bom + r.bom, cn: a.cn + r.cn,
     }),
-    { pos: 0, units: 0, revenue: 0, freight: 0, freightPos: 0, bom: 0 },
+    { pos: 0, units: 0, revenue: 0, freight: 0, freightPos: 0, bom: 0, cn: 0 },
   ), [rows])
 
   const pending = <span className="text-gray-300" title="待补数据">—</span>
   const cov = (fp: number, p: number) => (p > 0 ? Math.round((fp / p) * 100) : 0)
   const gpOf = (r: { revenue: number; freight: number; bom: number }) => r.revenue - r.freight - r.bom
-  const ttlGp = gpOf(ttl)
+  const npOf = (r: { revenue: number; freight: number; bom: number; cn: number }) => gpOf(r) - r.cn
+  const ttlGp = gpOf(ttl), ttlNp = npOf(ttl)
 
   return (
     <div>
@@ -52,7 +54,7 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
         <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
       </div>
       <p className="text-sm text-gray-500 mb-4">
-        Revenue − Freight − product cost = <b>Gross Profit</b> · GP − Credit Notes = <b>Net Profit</b>. Revenue, freight and <b>GP are live</b> (product cost from BOM, converted at the live CNY→EUR rate); NP lights up once credit-note data are loaded.
+        Revenue − Freight − product cost = <b>Gross Profit</b> · GP − Credit Notes = <b>Net Profit</b>. All live: product cost from BOM and CN converted at live rates. NP % is over revenue net of CN.
       </p>
 
       {/* P&L 链条 KPI 条（BOM 参与 GP 计算但不单独展示）*/}
@@ -63,9 +65,9 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
         <Op>=</Op>
         <Tile label="Gross Profit" gp value={eur(ttlGp)} sub={`GP ${pctText(ttlGp, ttl.revenue)}`} />
         <Op>−</Op>
-        <Tile label="Credit Notes" cost pendingTag />
+        <Tile label="Credit Notes" cost value={eur(ttl.cn)} sub={`${pctText(ttl.cn, ttl.revenue)} of rev`} />
         <Op>=</Op>
-        <Tile label="Net Profit" np pendingTag />
+        <Tile label="Net Profit" np value={eur(ttlNp)} sub={`NP ${pctText(ttlNp, ttl.revenue - ttl.cn)}`} />
       </div>
 
       {/* 分国家明细 */}
@@ -80,8 +82,9 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Freight</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-emerald-700">GP</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-emerald-700">GP %</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">CN</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">NP</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">CN</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">NP</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">NP %</th>
             </tr>
           </thead>
           <tbody className="tabular-nums">
@@ -97,12 +100,13 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
                 </td>
                 <td className="px-3 py-2 text-right font-semibold text-emerald-700 border-b border-gray-100">{eur(gpOf(r))}</td>
                 <td className="px-3 py-2 text-right text-emerald-700 border-b border-gray-100">{pctText(gpOf(r), r.revenue)}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{r.cn > 0 ? eur(r.cn) : pending}</td>
+                <td className="px-3 py-2 text-right font-bold text-gray-900 border-b border-gray-100">{eur(npOf(r))}</td>
+                <td className="px-3 py-2 text-right text-gray-500 border-b border-gray-100">{pctText(npOf(r), r.revenue - r.cn)}</td>
               </tr>
             ))}
             {!rows.length && (
-              <tr><td colSpan={9} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
+              <tr><td colSpan={10} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
             )}
           </tbody>
           {rows.length > 0 && (
@@ -115,8 +119,9 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
                 <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.freightPos > 0 ? eur(ttl.freight) : pending}</td>
                 <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{eur(ttlGp)}</td>
                 <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{pctText(ttlGp, ttl.revenue)}</td>
-                <td className="px-3 py-2 text-right border-t-2 border-gray-300">{pending}</td>
-                <td className="px-3 py-2 text-right border-t-2 border-gray-300">{pending}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.cn > 0 ? eur(ttl.cn) : pending}</td>
+                <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttlNp)}</td>
+                <td className="px-3 py-2 text-right text-gray-500 border-t-2 border-gray-300">{pctText(ttlNp, ttl.revenue - ttl.cn)}</td>
               </tr>
             </tfoot>
           )}
@@ -127,24 +132,27 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
         <b className="text-gray-500">Revenue</b> = PO units × unit price (turnover), by PO date, converted to EUR (PLN/CNY via live ECB rate). ·
         <b className="text-gray-500"> Freight</b> = actual delivery fee from the Shipment Workflow, converted to EUR — currently on a subset of POs (coverage shown). ·
         <b className="text-gray-500"> GP</b> = Revenue − Freight − BOM (BOM in RMB → EUR at live rate; not shown separately). Where freight coverage &lt; 100%, GP is slightly overstated by the missing fees. ·
-        <b className="text-gray-500 text-rose-500"> CN / NP</b> = pending on the credit-note feed. Step 2 will drill Country → KA → SKU.
+        <b className="text-gray-500"> CN</b> = credit notes settled this quarter (by CN date), PLN → EUR at live rate. <b>NP</b> = GP − CN.
       </p>
     </div>
   )
 }
 
 // ── 按机型(product)的 P&L 明细：Model | SI Qty | SI Value | log | BOM | GP | GP% | Cost(CN) | NP | NP% ──
-export type PnlModelRow = { model: string; name: string; qty: number; value: number; log: number; bom: number; logPos: number }
+export type PnlModelRow = { model: string; name: string; qty: number; value: number; log: number; bom: number; logPos: number; cn: number }
 type SortKey = 'qty' | 'value' | 'log' | 'gp'
 
 const gpOfModel = (r: PnlModelRow) => r.value - r.log - r.bom
+const npOfModel = (r: PnlModelRow) => gpOfModel(r) - r.cn
 
-export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[]; periodLabel: string }) {
+export function ProfitabilityByModel({ rows, cnOthers = 0, periodLabel }: { rows: PnlModelRow[]; cnOthers?: number; periodLabel: string }) {
   const [sort, setSort] = useState<SortKey>('value')
   const sortVal = (r: PnlModelRow, k: SortKey) => (k === 'gp' ? gpOfModel(r) : r[k])
   const sorted = useMemo(() => [...rows].sort((a, b) => sortVal(b, sort) - sortVal(a, sort)), [rows, sort])
-  const ttl = useMemo(() => rows.reduce((a, r) => ({ qty: a.qty + r.qty, value: a.value + r.value, log: a.log + r.log, bom: a.bom + r.bom }), { qty: 0, value: 0, log: 0, bom: 0 }), [rows])
+  const ttl = useMemo(() => rows.reduce((a, r) => ({ qty: a.qty + r.qty, value: a.value + r.value, log: a.log + r.log, bom: a.bom + r.bom, cn: a.cn + r.cn }), { qty: 0, value: 0, log: 0, bom: 0, cn: 0 }), [rows])
   const ttlGp = ttl.value - ttl.log - ttl.bom
+  const ttlCn = ttl.cn + cnOthers                    // 含 Others 的 CN 合计
+  const ttlNp = ttlGp - ttlCn                        // NP 里扣掉 Others 的 CN
   const pending = <span className="text-gray-300" title="待补数据">—</span>
   const pct = (v: number, base: number) => (base > 0 ? `${(v / base * 100).toFixed(1)}%` : '—')
 
@@ -161,25 +169,25 @@ export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[
   return (
     <div className="mt-8 pt-6 border-t border-gray-200">
       <div className="flex items-baseline gap-2 mb-1">
-        <h2 className="text-lg font-semibold text-gray-900">📦 P&amp;L by model</h2>
-        <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">By product · all countries</span>
+        <h2 className="text-lg font-semibold text-gray-900">📦 P&amp;L by SKU</h2>
+        <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Per colour SKU</span>
         <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
       </div>
-      <p className="text-sm text-gray-500 mb-4">Per product (colour SKUs merged). SI Qty, SI Value, <b>log</b> and <b>GP</b> are live — log = avg per-unit freight of the POs carrying this model × its units; GP = SI Value − log − BOM (BOM in RMB → EUR at live rate). CN / NP pending. Click a header to sort.</p>
+      <p className="text-sm text-gray-500 mb-4">One row per SKU (colour-level), all live. GP = SI Value − log − BOM; NP = GP − CN. <b>CN</b> is recorded per model in the source, so a model's CN is split across its colour SKUs by SI-Value share (single-SKU products get 100% — exact). The <b>Others</b> row above the total holds CN for products with no Q2 PO in this scope. Click a header to sort.</p>
 
       <div className="overflow-x-auto border border-gray-200 rounded-xl">
         <table className="w-full text-sm border-collapse" style={{ minWidth: 900 }}>
           <thead>
             <tr className="bg-gray-50">
-              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">Model</th>
+              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">SKU</th>
               <ArrowTh k="qty">SI Qty</ArrowTh>
               <ArrowTh k="value">SI Value</ArrowTh>
               <ArrowTh k="log">log</ArrowTh>
               <ArrowTh k="gp">GP</ArrowTh>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-emerald-700">GP %</th>
-              <DimTh>Cost (CN)</DimTh>
-              <DimTh>NP</DimTh>
-              <DimTh>NP %</DimTh>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">CN</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">NP</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">NP %</th>
             </tr>
           </thead>
           <tbody className="tabular-nums">
@@ -196,25 +204,43 @@ export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[
                 </td>
                 <td className="px-3 py-2 text-right font-semibold text-emerald-700 border-b border-gray-100">{eur(gpOfModel(r))}</td>
                 <td className="px-3 py-2 text-right text-emerald-700 border-b border-gray-100">{pct(gpOfModel(r), r.value)}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{r.cn > 0 ? eur(r.cn) : pending}</td>
+                <td className="px-3 py-2 text-right font-bold text-gray-900 border-b border-gray-100">{eur(npOfModel(r))}</td>
+                <td className="px-3 py-2 text-right text-gray-500 border-b border-gray-100">{pct(npOfModel(r), r.value - r.cn)}</td>
               </tr>
             ))}
-            {!sorted.length && (
+            {cnOthers > 0 && (
+              <tr className="bg-amber-50/40">
+                <td className="px-3 py-2 text-left border-b border-gray-100">
+                  <span className="font-medium text-amber-800">Others</span>
+                  <span className="ml-2 text-[11px] text-gray-400">CN with no Q2 PO in scope</span>
+                </td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{eur(cnOthers)}</td>
+                <td className="px-3 py-2 text-right font-bold text-gray-900 border-b border-gray-100">{eur(-cnOthers)}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+              </tr>
+            )}
+            {!sorted.length && cnOthers <= 0 && (
               <tr><td colSpan={9} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
             )}
           </tbody>
           {sorted.length > 0 && (
             <tfoot>
               <tr className="font-bold bg-gray-50">
-                <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} models</td>
+                <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} SKUs</td>
                 <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.qty)}</td>
                 <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttl.value)}</td>
                 <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.log > 0 ? eur(ttl.log) : pending}</td>
                 <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{eur(ttlGp)}</td>
                 <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{pct(ttlGp, ttl.value)}</td>
-                <td className="px-3 py-2 text-right border-t-2 border-gray-300" colSpan={3}>{pending}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttlCn > 0 ? eur(ttlCn) : pending}</td>
+                <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttlNp)}</td>
+                <td className="px-3 py-2 text-right text-gray-500 border-t-2 border-gray-300">{pct(ttlNp, ttl.value - ttlCn)}</td>
               </tr>
             </tfoot>
           )}

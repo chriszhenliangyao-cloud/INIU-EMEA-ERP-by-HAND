@@ -24,7 +24,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModelsByCountry,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModelsByCountry, cnOthersByCountry,
 }: {
   years: number[]
   selectedYear: number
@@ -44,6 +44,7 @@ export function PerformanceView({
   yearly: YCountry[]
   pnl: PnlRow[]
   pnlModelsByCountry: Record<string, PnlModelRow[]>
+  cnOthersByCountry: Record<string, number>
 }) {
   const router = useRouter()
   const [countryCode, setCountryCode] = useState(initialCountryCode)
@@ -330,11 +331,12 @@ export function PerformanceView({
             const isAll = countryCode === 'ALL'
             const pnlRows = isAll ? pnl : pnl.filter(r => r.code === countryCode)
             const modelRows = pnlModelsByCountry[isAll ? 'ALL' : countryCode] ?? []
+            const cnOthers = cnOthersByCountry[isAll ? 'ALL' : countryCode] ?? 0
             const scope = isAll ? 'All countries' : `${country?.flag_emoji} ${country?.code}`
             return (
               <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
                 <ProfitabilityPanel rows={pnlRows} periodLabel={`${selectedYear} ${qLabel}`} scope={scope} isAll={isAll} />
-                <ProfitabilityByModel rows={modelRows} periodLabel={`${selectedYear} ${qLabel} · ${scope}`} />
+                <ProfitabilityByModel rows={modelRows} cnOthers={cnOthers} periodLabel={`${selectedYear} ${qLabel} · ${scope}`} />
               </div>
             )
           })()}
