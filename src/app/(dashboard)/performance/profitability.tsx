@@ -134,14 +134,19 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
 }
 
 // ── 按机型(product)的 P&L 明细：Model | SI Qty | SI Value | log | BOM | GP | GP% | Cost(CN) | NP | NP% ──
-export type PnlModelRow = { model: string; name: string; qty: number; value: number }
-type SortKey = 'qty' | 'value'
+export type PnlModelRow = { model: string; name: string; qty: number; value: number; log: number; bom: number; logPos: number }
+type SortKey = 'qty' | 'value' | 'log' | 'gp'
+
+const gpOfModel = (r: PnlModelRow) => r.value - r.log - r.bom
 
 export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[]; periodLabel: string }) {
   const [sort, setSort] = useState<SortKey>('value')
-  const sorted = useMemo(() => [...rows].sort((a, b) => b[sort] - a[sort]), [rows, sort])
-  const ttl = useMemo(() => rows.reduce((a, r) => ({ qty: a.qty + r.qty, value: a.value + r.value }), { qty: 0, value: 0 }), [rows])
+  const sortVal = (r: PnlModelRow, k: SortKey) => (k === 'gp' ? gpOfModel(r) : r[k])
+  const sorted = useMemo(() => [...rows].sort((a, b) => sortVal(b, sort) - sortVal(a, sort)), [rows, sort])
+  const ttl = useMemo(() => rows.reduce((a, r) => ({ qty: a.qty + r.qty, value: a.value + r.value, log: a.log + r.log, bom: a.bom + r.bom }), { qty: 0, value: 0, log: 0, bom: 0 }), [rows])
+  const ttlGp = ttl.value - ttl.log - ttl.bom
   const pending = <span className="text-gray-300" title="待补数据">—</span>
+  const pct = (v: number, base: number) => (base > 0 ? `${(v / base * 100).toFixed(1)}%` : '—')
 
   const ArrowTh = ({ k, children }: { k: SortKey; children: React.ReactNode }) => (
     <th onClick={() => setSort(k)}
@@ -160,7 +165,7 @@ export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[
         <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">By product · all countries</span>
         <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
       </div>
-      <p className="text-sm text-gray-500 mb-4">Per product (colour SKUs merged). SI Qty and SI Value are live; the rest light up once BOM / logistics / CN data is loaded. Click a header to sort.</p>
+      <p className="text-sm text-gray-500 mb-4">Per product (colour SKUs merged). SI Qty, SI Value, <b>log</b> and <b>GP</b> are live — log = avg per-unit freight of the POs carrying this model × its units; GP = SI Value − log − BOM (BOM in RMB → EUR at live rate). CN / NP pending. Click a header to sort.</p>
 
       <div className="overflow-x-auto border border-gray-200 rounded-xl">
         <table className="w-full text-sm border-collapse" style={{ minWidth: 900 }}>
@@ -169,9 +174,9 @@ export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[
               <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">Model</th>
               <ArrowTh k="qty">SI Qty</ArrowTh>
               <ArrowTh k="value">SI Value</ArrowTh>
-              <DimTh>log</DimTh>
-              <DimTh>GP</DimTh>
-              <DimTh>GP %</DimTh>
+              <ArrowTh k="log">log</ArrowTh>
+              <ArrowTh k="gp">GP</ArrowTh>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-emerald-700">GP %</th>
               <DimTh>Cost (CN)</DimTh>
               <DimTh>NP</DimTh>
               <DimTh>NP %</DimTh>
@@ -186,9 +191,11 @@ export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[
                 </td>
                 <td className="px-3 py-2 text-right text-gray-700 border-b border-gray-100">{fmtNum(r.qty)}</td>
                 <td className="px-3 py-2 text-right font-semibold text-gray-900 border-b border-gray-100">{eur(r.value)}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">
+                  {r.logPos > 0 ? eur(r.log) : pending}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold text-emerald-700 border-b border-gray-100">{eur(gpOfModel(r))}</td>
+                <td className="px-3 py-2 text-right text-emerald-700 border-b border-gray-100">{pct(gpOfModel(r), r.value)}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
@@ -204,7 +211,10 @@ export function ProfitabilityByModel({ rows, periodLabel }: { rows: PnlModelRow[
                 <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} models</td>
                 <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.qty)}</td>
                 <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttl.value)}</td>
-                <td className="px-3 py-2 text-right border-t-2 border-gray-300" colSpan={6}>{pending}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.log > 0 ? eur(ttl.log) : pending}</td>
+                <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{eur(ttlGp)}</td>
+                <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{pct(ttlGp, ttl.value)}</td>
+                <td className="px-3 py-2 text-right border-t-2 border-gray-300" colSpan={3}>{pending}</td>
               </tr>
             </tfoot>
           )}

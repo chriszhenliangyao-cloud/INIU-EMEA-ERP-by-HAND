@@ -203,22 +203,39 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const modelNameMap: Record<string, string> = {}
   ;(skus ?? []).forEach((s: any) => { const mc = stripColor(s.code); if (!modelNameMap[mc]) modelNameMap[mc] = cleanName(s.name) || mc })
   const ccodeById: Record<number, string> = {}; countries.forEach((c: any) => { ccodeById[c.id] = c.code })
-  // 按 国家×机型 聚合，再加一个 ALL 汇总键
-  const modelAgg: Record<string, Record<string, { qty: number; value: number }>> = { ALL: {} }
+
+  // 每个 PO 的「每台平均运费(EUR)」= 该 PO 总运费 ÷ 该 PO 总台数（运费整单算）
+  const poUnits: Record<string, number> = {}
+  ;(pos ?? []).forEach((p: any) => { const po = normPo(p.po_number); poUnits[po] = (poUnits[po] ?? 0) + (Number(p.qty_ordered) || 0) })
+  const poFreightPerUnit: Record<string, number> = {}
+  for (const [po, f] of Object.entries(freightByPo)) { const u = poUnits[po]; if (u > 0) poFreightPerUnit[po] = toEur(f.fee, f.ccy) / u }
+
+  // 按 国家×机型 聚合（+ ALL 汇总）：qty、SI Value、BOM(RMB 加权)、涉及的 PO 集合
+  const modelAgg: Record<string, Record<string, { qty: number; value: number; bomRmbW: number; poSet: Set<string> }>> = { ALL: {} }
   ;(pos ?? []).forEach((p: any) => {
     const ccode = ccodeById[p.country_id]; if (!ccode) return  // RLS 外国家跳过
     const code = skuCode[p.sku_id]; const mc = code ? stripColor(code) : 'Other'
-    const qty = Number(p.qty_ordered) || 0, value = toEur(p.turnover, p.currency)
+    const qty = Number(p.qty_ordered) || 0, value = toEur(p.turnover, p.currency), bomRmb = skuBomRmb[p.sku_id] ?? 0
+    const npo = normPo(p.po_number)
     for (const key of [ccode, 'ALL']) {
-      const a = ((modelAgg[key] ??= {})[mc] ??= { qty: 0, value: 0 })
-      a.qty += qty; a.value += value
+      const a = ((modelAgg[key] ??= {})[mc] ??= { qty: 0, value: 0, bomRmbW: 0, poSet: new Set() })
+      a.qty += qty; a.value += value; a.bomRmbW += qty * bomRmb; a.poSet.add(npo)
     }
   })
-  const pnlModelsByCountry: Record<string, Array<{ model: string; name: string; qty: number; value: number }>> = {}
+  const pnlModelsByCountry: Record<string, Array<{ model: string; name: string; qty: number; value: number; log: number; bom: number; logPos: number }>> = {}
   for (const [key, m] of Object.entries(modelAgg)) {
-    pnlModelsByCountry[key] = Object.entries(m)
-      .map(([mc, a]) => ({ model: mc, name: modelNameMap[mc] || mc, qty: a.qty, value: a.value }))
-      .sort((a, b) => b.value - a.value)
+    pnlModelsByCountry[key] = Object.entries(m).map(([mc, a]) => {
+      // log 每台 = 含该机型的各 PO 的「每台运费」求平均（仅统计有运费记录的 PO）；log 合计 = 每台 × 台数
+      let s = 0, n = 0
+      a.poSet.forEach(po => { const v = poFreightPerUnit[po]; if (v != null) { s += v; n++ } })
+      const logPerUnit = n > 0 ? s / n : 0
+      return {
+        model: mc, name: modelNameMap[mc] || mc, qty: a.qty, value: a.value,
+        log: logPerUnit * a.qty,          // 运费合计(EUR)
+        bom: a.bomRmbW * cnyToEur,        // BOM 合计(EUR)，RMB→EUR 实时汇率
+        logPos: n,                        // 有运费的 PO 数（覆盖提示）
+      }
+    }).sort((a, b) => b.value - a.value)
   }
 
   const initialCountryCode = (searchParams?.country === 'ALL' || (searchParams?.country && countries.some((c: any) => c.code === searchParams.country)))
