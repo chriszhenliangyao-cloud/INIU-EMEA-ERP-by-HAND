@@ -48,6 +48,7 @@ export function PerformanceView({
   const [countryCode, setCountryCode] = useState(initialCountryCode)
   const [hideZero, setHideZero] = useState(true)
   const [tab, setTab] = useState<'kpi' | 'review' | 'yearly'>('kpi')
+  const [reviewSub, setReviewSub] = useState<'sales' | 'pnl'>('sales')
   const country = useMemo(() => countries.find(c => c.code === countryCode) ?? countries[0], [countries, countryCode])
   const M = monthsIso.length
   const qLabel = `Q${selectedQuarter}`
@@ -274,31 +275,46 @@ export function PerformanceView({
       </>)}
 
       {tab === 'review' && (
-        <div className="space-y-5">
-          {/* 模块 A — Sales Review：销售定性填写（Quarter Progress + Action Plan），展现不变 */}
-          <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
-            <div className="flex items-baseline gap-2 mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">📝 Sales Review</h2>
-              <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{country?.flag_emoji} {country?.code}</span>
-              <span className="ml-auto text-xs text-gray-400">Quarter Progress · Action Plan — filled by sales</span>
-            </div>
-            <QuarterlyReview
-              key={`${countryCode}-${selectedYear}-Q${selectedQuarter}`}
-              channels={channels.filter(ch => ch.country_id === country?.id)}
-              saved={reviews.filter(r => r.country_id === country?.id)}
-              prevTargets={prevReviews.filter(r => r.country_id === country?.id)}
-              prevQuarterLabel={prevQuarterLabel}
-              year={selectedYear}
-              quarter={selectedQuarter}
-              countryCode={countryCode}
-              countryId={country?.id}
-            />
+        <div>
+          {/* 子栏切换：Sales Review / Profitability(P&L) —— 点击切换，不再同页堆叠 */}
+          <div className="inline-flex p-1 mb-5 rounded-xl bg-gray-100 border border-gray-200">
+            {([
+              ['sales', '📝 Sales Review'],
+              ['pnl', '💶 Profitability (P&L)'],
+            ] as ['sales' | 'pnl', string][]).map(([s, label]) => (
+              <button key={s} onClick={() => setReviewSub(s)}
+                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition ${reviewSub === s ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                {label}
+              </button>
+            ))}
           </div>
 
-          {/* 模块 B — Profitability(P&L)：跨国家总体经营，营收/运费实时，BOM/CN 待补 */}
-          <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
-            <ProfitabilityPanel rows={pnl} periodLabel={`${selectedYear} ${qLabel}`} />
-          </div>
+          {reviewSub === 'sales' && (
+            <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
+              <div className="flex items-baseline gap-2 mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">📝 Sales Review</h2>
+                <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{country?.flag_emoji} {country?.code}</span>
+                <span className="ml-auto text-xs text-gray-400">Quarter Progress · Action Plan — filled by sales</span>
+              </div>
+              <QuarterlyReview
+                key={`${countryCode}-${selectedYear}-Q${selectedQuarter}`}
+                channels={channels.filter(ch => ch.country_id === country?.id)}
+                saved={reviews.filter(r => r.country_id === country?.id)}
+                prevTargets={prevReviews.filter(r => r.country_id === country?.id)}
+                prevQuarterLabel={prevQuarterLabel}
+                year={selectedYear}
+                quarter={selectedQuarter}
+                countryCode={countryCode}
+                countryId={country?.id}
+              />
+            </div>
+          )}
+
+          {reviewSub === 'pnl' && (
+            <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
+              <ProfitabilityPanel rows={pnl} periodLabel={`${selectedYear} ${qLabel}`} />
+            </div>
+          )}
         </div>
       )}
 
