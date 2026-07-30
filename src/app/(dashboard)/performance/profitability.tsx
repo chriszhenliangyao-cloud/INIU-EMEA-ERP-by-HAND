@@ -196,7 +196,6 @@ export function ProfitabilityByModel({
                 <td className="px-3 py-2 text-left border-b border-gray-100 whitespace-nowrap">
                   <span className="font-medium text-gray-800">{r.name}</span>
                   <span className="ml-2 text-[11px] font-mono text-gray-400">{r.model}</span>
-                  <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-rose-600 bg-rose-100 rounded px-1.5 py-0.5">CN only · no PO</span>
                 </td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
