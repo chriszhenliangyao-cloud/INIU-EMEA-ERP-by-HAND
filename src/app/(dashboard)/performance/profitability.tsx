@@ -30,6 +30,10 @@ export type PnlRow = {
 
 const eur = (v: number) => `€${fmtNum(Math.round(v))}`
 const pctText = (v: number, base: number) => (base > 0 ? `${(v / base * 100).toFixed(1)}%` : '—')
+// €金额 后跟 (占比%)，占比灰色小字。base 为 0 时占比显示 —
+const eurPct = (v: number, base: number) => (
+  <>{eur(v)} <span className="font-normal text-gray-400">({pctText(v, base)})</span></>
+)
 
 export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries', isAll = true }: { rows: PnlRow[]; periodLabel: string; scope?: string; isAll?: boolean }) {
   const ttl = useMemo(() => rows.reduce(
@@ -79,12 +83,10 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">POs</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Units</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Revenue</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Freight</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-emerald-700">GP</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-emerald-700">GP %</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Freight (%)</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-emerald-700">GP (GP %)</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">CN</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">NP</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">NP %</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">NP (NP %)</th>
             </tr>
           </thead>
           <tbody className="tabular-nums">
@@ -95,18 +97,16 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
                 <td className="px-3 py-2 text-right text-gray-600 border-b border-gray-100">{fmtNum(r.units)}</td>
                 <td className="px-3 py-2 text-right font-semibold text-gray-900 border-b border-gray-100">{eur(r.revenue)}</td>
                 <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">
-                  {r.freightPos > 0 ? eur(r.freight) : pending}
-                  {r.freightPos > 0 && r.freightPos < r.pos && <span className="ml-1 text-[10px] text-gray-400">({r.freightPos}/{r.pos})</span>}
+                  {r.freightPos > 0 ? eurPct(r.freight, r.revenue) : pending}
+                  {r.freightPos > 0 && r.freightPos < r.pos && <span className="ml-1 text-[10px] text-gray-400">·{r.freightPos}/{r.pos}</span>}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold text-emerald-700 border-b border-gray-100">{eur(gpOf(r))}</td>
-                <td className="px-3 py-2 text-right text-emerald-700 border-b border-gray-100">{pctText(gpOf(r), r.revenue)}</td>
+                <td className="px-3 py-2 text-right font-semibold text-emerald-700 border-b border-gray-100">{eurPct(gpOf(r), r.revenue)}</td>
                 <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{r.cn > 0 ? eur(r.cn) : pending}</td>
-                <td className="px-3 py-2 text-right font-bold text-gray-900 border-b border-gray-100">{eur(npOf(r))}</td>
-                <td className="px-3 py-2 text-right text-gray-500 border-b border-gray-100">{pctText(npOf(r), r.revenue - r.cn)}</td>
+                <td className="px-3 py-2 text-right font-bold text-gray-900 border-b border-gray-100">{eurPct(npOf(r), r.revenue - r.cn)}</td>
               </tr>
             ))}
             {!rows.length && (
-              <tr><td colSpan={10} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
+              <tr><td colSpan={8} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
             )}
           </tbody>
           {rows.length > 0 && (
@@ -116,12 +116,10 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
                 <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{ttl.pos}</td>
                 <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.units)}</td>
                 <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttl.revenue)}</td>
-                <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.freightPos > 0 ? eur(ttl.freight) : pending}</td>
-                <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{eur(ttlGp)}</td>
-                <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{pctText(ttlGp, ttl.revenue)}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.freightPos > 0 ? eurPct(ttl.freight, ttl.revenue) : pending}</td>
+                <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{eurPct(ttlGp, ttl.revenue)}</td>
                 <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.cn > 0 ? eur(ttl.cn) : pending}</td>
-                <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttlNp)}</td>
-                <td className="px-3 py-2 text-right text-gray-500 border-t-2 border-gray-300">{pctText(ttlNp, ttl.revenue - ttl.cn)}</td>
+                <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eurPct(ttlNp, ttl.revenue - ttl.cn)}</td>
               </tr>
             </tfoot>
           )}
@@ -139,22 +137,21 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
 }
 
 // ── 按机型(product)的 P&L 明细：Model | SI Qty | SI Value | log | BOM | GP | GP% | Cost(CN) | NP | NP% ──
-export type PnlModelRow = { model: string; name: string; qty: number; value: number; log: number; bom: number; logPos: number; cn: number }
-type SortKey = 'qty' | 'value' | 'log' | 'gp'
+export type PnlModelRow = { model: string; name: string; qty: number; value: number; log: number; bom: number; logPos: number; cn: number; noPo?: boolean }
+type SortKey = 'qty' | 'value' | 'log' | 'gp' | 'np'
 
 const gpOfModel = (r: PnlModelRow) => r.value - r.log - r.bom
 const npOfModel = (r: PnlModelRow) => gpOfModel(r) - r.cn
 
 export function ProfitabilityByModel({ rows, cnOthers = 0, periodLabel }: { rows: PnlModelRow[]; cnOthers?: number; periodLabel: string }) {
   const [sort, setSort] = useState<SortKey>('value')
-  const sortVal = (r: PnlModelRow, k: SortKey) => (k === 'gp' ? gpOfModel(r) : r[k])
+  const sortVal = (r: PnlModelRow, k: SortKey) => (k === 'gp' ? gpOfModel(r) : k === 'np' ? npOfModel(r) : r[k])
   const sorted = useMemo(() => [...rows].sort((a, b) => sortVal(b, sort) - sortVal(a, sort)), [rows, sort])
   const ttl = useMemo(() => rows.reduce((a, r) => ({ qty: a.qty + r.qty, value: a.value + r.value, log: a.log + r.log, bom: a.bom + r.bom, cn: a.cn + r.cn }), { qty: 0, value: 0, log: 0, bom: 0, cn: 0 }), [rows])
   const ttlGp = ttl.value - ttl.log - ttl.bom
   const ttlCn = ttl.cn + cnOthers                    // 含 Others 的 CN 合计
   const ttlNp = ttlGp - ttlCn                        // NP 里扣掉 Others 的 CN
   const pending = <span className="text-gray-300" title="待补数据">—</span>
-  const pct = (v: number, base: number) => (base > 0 ? `${(v / base * 100).toFixed(1)}%` : '—')
 
   const ArrowTh = ({ k, children }: { k: SortKey; children: React.ReactNode }) => (
     <th onClick={() => setSort(k)}
@@ -173,7 +170,7 @@ export function ProfitabilityByModel({ rows, cnOthers = 0, periodLabel }: { rows
         <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Per colour SKU</span>
         <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
       </div>
-      <p className="text-sm text-gray-500 mb-4">One row per SKU (colour-level), all live. GP = SI Value − log − BOM; NP = GP − CN. <b>CN</b> is recorded per model in the source, so a model's CN is split across its colour SKUs by SI-Value share (single-SKU products get 100% — exact). The <b>Others</b> row above the total holds CN for products with no Q2 PO in this scope. Click a header to sort.</p>
+      <p className="text-sm text-gray-500 mb-4">One row per SKU (colour-level), all live. GP = SI Value − log − BOM; NP = GP − CN. <b>CN</b> is recorded per model in the source, so a model's CN is split across its colour SKUs by SI-Value share (single-SKU products get 100% — exact). A product with a CN but <b>no PO this period shows as its own loss row</b> (NP = −CN, tinted red). The <b>Others</b> row holds only non-product CN (delivery fees, stock transfers…). Click a header to sort.</p>
 
       <div className="overflow-x-auto border border-gray-200 rounded-xl">
         <table className="w-full text-sm border-collapse" style={{ minWidth: 900 }}>
@@ -182,16 +179,29 @@ export function ProfitabilityByModel({ rows, cnOthers = 0, periodLabel }: { rows
               <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">SKU</th>
               <ArrowTh k="qty">SI Qty</ArrowTh>
               <ArrowTh k="value">SI Value</ArrowTh>
-              <ArrowTh k="log">log</ArrowTh>
-              <ArrowTh k="gp">GP</ArrowTh>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-emerald-700">GP %</th>
+              <ArrowTh k="log">log (%)</ArrowTh>
+              <ArrowTh k="gp">GP (GP %)</ArrowTh>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">CN</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">NP</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">NP %</th>
+              <ArrowTh k="np">NP (NP %)</ArrowTh>
             </tr>
           </thead>
           <tbody className="tabular-nums">
-            {sorted.map(r => (
+            {sorted.map(r => r.noPo ? (
+              // 没有 PO 但有 CN → 亏损行：无营收，NP = −CN
+              <tr key={r.model} className="bg-rose-50/40 hover:bg-rose-50/70">
+                <td className="px-3 py-2 text-left border-b border-gray-100 whitespace-nowrap">
+                  <span className="font-medium text-gray-800">{r.name}</span>
+                  <span className="ml-2 text-[11px] font-mono text-gray-400">{r.model}</span>
+                  <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-rose-600 bg-rose-100 rounded px-1.5 py-0.5">CN only · no PO</span>
+                </td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{eur(r.cn)}</td>
+                <td className="px-3 py-2 text-right font-bold text-rose-700 border-b border-gray-100">{eur(-r.cn)}</td>
+              </tr>
+            ) : (
               <tr key={r.model} className="hover:bg-gray-50/60">
                 <td className="px-3 py-2 text-left border-b border-gray-100 whitespace-nowrap">
                   <span className="font-medium text-gray-800">{r.name}</span>
@@ -199,34 +209,28 @@ export function ProfitabilityByModel({ rows, cnOthers = 0, periodLabel }: { rows
                 </td>
                 <td className="px-3 py-2 text-right text-gray-700 border-b border-gray-100">{fmtNum(r.qty)}</td>
                 <td className="px-3 py-2 text-right font-semibold text-gray-900 border-b border-gray-100">{eur(r.value)}</td>
-                <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">
-                  {r.logPos > 0 ? eur(r.log) : pending}
-                </td>
-                <td className="px-3 py-2 text-right font-semibold text-emerald-700 border-b border-gray-100">{eur(gpOfModel(r))}</td>
-                <td className="px-3 py-2 text-right text-emerald-700 border-b border-gray-100">{pct(gpOfModel(r), r.value)}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{r.logPos > 0 ? eurPct(r.log, r.value) : pending}</td>
+                <td className="px-3 py-2 text-right font-semibold text-emerald-700 border-b border-gray-100">{eurPct(gpOfModel(r), r.value)}</td>
                 <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{r.cn > 0 ? eur(r.cn) : pending}</td>
-                <td className="px-3 py-2 text-right font-bold text-gray-900 border-b border-gray-100">{eur(npOfModel(r))}</td>
-                <td className="px-3 py-2 text-right text-gray-500 border-b border-gray-100">{pct(npOfModel(r), r.value - r.cn)}</td>
+                <td className="px-3 py-2 text-right font-bold text-gray-900 border-b border-gray-100">{eurPct(npOfModel(r), r.value - r.cn)}</td>
               </tr>
             ))}
             {cnOthers > 0 && (
               <tr className="bg-amber-50/40">
                 <td className="px-3 py-2 text-left border-b border-gray-100">
                   <span className="font-medium text-amber-800">Others</span>
-                  <span className="ml-2 text-[11px] text-gray-400">CN with no Q2 PO in scope</span>
+                  <span className="ml-2 text-[11px] text-gray-400">non-product CN (fees, transfers…)</span>
                 </td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
                 <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{eur(cnOthers)}</td>
                 <td className="px-3 py-2 text-right font-bold text-gray-900 border-b border-gray-100">{eur(-cnOthers)}</td>
-                <td className="px-3 py-2 text-right border-b border-gray-100">{pending}</td>
               </tr>
             )}
             {!sorted.length && cnOthers <= 0 && (
-              <tr><td colSpan={9} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
+              <tr><td colSpan={7} className="py-12 text-center text-gray-400">No PO revenue in {periodLabel}</td></tr>
             )}
           </tbody>
           {sorted.length > 0 && (
@@ -235,12 +239,10 @@ export function ProfitabilityByModel({ rows, cnOthers = 0, periodLabel }: { rows
                 <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} SKUs</td>
                 <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.qty)}</td>
                 <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttl.value)}</td>
-                <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.log > 0 ? eur(ttl.log) : pending}</td>
-                <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{eur(ttlGp)}</td>
-                <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{pct(ttlGp, ttl.value)}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.log > 0 ? eurPct(ttl.log, ttl.value) : pending}</td>
+                <td className="px-3 py-2 text-right text-emerald-700 border-t-2 border-gray-300">{eurPct(ttlGp, ttl.value)}</td>
                 <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttlCn > 0 ? eur(ttlCn) : pending}</td>
-                <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttlNp)}</td>
-                <td className="px-3 py-2 text-right text-gray-500 border-t-2 border-gray-300">{pct(ttlNp, ttl.value - ttlCn)}</td>
+                <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eurPct(ttlNp, ttl.value - ttlCn)}</td>
               </tr>
             </tfoot>
           )}

@@ -206,6 +206,10 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   //    （单一 SKU 的机型自动拿 100% = 精确；多色机型按销量近似）；机型无 SKU 有 PO → Others。
   const skuNameById: Record<number, string> = {}
   ;(skuAll ?? []).forEach((s: any) => { skuNameById[s.id] = s.name || skuCode[s.id] || String(s.id) })
+  // 机型显示名（用于"没有 PO 但有 CN"的亏损行）：去掉颜色后缀
+  const stripColorName = (n: string) => (n || '').replace(/\s*[-–]\s*(Black|White|Orange|Blue|Titan|Desert ?Titan|Red|Light ?Blue|LB)\s*$/i, '').trim()
+  const modelDisplay: Record<string, { code: string; name: string }> = {}
+  ;(skuAll ?? []).forEach((s: any) => { const b = stripColor(s.code); if (!modelDisplay[b]) modelDisplay[b] = { code: b, name: stripColorName(s.name || b) || b } })
   const ccodeById: Record<number, string> = {}; countries.forEach((c: any) => { ccodeById[c.id] = c.code })
 
   // 每个 PO 的「每台平均运费(EUR)」= 该 PO 总运费 ÷ 该 PO 总台数（运费整单算）
@@ -237,7 +241,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       else (cnModelScope[key] ??= {})[bm] = (cnModelScope[key]?.[bm] ?? 0) + eur
     }
   })
-  const pnlModelsByCountry: Record<string, Array<{ model: string; name: string; qty: number; value: number; log: number; bom: number; logPos: number; cn: number }>> = {}
+  const pnlModelsByCountry: Record<string, Array<{ model: string; name: string; qty: number; value: number; log: number; bom: number; logPos: number; cn: number; noPo: boolean }>> = {}
   for (const [key, agg] of Object.entries(skuAgg)) {
     // 每个 SKU 的基础行
     const rows = Object.entries(agg).map(([sidStr, a]) => {
@@ -246,15 +250,18 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       a.poSet.forEach(po => { const v = poFreightPerUnit[po]; if (v != null) { s += v; n++ } })
       const logPerUnit = n > 0 ? s / n : 0
       return { _base: stripColor(code), model: code, name: skuNameById[sid] || code, qty: a.qty, value: a.value,
-        log: logPerUnit * a.qty, bom: a.bomRmbW * cnyToEur, logPos: n, cn: 0 }
+        log: logPerUnit * a.qty, bom: a.bomRmbW * cnyToEur, logPos: n, cn: 0, noPo: false }
     })
-    // CN 分摊：机型 CN 按其各 SKU 的 SI Value 占比摊到 SKU；机型无 SKU 有 PO(或占比为0) → Others
+    // CN 分摊：机型 CN 按其各 SKU 的 SI Value 占比摊到 SKU（有 PO 时）；
+    //   有 CN 但本范围无 PO 的产品 → 单独一行（亏损行，SI Value=0、NP=−CN），不进 Others；
+    //   只有非产品 CN（base_model 为空，如运费/调拨）才在 Others（已在上面归集）。
     const byBase: Record<string, typeof rows> = {}
     rows.forEach(r => (byBase[r._base] ??= []).push(r))
     for (const [bm, cnAmt] of Object.entries(cnModelScope[key] ?? {})) {
       const grp = byBase[bm], tv = grp ? grp.reduce((s, r) => s + r.value, 0) : 0
-      if (!grp || tv <= 0) { cnOthersByCountry[key] = (cnOthersByCountry[key] ?? 0) + cnAmt; continue }
-      grp.forEach(r => { r.cn += cnAmt * (r.value / tv) })
+      if (grp && tv > 0) { grp.forEach(r => { r.cn += cnAmt * (r.value / tv) }); continue }
+      const d = modelDisplay[bm]
+      rows.push({ _base: bm, model: d?.code || bm, name: d?.name || bm, qty: 0, value: 0, log: 0, bom: 0, logPos: 0, cn: cnAmt, noPo: true })
     }
     pnlModelsByCountry[key] = rows.map(({ _base, ...r }) => r).sort((a, b) => b.value - a.value)
   }
