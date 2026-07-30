@@ -143,7 +143,14 @@ type SortKey = 'qty' | 'value' | 'log' | 'gp' | 'np'
 const gpOfModel = (r: PnlModelRow) => r.value - r.log - r.bom
 const npOfModel = (r: PnlModelRow) => gpOfModel(r) - r.cn
 
-export function ProfitabilityByModel({ rows, cnOthers = 0, periodLabel }: { rows: PnlModelRow[]; cnOthers?: number; periodLabel: string }) {
+export function ProfitabilityByModel({
+  rows, cnOthers = 0, periodLabel,
+  title = '📦 P&L by SKU', badge = 'Per colour SKU', firstCol = 'SKU', unitPlural = 'SKUs',
+  desc,
+}: {
+  rows: PnlModelRow[]; cnOthers?: number; periodLabel: string
+  title?: string; badge?: string; firstCol?: string; unitPlural?: string; desc?: React.ReactNode
+}) {
   const [sort, setSort] = useState<SortKey>('value')
   const sortVal = (r: PnlModelRow, k: SortKey) => (k === 'gp' ? gpOfModel(r) : k === 'np' ? npOfModel(r) : r[k])
   const sorted = useMemo(() => [...rows].sort((a, b) => sortVal(b, sort) - sortVal(a, sort)), [rows, sort])
@@ -159,24 +166,21 @@ export function ProfitabilityByModel({ rows, cnOthers = 0, periodLabel }: { rows
       {children} <span className={sort === k ? 'opacity-100' : 'opacity-25'}>▾</span>
     </th>
   )
-  const DimTh = ({ children }: { children: React.ReactNode }) => (
-    <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-400">{children}</th>
-  )
 
   return (
     <div className="mt-8 pt-6 border-t border-gray-200">
       <div className="flex items-baseline gap-2 mb-1">
-        <h2 className="text-lg font-semibold text-gray-900">📦 P&amp;L by SKU</h2>
-        <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Per colour SKU</span>
+        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+        <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{badge}</span>
         <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
       </div>
-      <p className="text-sm text-gray-500 mb-4">One row per SKU (colour-level), all live. GP = SI Value − log − BOM; NP = GP − CN. <b>CN</b> is recorded per model in the source, so a model's CN is split across its colour SKUs by SI-Value share (single-SKU products get 100% — exact). A product with a CN but <b>no PO this period shows as its own loss row</b> (NP = −CN, tinted red). The <b>Others</b> row holds only non-product CN (delivery fees, stock transfers…). Click a header to sort.</p>
+      <p className="text-sm text-gray-500 mb-4">{desc ?? <>One row per SKU (colour-level), all live. GP = SI Value − log − BOM; NP = GP − CN. <b>CN</b> is recorded per model in the source, so a model's CN is split across its colour SKUs by SI-Value share (single-SKU products get 100% — exact). A product with a CN but <b>no PO this period shows as its own loss row</b> (NP = −CN, tinted red). The <b>Others</b> row holds only non-product CN (delivery fees, stock transfers…). Click a header to sort.</>}</p>
 
       <div className="overflow-x-auto border border-gray-200 rounded-xl">
         <table className="w-full text-sm border-collapse" style={{ minWidth: 900 }}>
           <thead>
             <tr className="bg-gray-50">
-              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">SKU</th>
+              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">{firstCol}</th>
               <ArrowTh k="qty">SI Qty</ArrowTh>
               <ArrowTh k="value">SI Value</ArrowTh>
               <ArrowTh k="log">log (%)</ArrowTh>
@@ -236,7 +240,7 @@ export function ProfitabilityByModel({ rows, cnOthers = 0, periodLabel }: { rows
           {sorted.length > 0 && (
             <tfoot>
               <tr className="font-bold bg-gray-50">
-                <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} SKUs</td>
+                <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} {unitPlural}</td>
                 <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.qty)}</td>
                 <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttl.value)}</td>
                 <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.log > 0 ? eurPct(ttl.log, ttl.value) : pending}</td>

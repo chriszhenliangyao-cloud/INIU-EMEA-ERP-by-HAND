@@ -24,7 +24,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModelsByCountry, cnOthersByCountry,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModelsByCountry, cnOthersByCountry, pnlPoByCountry, cnOthersPoByCountry,
 }: {
   years: number[]
   selectedYear: number
@@ -45,6 +45,8 @@ export function PerformanceView({
   pnl: PnlRow[]
   pnlModelsByCountry: Record<string, PnlModelRow[]>
   cnOthersByCountry: Record<string, number>
+  pnlPoByCountry: Record<string, PnlModelRow[]>
+  cnOthersPoByCountry: Record<string, number>
 }) {
   const router = useRouter()
   const [countryCode, setCountryCode] = useState(initialCountryCode)
@@ -330,13 +332,22 @@ export function PerformanceView({
           {reviewSub === 'pnl' && (() => {
             const isAll = countryCode === 'ALL'
             const pnlRows = isAll ? pnl : pnl.filter(r => r.code === countryCode)
-            const modelRows = pnlModelsByCountry[isAll ? 'ALL' : countryCode] ?? []
-            const cnOthers = cnOthersByCountry[isAll ? 'ALL' : countryCode] ?? 0
+            const key = isAll ? 'ALL' : countryCode
+            const modelRows = pnlModelsByCountry[key] ?? []
+            const cnOthers = cnOthersByCountry[key] ?? 0
+            const poRows = pnlPoByCountry[key] ?? []
+            const cnOthersPo = cnOthersPoByCountry[key] ?? 0
             const scope = isAll ? 'All countries' : `${country?.flag_emoji} ${country?.code}`
+            const per = `${selectedYear} ${qLabel} · ${scope}`
             return (
               <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
                 <ProfitabilityPanel rows={pnlRows} periodLabel={`${selectedYear} ${qLabel}`} scope={scope} isAll={isAll} />
-                <ProfitabilityByModel rows={modelRows} cnOthers={cnOthers} periodLabel={`${selectedYear} ${qLabel} · ${scope}`} />
+                <ProfitabilityByModel rows={modelRows} cnOthers={cnOthers} periodLabel={per} />
+                <ProfitabilityByModel
+                  rows={poRows} cnOthers={cnOthersPo} periodLabel={per}
+                  title="🧾 P&L by PO" badge="Per PO" firstCol="PO" unitPlural="POs"
+                  desc={<>One row per PO, all live. <b>log</b> here is the PO's <b>actual</b> freight (exact, not allocated). GP = SI Value − log − BOM; NP = GP − CN. A model's CN is split across the POs carrying it by SI-Value share. CN that can't tie to a PO this period (products with no PO, delivery fees, transfers…) sits in <b>Others</b>. Click a header to sort.</>}
+                />
               </div>
             )
           })()}
