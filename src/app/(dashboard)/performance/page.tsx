@@ -115,11 +115,12 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   })
 
   // ── Profitability(P&L)：营收 + 运费 + BOM + CN（都折成 EUR）──
-  const [{ data: freightRows }, { data: cnRows }, { data: bpRows }, { data: yearPosRows }, plnToEur, cnyToEur] = await Promise.all([
+  const [{ data: freightRows }, { data: cnRows }, { data: bpRows }, { data: yearPosRows }, { data: bpDetailRows }, plnToEur, cnyToEur] = await Promise.all([
     supabase.from('po_freight').select('po_number, delivery_fee, currency').range(0, 9999),
     supabase.from('credit_note').select('country_id, base_model, amount, currency').gte('cn_date', periodStart).lt('cn_date', endExclusive).range(0, 9999),
     supabase.from('business_plan').select('country_id, month, category, si_value').eq('year', year).range(0, 9999),
-    supabase.from('channel_po').select('country_id, po_date, turnover, currency').gte('po_date', `${year}-01-01`).lt('po_date', `${year + 1}-01-01`).range(0, 49999),
+    supabase.from('channel_po').select('country_id, po_date, turnover, currency, sku_id, qty_ordered').gte('po_date', `${year}-01-01`).lt('po_date', `${year + 1}-01-01`).range(0, 49999),
+    supabase.from('business_plan_detail').select('country_id, month, model_code, si_qty, si_value').eq('year', year).range(0, 9999),
     getToEur('PLN', 0.23),
     getToEur('CNY', 0.13),
   ])
@@ -358,6 +359,56 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const nowQ = Math.floor(now.getMonth() / 3), nowY = now.getFullYear()
   const futureQ = [0, 1, 2, 3].map(qi => year > nowY || (year === nowY && qi > nowQ))
 
+  // ── BP details：整年 BP 目标(SI 数量 & SI Value) vs 实际 PO，按 机型 / 按 月（跟随国家，全年口径）──
+  //    机型 key：目标侧 stripBpColor(BP 机型码，含 PL 的 -B/-BU/-O 等缩写)；实际侧 stripColor(sku.code)；两侧收敛到同一 base。
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const BP_COLOR_ABBR = new Set(['B', 'W', 'T', 'BU', 'D', 'O', 'LB', 'R'])
+  const stripBpColor = (code: string) => { const i = code.lastIndexOf('-'); if (i <= 0) return code; const seg = code.slice(i + 1); return (BP_COLOR_ABBR.has(seg) || COLOR_WORDS.has(seg)) ? code.slice(0, i) : code }
+  const emptyDuo = () => Array.from({ length: 12 }, () => ({ a: 0, b: 0 }))
+  // 目标（BP）：scope×机型 [siQty,siVal] 与 scope×月
+  const bpModel: Record<string, Record<string, { siQty: number; siVal: number }>> = { ALL: {} }
+  const bpMon: Record<string, Array<{ a: number; b: number }>> = { ALL: emptyDuo() }
+  const bpDetailName: Record<string, string> = {}
+  ;(bpDetailRows ?? []).forEach((r: any) => {
+    const ccode = ccodeById[r.country_id]; if (!ccode) return
+    const base = stripBpColor(r.model_code || ''); const mi = Number(r.month) - 1
+    const siQty = Number(r.si_qty) || 0, siVal = Number(r.si_value) || 0
+    if (!bpDetailName[base]) bpDetailName[base] = modelDisplay[base]?.name || base
+    for (const key of [ccode, 'ALL']) {
+      const m = ((bpModel[key] ??= {})[base] ??= { siQty: 0, siVal: 0 }); m.siQty += siQty; m.siVal += siVal
+      const arr = (bpMon[key] ??= emptyDuo()); if (mi >= 0 && mi < 12) { arr[mi].a += siQty; arr[mi].b += siVal }
+    }
+  })
+  // 实际（PO，整年）：scope×机型 [units,val] 与 scope×月
+  const actModel: Record<string, Record<string, { units: number; val: number }>> = { ALL: {} }
+  const actMon: Record<string, Array<{ a: number; b: number }>> = { ALL: emptyDuo() }
+  ;(yearPosRows ?? []).forEach((p: any) => {
+    const ccode = ccodeById[p.country_id]; if (!ccode) return
+    const code = skuCode[p.sku_id]; if (!code) return
+    const base = stripColor(code); const mi = Number(String(p.po_date).slice(5, 7)) - 1
+    const units = Number(p.qty_ordered) || 0, val = toEur(p.turnover, p.currency)
+    for (const key of [ccode, 'ALL']) {
+      const m = ((actModel[key] ??= {})[base] ??= { units: 0, val: 0 }); m.units += units; m.val += val
+      const arr = (actMon[key] ??= emptyDuo()); if (mi >= 0 && mi < 12) { arr[mi].a += units; arr[mi].b += val }
+    }
+  })
+  // 组装：每 scope 一组 { sku:[], month:[] }；siAct/valAct 为 null 表示该期无实际（前端置灰）
+  type BpDetailRow = { key: string; name: string; siTgt: number; valTgt: number; siAct: number | null; valAct: number | null }
+  const bpDetailByCountry: Record<string, { sku: BpDetailRow[]; month: BpDetailRow[] }> = {}
+  for (const key of new Set<string>([...Object.keys(bpModel), ...Object.keys(actModel)])) {
+    const models = new Set<string>([...Object.keys(bpModel[key] ?? {}), ...Object.keys(actModel[key] ?? {})])
+    const sku: BpDetailRow[] = [...models].map(base => {
+      const t = bpModel[key]?.[base], a = actModel[key]?.[base]
+      return { key: base, name: bpDetailName[base] || modelDisplay[base]?.name || base, siTgt: t?.siQty ?? 0, valTgt: t?.siVal ?? 0, siAct: a ? a.units : null, valAct: a ? a.val : null }
+    }).sort((x, y) => ((y.valTgt || 0) + (y.valAct || 0)) - ((x.valTgt || 0) + (x.valAct || 0)))
+    const bm = bpMon[key] ?? emptyDuo(), am = actMon[key] ?? emptyDuo()
+    const month: BpDetailRow[] = Array.from({ length: 12 }, (_, i) => ({
+      key: String(i + 1), name: MONTHS[i], siTgt: bm[i].a, valTgt: bm[i].b,
+      siAct: am[i].a > 0 || am[i].b > 0 ? am[i].a : null, valAct: am[i].a > 0 || am[i].b > 0 ? am[i].b : null,
+    }))
+    bpDetailByCountry[key] = { sku, month }
+  }
+
   const initialCountryCode = (searchParams?.country === 'ALL' || (searchParams?.country && countries.some((c: any) => c.code === searchParams.country)))
     ? searchParams.country : (countries[0] as any)?.code ?? ''
 
@@ -387,6 +438,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       annualByCountry={annualByCountry}
       futureQ={futureQ}
       pnlCatByCountry={pnlCatByCountry}
+      bpDetailByCountry={bpDetailByCountry}
     />
   )
 }
