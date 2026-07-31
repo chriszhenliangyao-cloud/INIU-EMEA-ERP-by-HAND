@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { fmtNum } from '@/lib/utils'
 import { QuarterlyReview, type ReviewRow } from './quarterly-review'
-import { YearlyReview, type YCountry } from './yearly-review'
 import { ProfitabilityPanel, ProfitabilityByModel, LogisticByModel, type PnlRow, type PnlModelRow } from './profitability'
 import { AnnualAchievement } from './annual-achievement'
 import { AchievementByCategory, type PnlCatRow } from './achievement-by-category'
@@ -28,7 +27,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModelsByCountry, cnOthersByCountry, pnlPoByCountry, cnOthersPoByCountry, annualByCountry, futureQ, pnlCatByCountry, bpDetailByCountry, cnBySkuByCountry,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, pnl, pnlModelsByCountry, cnOthersByCountry, pnlPoByCountry, cnOthersPoByCountry, annualByCountry, futureQ, pnlCatByCountry, bpDetailByCountry, cnBySkuByCountry,
 }: {
   years: number[]
   selectedYear: number
@@ -45,22 +44,21 @@ export function PerformanceView({
   initialCountryCode: string
   viewerName: string
   viewerIsAdmin: boolean
-  yearly: YCountry[]
   pnl: PnlRow[]
   pnlModelsByCountry: Record<string, PnlModelRow[]>
   cnOthersByCountry: Record<string, number>
   pnlPoByCountry: Record<string, PnlModelRow[]>
   cnOthersPoByCountry: Record<string, number>
-  annualByCountry: Record<string, { plan: number[]; actual: number[] }>
+  annualByCountry: Record<string, { plan: number[]; actual: number[]; planQty: number[]; actualQty: number[] }>
   futureQ: boolean[]
   pnlCatByCountry: Record<string, PnlCatRow[]>
-  bpDetailByCountry: Record<string, { sku: BpDetailRow[]; month: BpDetailRow[] }>
+  bpDetailByCountry: Record<string, { skuByQuarter: BpDetailRow[][]; month: BpDetailRow[] }>
   cnBySkuByCountry: Record<string, CnBySku>
 }) {
   const router = useRouter()
   const [countryCode, setCountryCode] = useState(initialCountryCode)
   const [hideZero, setHideZero] = useState(true)
-  const [tab, setTab] = useState<'kpi' | 'review' | 'yearly'>('kpi')
+  const [tab, setTab] = useState<'kpi' | 'review'>('kpi')
   const [reviewSub, setReviewSub] = useState<'sales' | 'pnl'>('sales')
   const [pnlView, setPnlView] = useState<'overview' | 'category' | 'sku' | 'po'>('overview')
   const [logView, setLogView] = useState<'sku' | 'po'>('sku')
@@ -121,12 +119,11 @@ export function PerformanceView({
       <div className="mb-4">
         <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">🏆 Performance</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Forecast vs Achievement · FCST Scorecard · Quarterly Review · Yearly Review · {viewerIsAdmin ? 'all countries' : 'your assigned countries only'}
+          Forecast vs Achievement · FCST Scorecard · Review · {viewerIsAdmin ? 'all countries' : 'your assigned countries only'}
         </p>
       </div>
 
-      {/* 选择器 — KPI Scorecard / Quarterly Review 共用；Yearly Review 有自己的国家胶囊 */}
-      {tab !== 'yearly' && (
+      {/* 选择器 — FCST Scorecard / Review 共用 */}
       <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-4 mb-5 flex items-center gap-3 flex-wrap">
         <label className="text-sm text-gray-600 font-medium">📅 Quarter:</label>
         <select value={selectedYear} onChange={(e) => go(Number(e.target.value), selectedQuarter)}
@@ -159,15 +156,13 @@ export function PerformanceView({
           Hide empty SKUs
         </label>
       </div>
-      )}
 
       {/* Tab 切换 */}
       <div className="flex gap-2 mb-5 border-b border-gray-200">
         {([
           ['kpi', '📊 FCST Scorecard'],
-          ['review', '📝 Quarterly Review'],
-          ...(viewerIsAdmin ? [['yearly', '📅 Yearly Review']] : []),  // Yearly Review 暂仅 admin 可见
-        ] as ['kpi' | 'review' | 'yearly', string][]).map(([t, label]) => (
+          ['review', '📝 Review'],
+        ] as ['kpi' | 'review', string][]).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition ${tab === t ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
             {label}
@@ -350,7 +345,7 @@ export function PerformanceView({
             const cnOthersPo = cnOthersPoByCountry[key] ?? 0
             const scope = isAll ? 'All countries' : `${country?.flag_emoji} ${country?.code}`
             const per = `${selectedYear} ${qLabel} · ${scope}`
-            const annual = annualByCountry[key] ?? { plan: [0, 0, 0, 0], actual: [0, 0, 0, 0] }
+            const annual = annualByCountry[key] ?? { plan: [0, 0, 0, 0], actual: [0, 0, 0, 0], planQty: [0, 0, 0, 0], actualQty: [0, 0, 0, 0] }
             const PNL_TABS: [typeof pnlView, string][] = [
               ['overview', '💶 Overview'],
               ['category', '🗂️ By category'],
@@ -361,8 +356,8 @@ export function PerformanceView({
             const segCls = (on: boolean) => `px-3.5 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition ${on ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`
             return (
               <>
-              <AnnualAchievement plan={annual.plan} actual={annual.actual} future={futureQ} year={selectedYear} quarter={selectedQuarter} scope={scope} />
-              <BpDetails scope={scope} periodLabel={`${selectedYear} ${qLabel}`} qLabel={qLabel} data={bpDetailByCountry[key]} />
+              <AnnualAchievement plan={annual.plan} actual={annual.actual} planQty={annual.planQty} actualQty={annual.actualQty} future={futureQ} year={selectedYear} quarter={selectedQuarter} scope={scope} />
+              <BpDetails scope={scope} quarter={selectedQuarter} year={selectedYear} data={bpDetailByCountry[key]} />
               {/* 模块一：Profitability (P&L) —— 总览 / by category / by SKU / by PO */}
               <div className={`${cardCls} mb-5`}>
                 <div className="flex gap-1 mb-5 overflow-x-auto p-1 rounded-xl bg-gray-100 border border-gray-200 w-fit max-w-full">
@@ -378,7 +373,7 @@ export function PerformanceView({
                   <ProfitabilityByModel
                     rows={poRows} cnOthers={cnOthersPo} periodLabel={per} bare
                     title="🧾 P&L by PO" badge="Per PO" firstCol="PO" unitPlural="POs"
-                    desc={<>One row per PO, all live. <b>log</b> here is the PO's <b>actual</b> freight (exact, not allocated). GP = SI Value − log − BOM; NP = GP − CN. A model's CN is split across the POs carrying it by SI-Value share. CN that can't tie to a PO this period (products with no PO, delivery fees, transfers…) sits in <b>Others</b>. Click a header to sort.</>}
+                    desc={<>One row per PO, all live. <b>Freight</b> here is the PO's <b>actual</b> freight (exact, not allocated). GP = SI Value − Freight − BOM; NP = GP − CN. A model's CN is split across the POs carrying it by SI-Value share. CN that can't tie to a PO this period (products with no PO, delivery fees, transfers…) sits in <b>Others</b>. Click a header to sort.</>}
                   />
                 )}
               </div>
@@ -410,9 +405,6 @@ export function PerformanceView({
         </div>
       )}
 
-      {tab === 'yearly' && viewerIsAdmin && (
-        <YearlyReview year={2026} data={yearly} />
-      )}
     </div>
   )
 }

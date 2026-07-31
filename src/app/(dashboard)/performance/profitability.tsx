@@ -64,7 +64,7 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
       <div className="flex gap-2 items-stretch overflow-x-auto pb-1 mb-4">
         <Tile label="Revenue" value={eur(ttl.revenue)} sub={`${ttl.pos} POs · ${fmtNum(ttl.units)} units`} />
         <Op>−</Op>
-        <Tile label="Freight" cost value={eur(ttl.freight)} sub={`freight on ${ttl.freightPos}/${ttl.pos} POs`} />
+        <Tile label="Freight" cost value={eur(ttl.freight)} sub={`${pctText(ttl.freight, ttl.revenue)} of rev`} />
         <Op>=</Op>
         <Tile label="Gross Profit" gp value={eur(ttlGp)} sub={`GP ${pctText(ttlGp, ttl.revenue)}`} />
         <Op>−</Op>
@@ -173,7 +173,7 @@ export function ProfitabilityByModel({
         <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{badge}</span>
         <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
       </div>
-      <p className="text-sm text-gray-500 mb-4">{desc ?? <>One row per SKU (colour-level), all live. GP = SI Value − log − BOM; NP = GP − CN. <b>CN</b> is recorded per model in the source, so a model's CN is split across its colour SKUs by SI-Value share (single-SKU products get 100% — exact). A product with a CN but <b>no PO this period shows as its own loss row</b> (NP = −CN, tinted red). The <b>Others</b> row holds only non-product CN (delivery fees, stock transfers…). Click a header to sort.</>}</p>
+      <p className="text-sm text-gray-500 mb-4">{desc ?? <>One row per SKU (colour-level), all live. GP = SI Value − Freight − BOM; NP = GP − CN. <b>CN</b> is recorded per model in the source, so a model's CN is split across its colour SKUs by SI-Value share (single-SKU products get 100% — exact). A product with a CN but <b>no PO this period shows as its own loss row</b> (NP = −CN, tinted red). The <b>Others</b> row holds only non-product CN (delivery fees, stock transfers…). Click a header to sort.</>}</p>
 
       <div className="overflow-x-auto border border-gray-200 rounded-xl">
         <table className="w-full text-sm border-collapse" style={{ minWidth: 900 }}>
@@ -182,7 +182,7 @@ export function ProfitabilityByModel({
               <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">{firstCol}</th>
               <ArrowTh k="qty">SI Qty</ArrowTh>
               <ArrowTh k="value">SI Value</ArrowTh>
-              <ArrowTh k="log">log (%)</ArrowTh>
+              <ArrowTh k="log">Freight (%)</ArrowTh>
               <ArrowTh k="gp">GP (GP %)</ArrowTh>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">CN</th>
               <ArrowTh k="np">NP (NP %)</ArrowTh>
@@ -253,7 +253,7 @@ export function ProfitabilityByModel({
 
       {/* 公式说明（按手绘口径）*/}
       <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500">
-        <span><b className="text-gray-700">GP</b> = SI Value − log − product cost &nbsp;·&nbsp; <b className="text-gray-700">GP %</b> = GP ÷ SI Value</span>
+        <span><b className="text-gray-700">GP</b> = SI Value − Freight − product cost &nbsp;·&nbsp; <b className="text-gray-700">GP %</b> = GP ÷ SI Value</span>
         <span><b className="text-gray-700">NP</b> = GP − CN &nbsp;·&nbsp; <b className="text-gray-700">NP %</b> = NP ÷ (SI Value − CN)</span>
       </div>
     </div>
@@ -283,8 +283,8 @@ export function LogisticByModel({
     return bv - av
   }), [data, sort])
   const ttl = useMemo(() => data.reduce((a, r) => ({
-    qty: a.qty + r.qty, log: a.log + r.log, qtyCov: a.qtyCov + (r.logPos > 0 ? r.qty : 0),
-  }), { qty: 0, log: 0, qtyCov: 0 }), [data])
+    qty: a.qty + r.qty, log: a.log + r.log, value: a.value + r.value, qtyCov: a.qtyCov + (r.logPos > 0 ? r.qty : 0),
+  }), { qty: 0, log: 0, value: 0, qtyCov: 0 }), [data])
   const ttlAvg = ttl.qtyCov > 0 ? ttl.log / ttl.qtyCov : null
   const pending = <span className="text-gray-300" title="本期无运费记录">—</span>
 
@@ -309,8 +309,9 @@ export function LogisticByModel({
           <thead>
             <tr className="bg-gray-50">
               <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">{firstCol}</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">Sell-in Revenue</th>
               <ArrowTh k="qty">SI Qty</ArrowTh>
-              <ArrowTh k="cost">Logistic Cost</ArrowTh>
+              <ArrowTh k="cost">Freight (%)</ArrowTh>
               <ArrowTh k="avg">Avg Unit Cost</ArrowTh>
             </tr>
           </thead>
@@ -321,21 +322,23 @@ export function LogisticByModel({
                   <span className="font-medium text-gray-800">{r.name}</span>
                   <span className="ml-2 text-[11px] font-mono text-gray-400">{r.model}</span>
                 </td>
+                <td className="px-3 py-2 text-right text-gray-900 font-semibold border-b border-gray-100">{eur(r.value)}</td>
                 <td className="px-3 py-2 text-right text-gray-700 border-b border-gray-100">{fmtNum(r.qty)}</td>
-                <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{r.logPos > 0 ? eur(r.log) : pending}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{r.logPos > 0 ? eurPct(r.log, r.value) : pending}</td>
                 <td className="px-3 py-2 text-right font-bold text-sky-700 border-b border-gray-100">{r.avg != null ? eur2(r.avg) : pending}</td>
               </tr>
             ))}
             {!sorted.length && (
-              <tr><td colSpan={4} className="py-12 text-center text-gray-400">No PO units in {periodLabel}</td></tr>
+              <tr><td colSpan={5} className="py-12 text-center text-gray-400">No PO units in {periodLabel}</td></tr>
             )}
           </tbody>
           {sorted.length > 0 && (
             <tfoot>
               <tr className="font-bold bg-gray-50">
                 <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} {unitPlural}</td>
+                <td className="px-3 py-2 text-right text-gray-900 border-t-2 border-gray-300">{eur(ttl.value)}</td>
                 <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.qty)}</td>
-                <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.log > 0 ? eur(ttl.log) : pending}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.log > 0 ? eurPct(ttl.log, ttl.value) : pending}</td>
                 <td className="px-3 py-2 text-right text-sky-700 border-t-2 border-gray-300">{ttlAvg != null ? eur2(ttlAvg) : pending}</td>
               </tr>
             </tfoot>
@@ -343,7 +346,7 @@ export function LogisticByModel({
         </table>
       </div>
       <p className="mt-3 text-xs text-gray-400">
-        <b className="text-gray-500">Avg Unit Cost</b> = Logistic Cost ÷ SI Qty. The <b className="text-gray-500">TTL</b> average is weighted over units that carry a freight record only (so it isn't diluted by SKUs still missing freight). Matches the <b>log</b> column in P&amp;L by SKU above.
+        <b className="text-gray-500">Freight (%)</b> = this row's total freight and its share of Sell-in Revenue. <b className="text-gray-500">Avg Unit Cost</b> = Freight ÷ SI Qty. The <b className="text-gray-500">TTL</b> average is weighted over units that carry a freight record only (so it isn't diluted by SKUs still missing freight). Matches the <b>Freight</b> column in P&amp;L by SKU above.
       </p>
     </div>
   )

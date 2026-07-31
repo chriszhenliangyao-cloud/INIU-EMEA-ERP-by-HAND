@@ -337,80 +337,94 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     }).sort((x, y) => { const ix = CAT_ORDER.indexOf(x.category), iy = CAT_ORDER.indexOf(y.category); return (ix < 0 ? 99 : ix) - (iy < 0 ? 99 : iy) || y.revenue - x.revenue })
   }
 
-  // ── 年度达成：selectedYear 各季度 计划营收(annual_plan) vs 实际营收(channel_po)，按国家(+ALL) ──
+  // ── 年度达成：selectedYear 各季度 计划(BP) vs 实际(channel_po)，按国家(+ALL)。Value=营收€ / Volume=台数 两套 ──
   const planQ: Record<number, number[]> = {}      // country_id → [Q1..Q4] 计划营收（来自 business_plan，SI×FD买价，与实际同口径）
+  const planQtyQ: Record<number, number[]> = {}   // 计划台数
   ;(bpRows ?? []).forEach((r: any) => {
     const qi = Math.floor((Number(r.month) - 1) / 3)
     if (qi < 0 || qi > 3) return
     ;(planQ[r.country_id] ??= [0, 0, 0, 0])[qi] += Number(r.si_value) || 0
   })
+  // 台数目标来自 business_plan_detail(SI 数量)；business_plan(品类粒度)没有单独台数，故用明细表
+  ;(bpDetailRows ?? []).forEach((r: any) => {
+    const qi = Math.floor((Number(r.month) - 1) / 3)
+    if (qi < 0 || qi > 3) return
+    ;(planQtyQ[r.country_id] ??= [0, 0, 0, 0])[qi] += Number(r.si_qty) || 0
+  })
   const actQ: Record<number, number[]> = {}       // country_id → [Q1..Q4] 实际营收(EUR)
+  const actQtyQ: Record<number, number[]> = {}    // 实际台数
   ;(yearPosRows ?? []).forEach((p: any) => {
     const mo = Number(String(p.po_date).slice(5, 7)), qi = Math.floor((mo - 1) / 3)
     ;(actQ[p.country_id] ??= [0, 0, 0, 0])[qi] += toEur(p.turnover, p.currency)
+    ;(actQtyQ[p.country_id] ??= [0, 0, 0, 0])[qi] += Number(p.qty_ordered) || 0
   })
-  const annualByCountry: Record<string, { plan: number[]; actual: number[] }> = { ALL: { plan: [0, 0, 0, 0], actual: [0, 0, 0, 0] } }
+  const annualByCountry: Record<string, { plan: number[]; actual: number[]; planQty: number[]; actualQty: number[] }> = { ALL: { plan: [0, 0, 0, 0], actual: [0, 0, 0, 0], planQty: [0, 0, 0, 0], actualQty: [0, 0, 0, 0] } }
   countries.forEach((c: any) => {
     const plan = planQ[c.id] ?? [0, 0, 0, 0], actual = actQ[c.id] ?? [0, 0, 0, 0]
-    annualByCountry[c.code] = { plan, actual }
-    for (let i = 0; i < 4; i++) { annualByCountry.ALL.plan[i] += plan[i]; annualByCountry.ALL.actual[i] += actual[i] }
+    const planQty = planQtyQ[c.id] ?? [0, 0, 0, 0], actualQty = actQtyQ[c.id] ?? [0, 0, 0, 0]
+    annualByCountry[c.code] = { plan, actual, planQty, actualQty }
+    for (let i = 0; i < 4; i++) { annualByCountry.ALL.plan[i] += plan[i]; annualByCountry.ALL.actual[i] += actual[i]; annualByCountry.ALL.planQty[i] += planQty[i]; annualByCountry.ALL.actualQty[i] += actualQty[i] }
   })
   // 未开始的季度（当年且晚于本季度 → 用斜纹标注）
   const nowQ = Math.floor(now.getMonth() / 3), nowY = now.getFullYear()
   const futureQ = [0, 1, 2, 3].map(qi => year > nowY || (year === nowY && qi > nowQ))
 
-  // ── BP details：本季度 BP 目标(SI 数量 & SI Value) vs 实际 PO，按 机型 / 按 月（跟随国家 + 顶部季度）──
+  // ── BP details：全年 BP 目标(SI 数量 & SI Value) vs 实际 PO。SKU 视图按季度折叠(Q1..Q4)；Month 视图列全 12 个月。──
   //    机型 key：目标侧 stripBpColor(BP 机型码，含 PL 的 -B/-BU/-O 等缩写)；实际侧 stripColor(sku.code)；两侧收敛到同一 base。
-  //    只统计本季 3 个月(qMonths)，SKU 视图与 Month 视图口径一致、TTL 可对齐。
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const BP_COLOR_ABBR = new Set(['B', 'W', 'T', 'BU', 'D', 'O', 'LB', 'R'])
   const stripBpColor = (code: string) => { const i = code.lastIndexOf('-'); if (i <= 0) return code; const seg = code.slice(i + 1); return (BP_COLOR_ABBR.has(seg) || COLOR_WORDS.has(seg)) ? code.slice(0, i) : code }
-  const emptyDuo = () => Array.from({ length: 12 }, () => ({ a: 0, b: 0 }))
-  // 目标（BP，仅本季月份）：scope×机型 [siQty,siVal] 与 scope×月
-  const bpModel: Record<string, Record<string, { siQty: number; siVal: number }>> = { ALL: {} }
-  const bpMon: Record<string, Array<{ a: number; b: number }>> = { ALL: emptyDuo() }
+  const emptyMon = () => Array.from({ length: 12 }, () => ({ a: 0, b: 0 }))
+  const newQuad = () => [{ a: 0, b: 0 }, { a: 0, b: 0 }, { a: 0, b: 0 }, { a: 0, b: 0 }]  // [Q1..Q4] {siQty/units, siVal/val}
+  // 目标（BP，全年）：scope×机型×季度 与 scope×月
+  const bpModelQ: Record<string, Record<string, Array<{ a: number; b: number }>>> = { ALL: {} }
+  const bpMon: Record<string, Array<{ a: number; b: number }>> = { ALL: emptyMon() }
   const bpDetailName: Record<string, string> = {}
   ;(bpDetailRows ?? []).forEach((r: any) => {
-    if (!qMonths.has(Number(r.month))) return
     const ccode = ccodeById[r.country_id]; if (!ccode) return
-    const base = stripBpColor(r.model_code || ''); const mi = Number(r.month) - 1
+    const mi = Number(r.month) - 1; if (mi < 0 || mi > 11) return
+    const base = stripBpColor(r.model_code || ''); const qi = Math.floor(mi / 3)
     const siQty = Number(r.si_qty) || 0, siVal = Number(r.si_value) || 0
     if (!bpDetailName[base]) bpDetailName[base] = modelDisplay[base]?.name || base
     for (const key of [ccode, 'ALL']) {
-      const m = ((bpModel[key] ??= {})[base] ??= { siQty: 0, siVal: 0 }); m.siQty += siQty; m.siVal += siVal
-      const arr = (bpMon[key] ??= emptyDuo()); if (mi >= 0 && mi < 12) { arr[mi].a += siQty; arr[mi].b += siVal }
+      const q4 = ((bpModelQ[key] ??= {})[base] ??= newQuad()); q4[qi].a += siQty; q4[qi].b += siVal
+      const arr = (bpMon[key] ??= emptyMon()); arr[mi].a += siQty; arr[mi].b += siVal
     }
   })
-  // 实际（PO，仅本季月份）：scope×机型 [units,val] 与 scope×月
-  const actModel: Record<string, Record<string, { units: number; val: number }>> = { ALL: {} }
-  const actMon: Record<string, Array<{ a: number; b: number }>> = { ALL: emptyDuo() }
+  // 实际（PO，全年）：scope×机型×季度 与 scope×月
+  const actModelQ: Record<string, Record<string, Array<{ a: number; b: number }>>> = { ALL: {} }
+  const actMon: Record<string, Array<{ a: number; b: number }>> = { ALL: emptyMon() }
   ;(yearPosRows ?? []).forEach((p: any) => {
-    const mo = Number(String(p.po_date).slice(5, 7)); if (!qMonths.has(mo)) return
     const ccode = ccodeById[p.country_id]; if (!ccode) return
+    const mi = Number(String(p.po_date).slice(5, 7)) - 1; if (mi < 0 || mi > 11) return
     const code = skuCode[p.sku_id]; if (!code) return
-    const base = stripColor(code); const mi = mo - 1
+    const base = stripColor(code); const qi = Math.floor(mi / 3)
     const units = Number(p.qty_ordered) || 0, val = toEur(p.turnover, p.currency)
     for (const key of [ccode, 'ALL']) {
-      const m = ((actModel[key] ??= {})[base] ??= { units: 0, val: 0 }); m.units += units; m.val += val
-      const arr = (actMon[key] ??= emptyDuo()); if (mi >= 0 && mi < 12) { arr[mi].a += units; arr[mi].b += val }
+      const q4 = ((actModelQ[key] ??= {})[base] ??= newQuad()); q4[qi].a += units; q4[qi].b += val
+      const arr = (actMon[key] ??= emptyMon()); arr[mi].a += units; arr[mi].b += val
     }
   })
-  // 组装：每 scope 一组 { sku:[], month:[] }；month 只列本季 3 个月；siAct/valAct 为 null 表示该期无实际（前端置灰）
+  // 组装：每 scope → { skuByQuarter:[Q1..Q4 各自的机型行], month:[12 个月] }
   type BpDetailRow = { key: string; name: string; siTgt: number; valTgt: number; siAct: number | null; valAct: number | null }
-  const bpDetailByCountry: Record<string, { sku: BpDetailRow[]; month: BpDetailRow[] }> = {}
-  for (const key of new Set<string>([...Object.keys(bpModel), ...Object.keys(actModel)])) {
-    const models = new Set<string>([...Object.keys(bpModel[key] ?? {}), ...Object.keys(actModel[key] ?? {})])
-    const sku: BpDetailRow[] = [...models].map(base => {
-      const t = bpModel[key]?.[base], a = actModel[key]?.[base]
-      return { key: base, name: bpDetailName[base] || modelDisplay[base]?.name || base, siTgt: t?.siQty ?? 0, valTgt: t?.siVal ?? 0, siAct: a ? a.units : null, valAct: a ? a.val : null }
-    }).sort((x, y) => ((y.valTgt || 0) + (y.valAct || 0)) - ((x.valTgt || 0) + (x.valAct || 0)))
-    const bm = bpMon[key] ?? emptyDuo(), am = actMon[key] ?? emptyDuo()
-    const month: BpDetailRow[] = QUARTER_MONTHS[q].map(mth => {
-      const i = mth - 1
-      return { key: String(mth), name: MONTHS[i], siTgt: bm[i].a, valTgt: bm[i].b,
-        siAct: am[i].a > 0 || am[i].b > 0 ? am[i].a : null, valAct: am[i].a > 0 || am[i].b > 0 ? am[i].b : null }
-    })
-    bpDetailByCountry[key] = { sku, month }
+  const bpDetailByCountry: Record<string, { skuByQuarter: BpDetailRow[][]; month: BpDetailRow[] }> = {}
+  for (const key of new Set<string>([...Object.keys(bpModelQ), ...Object.keys(actModelQ)])) {
+    const models = new Set<string>([...Object.keys(bpModelQ[key] ?? {}), ...Object.keys(actModelQ[key] ?? {})])
+    const skuByQuarter: BpDetailRow[][] = [0, 1, 2, 3].map(qi =>
+      [...models].map(base => {
+        const t = bpModelQ[key]?.[base]?.[qi], a = actModelQ[key]?.[base]?.[qi]
+        const hasAct = !!a && (a.a > 0 || a.b > 0)
+        return { key: base, name: bpDetailName[base] || modelDisplay[base]?.name || base,
+          siTgt: t?.a ?? 0, valTgt: t?.b ?? 0, siAct: hasAct ? a!.a : null, valAct: hasAct ? a!.b : null }
+      }).filter(r => r.siTgt > 0 || r.valTgt > 0 || r.siAct != null)
+        .sort((x, y) => ((y.valTgt || 0) + (y.valAct || 0)) - ((x.valTgt || 0) + (x.valAct || 0))),
+    )
+    const bm = bpMon[key] ?? emptyMon(), am = actMon[key] ?? emptyMon()
+    const month: BpDetailRow[] = MONTHS.map((nm, i) => ({
+      key: String(i + 1), name: nm, siTgt: bm[i].a, valTgt: bm[i].b,
+      siAct: am[i].a > 0 || am[i].b > 0 ? am[i].a : null, valAct: am[i].a > 0 || am[i].b > 0 ? am[i].b : null,
+    }))
+    bpDetailByCountry[key] = { skuByQuarter, month }
   }
 
   // ── CN details：本季每个机型(SKU)的 CN 成本，按类型拆分（Rebate / Price Protection / Margin Protection / Quality / Delivery Fee / Other）──
@@ -468,7 +482,6 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       initialCountryCode={initialCountryCode}
       viewerName={me.displayName}
       viewerIsAdmin={me.isAdmin}
-      yearly={yearly}
       pnl={pnl}
       pnlModelsByCountry={pnlModelsByCountry}
       cnOthersByCountry={cnOthersByCountry}
