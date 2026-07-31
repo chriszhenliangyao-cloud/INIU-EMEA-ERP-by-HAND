@@ -266,7 +266,13 @@ export function ProfitabilityByModel({
 type LogSortKey = 'qty' | 'cost' | 'avg'
 const eur2 = (v: number) => `€${v.toFixed(2)}`
 
-export function LogisticByModel({ rows, periodLabel, scope }: { rows: PnlModelRow[]; periodLabel: string; scope: string }) {
+export function LogisticByModel({
+  rows, periodLabel, scope,
+  title = '🚚 Logistic cost by SKU', badge = 'Avg unit cost', firstCol = 'SKU', unitPlural = 'SKUs', desc,
+}: {
+  rows: PnlModelRow[]; periodLabel: string; scope: string
+  title?: string; badge?: string; firstCol?: string; unitPlural?: string; desc?: React.ReactNode
+}) {
   const [sort, setSort] = useState<LogSortKey>('cost')
   // 只看有 PO / 有台数的 SKU（noPo 亏损行没有物流），并计算每台平均运费
   const data = useMemo(() => rows.filter(r => !r.noPo && r.qty > 0).map(r => ({
@@ -293,19 +299,17 @@ export function LogisticByModel({ rows, periodLabel, scope }: { rows: PnlModelRo
   return (
     <div className="mt-8 pt-6 border-t border-gray-200">
       <div className="flex items-baseline gap-2 mb-1">
-        <h2 className="text-lg font-semibold text-gray-900">🚚 Logistic cost by SKU</h2>
-        <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">Avg unit cost</span>
+        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+        <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">{badge}</span>
         <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
       </div>
-      <p className="text-sm text-gray-500 mb-4">
-        Per SKU (colour-level) for {scope}. <b>Avg Unit Cost</b> = this SKU's total freight ÷ units in the period — i.e. the average delivery fee carried by one unit. Freight is the actual PO delivery fee (from the Shipment Workflow), converted to EUR; a SKU whose POs have no freight record yet shows <span className="text-gray-400">—</span>. Click a header to sort.
-      </p>
+      <p className="text-sm text-gray-500 mb-4">{desc ?? <>Per SKU (colour-level) for {scope}. <b>Avg Unit Cost</b> = this SKU's total freight ÷ units in the period — i.e. the average delivery fee carried by one unit. Freight is the actual PO delivery fee (from the Shipment Workflow), converted to EUR; a SKU whose POs have no freight record yet shows <span className="text-gray-400">—</span>. Click a header to sort.</>}</p>
 
       <div className="overflow-x-auto border border-gray-200 rounded-xl">
         <table className="w-full text-sm border-collapse" style={{ minWidth: 680 }}>
           <thead>
             <tr className="bg-gray-50">
-              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">SKU</th>
+              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">{firstCol}</th>
               <ArrowTh k="qty">SI Qty</ArrowTh>
               <ArrowTh k="cost">Logistic Cost</ArrowTh>
               <ArrowTh k="avg">Avg Unit Cost</ArrowTh>
@@ -330,7 +334,7 @@ export function LogisticByModel({ rows, periodLabel, scope }: { rows: PnlModelRo
           {sorted.length > 0 && (
             <tfoot>
               <tr className="font-bold bg-gray-50">
-                <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} SKUs</td>
+                <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} {unitPlural}</td>
                 <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.qty)}</td>
                 <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.log > 0 ? eur(ttl.log) : pending}</td>
                 <td className="px-3 py-2 text-right text-sky-700 border-t-2 border-gray-300">{ttlAvg != null ? eur2(ttlAvg) : pending}</td>

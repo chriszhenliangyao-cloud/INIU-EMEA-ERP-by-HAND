@@ -10,6 +10,7 @@ import { ProfitabilityPanel, ProfitabilityByModel, LogisticByModel, type PnlRow,
 import { AnnualAchievement } from './annual-achievement'
 import { AchievementByCategory, type PnlCatRow } from './achievement-by-category'
 import { BpDetails, type BpDetailRow } from './bp-details'
+import { CnBySkuTable, type CnBySku } from './cn-details'
 
 type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number }
@@ -27,7 +28,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModelsByCountry, cnOthersByCountry, pnlPoByCountry, cnOthersPoByCountry, annualByCountry, futureQ, pnlCatByCountry, bpDetailByCountry,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModelsByCountry, cnOthersByCountry, pnlPoByCountry, cnOthersPoByCountry, annualByCountry, futureQ, pnlCatByCountry, bpDetailByCountry, cnBySkuByCountry,
 }: {
   years: number[]
   selectedYear: number
@@ -54,6 +55,7 @@ export function PerformanceView({
   futureQ: boolean[]
   pnlCatByCountry: Record<string, PnlCatRow[]>
   bpDetailByCountry: Record<string, { sku: BpDetailRow[]; month: BpDetailRow[] }>
+  cnBySkuByCountry: Record<string, CnBySku>
 }) {
   const router = useRouter()
   const [countryCode, setCountryCode] = useState(initialCountryCode)
@@ -350,7 +352,7 @@ export function PerformanceView({
             return (
               <>
               <AnnualAchievement plan={annual.plan} actual={annual.actual} future={futureQ} year={selectedYear} quarter={selectedQuarter} scope={scope} />
-              <BpDetails scope={scope} data={bpDetailByCountry[key]} />
+              <BpDetails scope={scope} periodLabel={`${selectedYear} ${qLabel}`} data={bpDetailByCountry[key]} />
               <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
                 <ProfitabilityPanel rows={pnlRows} periodLabel={`${selectedYear} ${qLabel}`} scope={scope} isAll={isAll} />
                 <AchievementByCategory rows={pnlCatByCountry[key] ?? []} periodLabel={per} />
@@ -361,6 +363,12 @@ export function PerformanceView({
                   desc={<>One row per PO, all live. <b>log</b> here is the PO's <b>actual</b> freight (exact, not allocated). GP = SI Value − log − BOM; NP = GP − CN. A model's CN is split across the POs carrying it by SI-Value share. CN that can't tie to a PO this period (products with no PO, delivery fees, transfers…) sits in <b>Others</b>. Click a header to sort.</>}
                 />
                 <LogisticByModel rows={modelRows} periodLabel={per} scope={scope} />
+                <LogisticByModel
+                  rows={poRows} periodLabel={per} scope={scope}
+                  title="🚚 Logistic cost by PO" badge="Avg unit cost" firstCol="PO" unitPlural="POs"
+                  desc={<>One row per PO for {scope}. <b>Logistic Cost</b> is the PO's <b>actual</b> delivery fee (exact, from the Shipment Workflow), converted to EUR; <b>Avg Unit Cost</b> = that freight ÷ the PO's units. A PO with no freight record yet shows <span className="text-gray-400">—</span>. Click a header to sort.</>}
+                />
+                <CnBySkuTable data={cnBySkuByCountry[key]} periodLabel={per} scope={scope} />
               </div>
               </>
             )

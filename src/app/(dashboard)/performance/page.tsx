@@ -117,7 +117,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   // ── Profitability(P&L)：营收 + 运费 + BOM + CN（都折成 EUR）──
   const [{ data: freightRows }, { data: cnRows }, { data: bpRows }, { data: yearPosRows }, { data: bpDetailRows }, plnToEur, cnyToEur] = await Promise.all([
     supabase.from('po_freight').select('po_number, delivery_fee, currency').range(0, 9999),
-    supabase.from('credit_note').select('country_id, base_model, amount, currency').gte('cn_date', periodStart).lt('cn_date', endExclusive).range(0, 9999),
+    supabase.from('credit_note').select('country_id, base_model, product, amount, currency').gte('cn_date', periodStart).lt('cn_date', endExclusive).range(0, 9999),
     supabase.from('business_plan').select('country_id, month, category, si_value').eq('year', year).range(0, 9999),
     supabase.from('channel_po').select('country_id, po_date, turnover, currency, sku_id, qty_ordered').gte('po_date', `${year}-01-01`).lt('po_date', `${year + 1}-01-01`).range(0, 49999),
     supabase.from('business_plan_detail').select('country_id, month, model_code, si_qty, si_value').eq('year', year).range(0, 9999),
@@ -359,17 +359,19 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const nowQ = Math.floor(now.getMonth() / 3), nowY = now.getFullYear()
   const futureQ = [0, 1, 2, 3].map(qi => year > nowY || (year === nowY && qi > nowQ))
 
-  // ── BP details：整年 BP 目标(SI 数量 & SI Value) vs 实际 PO，按 机型 / 按 月（跟随国家，全年口径）──
+  // ── BP details：本季度 BP 目标(SI 数量 & SI Value) vs 实际 PO，按 机型 / 按 月（跟随国家 + 顶部季度）──
   //    机型 key：目标侧 stripBpColor(BP 机型码，含 PL 的 -B/-BU/-O 等缩写)；实际侧 stripColor(sku.code)；两侧收敛到同一 base。
+  //    只统计本季 3 个月(qMonths)，SKU 视图与 Month 视图口径一致、TTL 可对齐。
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const BP_COLOR_ABBR = new Set(['B', 'W', 'T', 'BU', 'D', 'O', 'LB', 'R'])
   const stripBpColor = (code: string) => { const i = code.lastIndexOf('-'); if (i <= 0) return code; const seg = code.slice(i + 1); return (BP_COLOR_ABBR.has(seg) || COLOR_WORDS.has(seg)) ? code.slice(0, i) : code }
   const emptyDuo = () => Array.from({ length: 12 }, () => ({ a: 0, b: 0 }))
-  // 目标（BP）：scope×机型 [siQty,siVal] 与 scope×月
+  // 目标（BP，仅本季月份）：scope×机型 [siQty,siVal] 与 scope×月
   const bpModel: Record<string, Record<string, { siQty: number; siVal: number }>> = { ALL: {} }
   const bpMon: Record<string, Array<{ a: number; b: number }>> = { ALL: emptyDuo() }
   const bpDetailName: Record<string, string> = {}
   ;(bpDetailRows ?? []).forEach((r: any) => {
+    if (!qMonths.has(Number(r.month))) return
     const ccode = ccodeById[r.country_id]; if (!ccode) return
     const base = stripBpColor(r.model_code || ''); const mi = Number(r.month) - 1
     const siQty = Number(r.si_qty) || 0, siVal = Number(r.si_value) || 0
@@ -379,20 +381,21 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       const arr = (bpMon[key] ??= emptyDuo()); if (mi >= 0 && mi < 12) { arr[mi].a += siQty; arr[mi].b += siVal }
     }
   })
-  // 实际（PO，整年）：scope×机型 [units,val] 与 scope×月
+  // 实际（PO，仅本季月份）：scope×机型 [units,val] 与 scope×月
   const actModel: Record<string, Record<string, { units: number; val: number }>> = { ALL: {} }
   const actMon: Record<string, Array<{ a: number; b: number }>> = { ALL: emptyDuo() }
   ;(yearPosRows ?? []).forEach((p: any) => {
+    const mo = Number(String(p.po_date).slice(5, 7)); if (!qMonths.has(mo)) return
     const ccode = ccodeById[p.country_id]; if (!ccode) return
     const code = skuCode[p.sku_id]; if (!code) return
-    const base = stripColor(code); const mi = Number(String(p.po_date).slice(5, 7)) - 1
+    const base = stripColor(code); const mi = mo - 1
     const units = Number(p.qty_ordered) || 0, val = toEur(p.turnover, p.currency)
     for (const key of [ccode, 'ALL']) {
       const m = ((actModel[key] ??= {})[base] ??= { units: 0, val: 0 }); m.units += units; m.val += val
       const arr = (actMon[key] ??= emptyDuo()); if (mi >= 0 && mi < 12) { arr[mi].a += units; arr[mi].b += val }
     }
   })
-  // 组装：每 scope 一组 { sku:[], month:[] }；siAct/valAct 为 null 表示该期无实际（前端置灰）
+  // 组装：每 scope 一组 { sku:[], month:[] }；month 只列本季 3 个月；siAct/valAct 为 null 表示该期无实际（前端置灰）
   type BpDetailRow = { key: string; name: string; siTgt: number; valTgt: number; siAct: number | null; valAct: number | null }
   const bpDetailByCountry: Record<string, { sku: BpDetailRow[]; month: BpDetailRow[] }> = {}
   for (const key of new Set<string>([...Object.keys(bpModel), ...Object.keys(actModel)])) {
@@ -402,11 +405,47 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       return { key: base, name: bpDetailName[base] || modelDisplay[base]?.name || base, siTgt: t?.siQty ?? 0, valTgt: t?.siVal ?? 0, siAct: a ? a.units : null, valAct: a ? a.val : null }
     }).sort((x, y) => ((y.valTgt || 0) + (y.valAct || 0)) - ((x.valTgt || 0) + (x.valAct || 0)))
     const bm = bpMon[key] ?? emptyDuo(), am = actMon[key] ?? emptyDuo()
-    const month: BpDetailRow[] = Array.from({ length: 12 }, (_, i) => ({
-      key: String(i + 1), name: MONTHS[i], siTgt: bm[i].a, valTgt: bm[i].b,
-      siAct: am[i].a > 0 || am[i].b > 0 ? am[i].a : null, valAct: am[i].a > 0 || am[i].b > 0 ? am[i].b : null,
-    }))
+    const month: BpDetailRow[] = QUARTER_MONTHS[q].map(mth => {
+      const i = mth - 1
+      return { key: String(mth), name: MONTHS[i], siTgt: bm[i].a, valTgt: bm[i].b,
+        siAct: am[i].a > 0 || am[i].b > 0 ? am[i].a : null, valAct: am[i].a > 0 || am[i].b > 0 ? am[i].b : null }
+    })
     bpDetailByCountry[key] = { sku, month }
+  }
+
+  // ── CN details：本季每个机型(SKU)的 CN 成本，按类型拆分（Rebate / Price Protection / Margin Protection / Quality / Delivery Fee / Other）──
+  //    类型无独立字段 → 从 product 文案关键词判定。金额折 EUR（PLN→EUR）。非产品 CN(base_model 空/'/') → Others。
+  const CN_TYPES = ['Rebate', 'Price Protection', 'Margin Protection', 'Quality', 'Delivery Fee', 'Other'] as const
+  const cnTypeOf = (p: string | null): string => {
+    const s = (p || '').toLowerCase()
+    if (/rebate/.test(s)) return 'Rebate'
+    if (/price\s*prot/.test(s)) return 'Price Protection'
+    if (/margin\s*(protection|gap)/.test(s)) return 'Margin Protection'
+    if (/quality/.test(s)) return 'Quality'
+    if (/delivery\s*fee|freight|shipping/.test(s)) return 'Delivery Fee'
+    return 'Other'
+  }
+  const cnSkuAgg: Record<string, Record<string, { name: string; by: Record<string, number>; total: number }>> = { ALL: {} }
+  const cnSkuOthers: Record<string, Record<string, number>> = {}
+  ;(cnRows ?? []).forEach((r: any) => {
+    const ccode = ccodeById[r.country_id]; if (!ccode) return
+    const eur = cnEur(r.amount, r.currency), t = cnTypeOf(r.product), bm = r.base_model
+    for (const key of [ccode, 'ALL']) {
+      if (!bm || bm === '/') {
+        const o = (cnSkuOthers[key] ??= {}); o[t] = (o[t] ?? 0) + eur
+      } else {
+        const m = ((cnSkuAgg[key] ??= {})[bm] ??= { name: modelDisplay[bm]?.name || bm, by: {}, total: 0 })
+        m.by[t] = (m.by[t] ?? 0) + eur; m.total += eur
+      }
+    }
+  })
+  type CnSkuRow = { model: string; name: string; by: Record<string, number>; total: number }
+  const cnBySkuByCountry: Record<string, { rows: CnSkuRow[]; others: Record<string, number>; othersTotal: number }> = {}
+  for (const key of new Set<string>([...Object.keys(cnSkuAgg), ...Object.keys(cnSkuOthers)])) {
+    const rows = Object.entries(cnSkuAgg[key] ?? {}).map(([model, v]) => ({ model, name: v.name, by: v.by, total: v.total })).sort((a, b) => b.total - a.total)
+    const others = cnSkuOthers[key] ?? {}
+    const othersTotal = Object.values(others).reduce((s, v) => s + v, 0)
+    cnBySkuByCountry[key] = { rows, others, othersTotal }
   }
 
   const initialCountryCode = (searchParams?.country === 'ALL' || (searchParams?.country && countries.some((c: any) => c.code === searchParams.country)))
@@ -439,6 +478,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       futureQ={futureQ}
       pnlCatByCountry={pnlCatByCountry}
       bpDetailByCountry={bpDetailByCountry}
+      cnBySkuByCountry={cnBySkuByCountry}
     />
   )
 }

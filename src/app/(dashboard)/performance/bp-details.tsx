@@ -25,7 +25,7 @@ function Ach({ a, t }: { a: number | null; t: number }) {
   return <span className={`ml-1 text-[11px] font-extrabold ${c}`}>({(r * 100).toFixed(0)}%)</span>
 }
 
-export function BpDetails({ scope, data }: { scope: string; data?: Detail }) {
+export function BpDetails({ scope, periodLabel, data }: { scope: string; periodLabel: string; data?: Detail }) {
   const [view, setView] = useState<'sku' | 'month'>('sku')
   const rows = (view === 'sku' ? data?.sku : data?.month) ?? []
   const T = rows.reduce((s, r) => {
@@ -37,7 +37,7 @@ export function BpDetails({ scope, data }: { scope: string; data?: Detail }) {
       <div className="flex items-baseline gap-2 mb-4 flex-wrap">
         <h2 className="text-lg font-semibold text-gray-900">📋 BP details</h2>
         <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{scope}</span>
-        <span className="ml-auto text-xs text-gray-400">target = BP · actual = PO · full-year</span>
+        <span className="ml-auto text-xs text-gray-400">target = BP · actual = PO · {periodLabel}</span>
       </div>
 
       <div className="flex items-center gap-2.5 mb-4">
