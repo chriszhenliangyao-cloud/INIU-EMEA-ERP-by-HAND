@@ -261,6 +261,91 @@ export function ProfitabilityByModel({
   )
 }
 
+// ── 分机型(SKU)物流成本：SKU | SI Qty | Logistic Cost | Avg Unit Cost（周期内每台平均运费）──
+//    数据同 P&L by SKU：log = 该 SKU 在本期各 PO「每台平均运费」×台数；Avg Unit Cost = log ÷ qty。
+type LogSortKey = 'qty' | 'cost' | 'avg'
+const eur2 = (v: number) => `€${v.toFixed(2)}`
+
+export function LogisticByModel({ rows, periodLabel, scope }: { rows: PnlModelRow[]; periodLabel: string; scope: string }) {
+  const [sort, setSort] = useState<LogSortKey>('cost')
+  // 只看有 PO / 有台数的 SKU（noPo 亏损行没有物流），并计算每台平均运费
+  const data = useMemo(() => rows.filter(r => !r.noPo && r.qty > 0).map(r => ({
+    ...r, avg: r.logPos > 0 && r.qty > 0 ? r.log / r.qty : null,
+  })), [rows])
+  const sorted = useMemo(() => [...data].sort((a, b) => {
+    const av = sort === 'qty' ? a.qty : sort === 'cost' ? a.log : (a.avg ?? -1)
+    const bv = sort === 'qty' ? b.qty : sort === 'cost' ? b.log : (b.avg ?? -1)
+    return bv - av
+  }), [data, sort])
+  const ttl = useMemo(() => data.reduce((a, r) => ({
+    qty: a.qty + r.qty, log: a.log + r.log, qtyCov: a.qtyCov + (r.logPos > 0 ? r.qty : 0),
+  }), { qty: 0, log: 0, qtyCov: 0 }), [data])
+  const ttlAvg = ttl.qtyCov > 0 ? ttl.log / ttl.qtyCov : null
+  const pending = <span className="text-gray-300" title="本期无运费记录">—</span>
+
+  const ArrowTh = ({ k, children }: { k: LogSortKey; children: React.ReactNode }) => (
+    <th onClick={() => setSort(k)}
+      className={`px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 cursor-pointer select-none hover:text-gray-800 ${sort === k ? 'text-blue-700' : 'text-gray-600'}`}>
+      {children} <span className={sort === k ? 'opacity-100' : 'opacity-25'}>▾</span>
+    </th>
+  )
+
+  return (
+    <div className="mt-8 pt-6 border-t border-gray-200">
+      <div className="flex items-baseline gap-2 mb-1">
+        <h2 className="text-lg font-semibold text-gray-900">🚚 Logistic cost by SKU</h2>
+        <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">Avg unit cost</span>
+        <span className="ml-auto text-xs text-gray-400">{periodLabel}</span>
+      </div>
+      <p className="text-sm text-gray-500 mb-4">
+        Per SKU (colour-level) for {scope}. <b>Avg Unit Cost</b> = this SKU's total freight ÷ units in the period — i.e. the average delivery fee carried by one unit. Freight is the actual PO delivery fee (from the Shipment Workflow), converted to EUR; a SKU whose POs have no freight record yet shows <span className="text-gray-400">—</span>. Click a header to sort.
+      </p>
+
+      <div className="overflow-x-auto border border-gray-200 rounded-xl">
+        <table className="w-full text-sm border-collapse" style={{ minWidth: 680 }}>
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 text-gray-600">SKU</th>
+              <ArrowTh k="qty">SI Qty</ArrowTh>
+              <ArrowTh k="cost">Logistic Cost</ArrowTh>
+              <ArrowTh k="avg">Avg Unit Cost</ArrowTh>
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {sorted.map(r => (
+              <tr key={r.model} className="hover:bg-gray-50/60">
+                <td className="px-3 py-2 text-left border-b border-gray-100 whitespace-nowrap">
+                  <span className="font-medium text-gray-800">{r.name}</span>
+                  <span className="ml-2 text-[11px] font-mono text-gray-400">{r.model}</span>
+                </td>
+                <td className="px-3 py-2 text-right text-gray-700 border-b border-gray-100">{fmtNum(r.qty)}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{r.logPos > 0 ? eur(r.log) : pending}</td>
+                <td className="px-3 py-2 text-right font-bold text-sky-700 border-b border-gray-100">{r.avg != null ? eur2(r.avg) : pending}</td>
+              </tr>
+            ))}
+            {!sorted.length && (
+              <tr><td colSpan={4} className="py-12 text-center text-gray-400">No PO units in {periodLabel}</td></tr>
+            )}
+          </tbody>
+          {sorted.length > 0 && (
+            <tfoot>
+              <tr className="font-bold bg-gray-50">
+                <td className="px-3 py-2 text-left text-gray-800 border-t-2 border-gray-300">TTL · {sorted.length} SKUs</td>
+                <td className="px-3 py-2 text-right text-gray-700 border-t-2 border-gray-300">{fmtNum(ttl.qty)}</td>
+                <td className="px-3 py-2 text-right text-rose-600 border-t-2 border-gray-300">{ttl.log > 0 ? eur(ttl.log) : pending}</td>
+                <td className="px-3 py-2 text-right text-sky-700 border-t-2 border-gray-300">{ttlAvg != null ? eur2(ttlAvg) : pending}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      <p className="mt-3 text-xs text-gray-400">
+        <b className="text-gray-500">Avg Unit Cost</b> = Logistic Cost ÷ SI Qty. The <b className="text-gray-500">TTL</b> average is weighted over units that carry a freight record only (so it isn't diluted by SKUs still missing freight). Matches the <b>log</b> column in P&amp;L by SKU above.
+      </p>
+    </div>
+  )
+}
+
 function Tile({ label, value, sub, cost, gp, np, pendingTag }: {
   label: string; value?: string; sub?: string; cost?: boolean; gp?: boolean; np?: boolean; pendingTag?: boolean
 }) {

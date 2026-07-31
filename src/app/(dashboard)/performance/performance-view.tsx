@@ -6,7 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { fmtNum } from '@/lib/utils'
 import { QuarterlyReview, type ReviewRow } from './quarterly-review'
 import { YearlyReview, type YCountry } from './yearly-review'
-import { ProfitabilityPanel, ProfitabilityByModel, type PnlRow, type PnlModelRow } from './profitability'
+import { ProfitabilityPanel, ProfitabilityByModel, LogisticByModel, type PnlRow, type PnlModelRow } from './profitability'
 import { AnnualAchievement } from './annual-achievement'
 import { AchievementByCategory, type PnlCatRow } from './achievement-by-category'
 import { BpDetails, type BpDetailRow } from './bp-details'
@@ -360,6 +360,7 @@ export function PerformanceView({
                   title="🧾 P&L by PO" badge="Per PO" firstCol="PO" unitPlural="POs"
                   desc={<>One row per PO, all live. <b>log</b> here is the PO's <b>actual</b> freight (exact, not allocated). GP = SI Value − log − BOM; NP = GP − CN. A model's CN is split across the POs carrying it by SI-Value share. CN that can't tie to a PO this period (products with no PO, delivery fees, transfers…) sits in <b>Others</b>. Click a header to sort.</>}
                 />
+                <LogisticByModel rows={modelRows} periodLabel={per} scope={scope} />
               </div>
               </>
             )
