@@ -303,11 +303,14 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const skuCat: Record<number, string> = {}; (skus ?? []).forEach((s: any) => { if (s.category) skuCat[s.id] = s.category })
   const baseModelCat: Record<string, string> = {}; (skus ?? []).forEach((s: any) => { const b = stripColor(s.code); if (s.category && !baseModelCat[b]) baseModelCat[b] = s.category })
   const qMonths = new Set(QUARTER_MONTHS[q])   // 本季月份，如 Q2 = [4,5,6]
+  const KNOWN_CATS = new Set(['Power bank', 'Charger', 'Cable', 'Wireless charger'])
   const bpTargetCat: Record<string, Record<string, number>> = { ALL: {} }
   ;(bpRows ?? []).forEach((r: any) => {
     if (!qMonths.has(Number(r.month))) return
     const ccode = ccodeById[r.country_id]; if (!ccode) return
-    for (const key of [ccode, 'ALL']) (bpTargetCat[key] ??= {})[r.category] = (bpTargetCat[key]?.[r.category] ?? 0) + (Number(r.si_value) || 0)
+    // 未分类 BP 行(如 '(uncat)'：P72-P2/WAL45/TAL101… 未定价机型，si_value=0)归入 Other，避免出现空的 (uncat) 行
+    const cat = KNOWN_CATS.has(r.category) ? r.category : 'Other'
+    for (const key of [ccode, 'ALL']) (bpTargetCat[key] ??= {})[cat] = (bpTargetCat[key]?.[cat] ?? 0) + (Number(r.si_value) || 0)
   })
   const catAgg: Record<string, Record<string, { qty: number; revenue: number; bomRmbW: number; poSet: Set<string> }>> = { ALL: {} }
   ;(pos ?? []).forEach((p: any) => {
@@ -334,7 +337,8 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       const a = catAgg[key]?.[cat]; let s = 0, n = 0
       a?.poSet.forEach(po => { const v = poFreightPerUnit[po]; if (v != null) { s += v; n++ } })
       return { category: cat, qty: a?.qty ?? 0, revenue: a?.revenue ?? 0, log: (n > 0 ? s / n : 0) * (a?.qty ?? 0), bom: (a?.bomRmbW ?? 0) * cnyToEur, logPos: n, cn: cnCatScope[key]?.[cat] ?? 0, target: bpTargetCat[key]?.[cat] ?? 0 }
-    }).sort((x, y) => { const ix = CAT_ORDER.indexOf(x.category), iy = CAT_ORDER.indexOf(y.category); return (ix < 0 ? 99 : ix) - (iy < 0 ? 99 : iy) || y.revenue - x.revenue })
+    }).filter(r => r.target > 0 || r.revenue > 0 || r.cn > 0)   // 丢掉全 0 的空品类行（如仅由未定价 uncat 合并出的 Other）
+      .sort((x, y) => { const ix = CAT_ORDER.indexOf(x.category), iy = CAT_ORDER.indexOf(y.category); return (ix < 0 ? 99 : ix) - (iy < 0 ? 99 : iy) || y.revenue - x.revenue })
   }
 
   // ── 年度达成：selectedYear 各季度 计划(BP) vs 实际(channel_po)，按国家(+ALL)。Value=营收€ / Volume=台数 两套 ──
