@@ -115,10 +115,10 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   })
 
   // ── Profitability(P&L)：营收 + 运费 + BOM + CN（都折成 EUR）──
-  const [{ data: freightRows }, { data: cnRows }, { data: annualPlanRows }, { data: yearPosRows }, plnToEur, cnyToEur] = await Promise.all([
+  const [{ data: freightRows }, { data: cnRows }, { data: bpRows }, { data: yearPosRows }, plnToEur, cnyToEur] = await Promise.all([
     supabase.from('po_freight').select('po_number, delivery_fee, currency').range(0, 9999),
     supabase.from('credit_note').select('country_id, base_model, amount, currency').gte('cn_date', periodStart).lt('cn_date', endExclusive).range(0, 9999),
-    supabase.from('annual_plan').select('country_id, quarter, iniu_si_value').eq('year', year).range(0, 9999),
+    supabase.from('business_plan').select('country_id, month, category, si_value').eq('year', year).range(0, 9999),
     supabase.from('channel_po').select('country_id, po_date, turnover, currency').gte('po_date', `${year}-01-01`).lt('po_date', `${year + 1}-01-01`).range(0, 49999),
     getToEur('PLN', 0.23),
     getToEur('CNY', 0.13),
@@ -298,12 +298,50 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     pnlPoByCountry[key] = rows.map(({ _po, ...r }) => r).sort((a, b) => b.value - a.value)
   }
 
+  // ── 分品类经营达成：BP 目标(SI Value) vs 实际 P&L(营收−运费−BOM=GP−CN=NP)，按品类 ──
+  const skuCat: Record<number, string> = {}; (skus ?? []).forEach((s: any) => { if (s.category) skuCat[s.id] = s.category })
+  const baseModelCat: Record<string, string> = {}; (skus ?? []).forEach((s: any) => { const b = stripColor(s.code); if (s.category && !baseModelCat[b]) baseModelCat[b] = s.category })
+  const qMonths = new Set(QUARTER_MONTHS[q])   // 本季月份，如 Q2 = [4,5,6]
+  const bpTargetCat: Record<string, Record<string, number>> = { ALL: {} }
+  ;(bpRows ?? []).forEach((r: any) => {
+    if (!qMonths.has(Number(r.month))) return
+    const ccode = ccodeById[r.country_id]; if (!ccode) return
+    for (const key of [ccode, 'ALL']) (bpTargetCat[key] ??= {})[r.category] = (bpTargetCat[key]?.[r.category] ?? 0) + (Number(r.si_value) || 0)
+  })
+  const catAgg: Record<string, Record<string, { qty: number; revenue: number; bomRmbW: number; poSet: Set<string> }>> = { ALL: {} }
+  ;(pos ?? []).forEach((p: any) => {
+    const ccode = ccodeById[p.country_id]; if (!ccode) return
+    const cat = skuCat[p.sku_id] || 'Other'
+    const qty = Number(p.qty_ordered) || 0, value = toEur(p.turnover, p.currency), bomRmb = skuBomRmb[p.sku_id] ?? 0, npo = normPo(p.po_number)
+    for (const key of [ccode, 'ALL']) {
+      const a = ((catAgg[key] ??= {})[cat] ??= { qty: 0, revenue: 0, bomRmbW: 0, poSet: new Set() })
+      a.qty += qty; a.revenue += value; a.bomRmbW += qty * bomRmb; a.poSet.add(npo)
+    }
+  })
+  const cnCatScope: Record<string, Record<string, number>> = {}
+  ;(cnRows ?? []).forEach((r: any) => {
+    const ccode = ccodeById[r.country_id]; if (!ccode) return
+    const cat = r.base_model ? (baseModelCat[r.base_model] || 'Other') : 'Other'
+    const eur = cnEur(r.amount, r.currency)
+    for (const key of [ccode, 'ALL']) (cnCatScope[key] ??= {})[cat] = (cnCatScope[key]?.[cat] ?? 0) + eur
+  })
+  const CAT_ORDER = ['Power bank', 'Charger', 'Cable', 'Wireless charger']
+  const pnlCatByCountry: Record<string, Array<{ category: string; qty: number; revenue: number; log: number; bom: number; logPos: number; cn: number; target: number }>> = {}
+  for (const key of new Set<string>([...Object.keys(catAgg), ...Object.keys(bpTargetCat)])) {
+    const cats = new Set<string>([...Object.keys(catAgg[key] ?? {}), ...Object.keys(bpTargetCat[key] ?? {}), ...Object.keys(cnCatScope[key] ?? {})])
+    pnlCatByCountry[key] = [...cats].map(cat => {
+      const a = catAgg[key]?.[cat]; let s = 0, n = 0
+      a?.poSet.forEach(po => { const v = poFreightPerUnit[po]; if (v != null) { s += v; n++ } })
+      return { category: cat, qty: a?.qty ?? 0, revenue: a?.revenue ?? 0, log: (n > 0 ? s / n : 0) * (a?.qty ?? 0), bom: (a?.bomRmbW ?? 0) * cnyToEur, logPos: n, cn: cnCatScope[key]?.[cat] ?? 0, target: bpTargetCat[key]?.[cat] ?? 0 }
+    }).sort((x, y) => { const ix = CAT_ORDER.indexOf(x.category), iy = CAT_ORDER.indexOf(y.category); return (ix < 0 ? 99 : ix) - (iy < 0 ? 99 : iy) || y.revenue - x.revenue })
+  }
+
   // ── 年度达成：selectedYear 各季度 计划营收(annual_plan) vs 实际营收(channel_po)，按国家(+ALL) ──
-  const planQ: Record<number, number[]> = {}      // country_id → [Q1..Q4] 计划营收
-  ;(annualPlanRows ?? []).forEach((r: any) => {
-    const qi = parseInt(String(r.quarter).replace(/\D/g, ''), 10) - 1
+  const planQ: Record<number, number[]> = {}      // country_id → [Q1..Q4] 计划营收（来自 business_plan，SI×FD买价，与实际同口径）
+  ;(bpRows ?? []).forEach((r: any) => {
+    const qi = Math.floor((Number(r.month) - 1) / 3)
     if (qi < 0 || qi > 3) return
-    ;(planQ[r.country_id] ??= [0, 0, 0, 0])[qi] += Number(r.iniu_si_value) || 0
+    ;(planQ[r.country_id] ??= [0, 0, 0, 0])[qi] += Number(r.si_value) || 0
   })
   const actQ: Record<number, number[]> = {}       // country_id → [Q1..Q4] 实际营收(EUR)
   ;(yearPosRows ?? []).forEach((p: any) => {
@@ -348,6 +386,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       cnOthersPoByCountry={cnOthersPoByCountry}
       annualByCountry={annualByCountry}
       futureQ={futureQ}
+      pnlCatByCountry={pnlCatByCountry}
     />
   )
 }
