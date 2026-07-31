@@ -9,7 +9,8 @@
 import { useState } from 'react'
 import { fmtNum } from '@/lib/utils'
 
-export type BpDetailRow = { key: string; name: string; siTgt: number; valTgt: number; siAct: number | null; valAct: number | null }
+export type BpChild = { key: string; name: string; siAct: number; valAct: number }
+export type BpDetailRow = { key: string; name: string; siTgt: number; valTgt: number; siAct: number | null; valAct: number | null; children?: BpChild[] }
 export type BpDetail = { skuByQuarter: BpDetailRow[][]; month: BpDetailRow[] }
 
 const n = (v: number | null) => v == null ? '—' : fmtNum(Math.round(v))
@@ -26,23 +27,43 @@ const sum = (rows: BpDetailRow[]) => rows.reduce((s, r) => {
   s.siTgt += r.siTgt; s.valTgt += r.valTgt; s.siAct += r.siAct ?? 0; s.valAct += r.valAct ?? 0; return s
 }, { siTgt: 0, valTgt: 0, siAct: 0, valAct: 0 })
 
-// 单行
+// 单行（SKU 行可展开看颜色明细；颜色行只有实际、无 BP 目标）
 function Row({ r, firstColMonth }: { r: BpDetailRow; firstColMonth?: boolean }) {
+  const [open, setOpen] = useState(false)
   const noAct = r.siAct == null && r.valAct == null
   const noTgt = r.siTgt <= 0 && r.valTgt <= 0
+  const kids = !firstColMonth ? r.children ?? [] : []
   return (
-    <tr className={`border-b border-slate-100 ${noAct ? 'text-gray-400' : ''}`}>
-      <td className="text-left px-3 py-2 font-semibold whitespace-nowrap">
-        {firstColMonth
-          ? r.name
-          : <><span className={noAct ? '' : 'text-gray-900'}>{r.name}</span><span className="ml-1.5 text-[11px] font-mono text-gray-400">{r.key}</span></>}
-        {noTgt && !noAct && <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-400">· no plan</span>}
-      </td>
-      <td className="text-right px-3 py-2 border-l border-slate-100 text-gray-500">{r.siTgt > 0 ? n(r.siTgt) : '—'}</td>
-      <td className="text-right px-3 py-2">{n(r.siAct)}<Ach a={r.siAct} t={r.siTgt} /></td>
-      <td className="text-right px-3 py-2 border-l border-slate-100 text-gray-500">{r.valTgt > 0 ? eur(r.valTgt) : '—'}</td>
-      <td className="text-right px-3 py-2">{eur(r.valAct)}<Ach a={r.valAct} t={r.valTgt} /></td>
-    </tr>
+    <>
+      <tr className={`border-b border-slate-100 ${noAct ? 'text-gray-400' : ''}`}>
+        <td className="text-left px-3 py-2 font-semibold whitespace-nowrap">
+          {kids.length > 0 && (
+            <button onClick={() => setOpen(o => !o)} className="mr-1.5 text-gray-400 hover:text-gray-700 text-[10px] align-middle" title="show colours">
+              <span className={`inline-block transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+            </button>
+          )}
+          {firstColMonth
+            ? r.name
+            : <><span className={noAct ? '' : 'text-gray-900'}>{r.name}</span><span className="ml-1.5 text-[11px] font-mono text-gray-400">{r.key}</span>{kids.length > 0 && <span className="ml-1.5 text-[10px] text-gray-400">· {kids.length} colours</span>}</>}
+          {noTgt && !noAct && <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-400">· no plan</span>}
+        </td>
+        <td className="text-right px-3 py-2 border-l border-slate-100 text-gray-500">{r.siTgt > 0 ? n(r.siTgt) : '—'}</td>
+        <td className="text-right px-3 py-2">{n(r.siAct)}<Ach a={r.siAct} t={r.siTgt} /></td>
+        <td className="text-right px-3 py-2 border-l border-slate-100 text-gray-500">{r.valTgt > 0 ? eur(r.valTgt) : '—'}</td>
+        <td className="text-right px-3 py-2">{eur(r.valAct)}<Ach a={r.valAct} t={r.valTgt} /></td>
+      </tr>
+      {open && kids.map(c => (
+        <tr key={c.key} className="border-b border-slate-100 bg-slate-50/60 text-gray-500">
+          <td className="text-left pl-9 pr-3 py-1.5 whitespace-nowrap">
+            <span className="text-gray-600">{c.name}</span><span className="ml-1.5 text-[11px] font-mono text-gray-400">{c.key}</span>
+          </td>
+          <td className="text-right px-3 py-1.5 border-l border-slate-100 text-gray-300">—</td>
+          <td className="text-right px-3 py-1.5">{n(c.siAct)}</td>
+          <td className="text-right px-3 py-1.5 border-l border-slate-100 text-gray-300">—</td>
+          <td className="text-right px-3 py-1.5">{eur(c.valAct)}</td>
+        </tr>
+      ))}
+    </>
   )
 }
 

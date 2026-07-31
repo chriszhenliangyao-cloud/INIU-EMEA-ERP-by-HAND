@@ -395,9 +395,10 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       const arr = (bpMon[key] ??= emptyMon()); arr[mi].a += siQty; arr[mi].b += siVal
     }
   })
-  // 实际（PO，全年）：scope×机型×季度 与 scope×月
+  // 实际（PO，全年）：scope×机型×季度 与 scope×月；另存 scope×机型×季度×颜色SKU 明细（供展开看颜色）
   const actModelQ: Record<string, Record<string, Array<{ a: number; b: number }>>> = { ALL: {} }
   const actMon: Record<string, Array<{ a: number; b: number }>> = { ALL: emptyMon() }
+  const actColorQ: Record<string, Record<string, Array<Record<string, { units: number; val: number; name: string }>>>> = { ALL: {} }
   ;(yearPosRows ?? []).forEach((p: any) => {
     const ccode = ccodeById[p.country_id]; if (!ccode) return
     const mi = Number(String(p.po_date).slice(5, 7)) - 1; if (mi < 0 || mi > 11) return
@@ -407,10 +408,14 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     for (const key of [ccode, 'ALL']) {
       const q4 = ((actModelQ[key] ??= {})[base] ??= newQuad()); q4[qi].a += units; q4[qi].b += val
       const arr = (actMon[key] ??= emptyMon()); arr[mi].a += units; arr[mi].b += val
+      const cq = ((actColorQ[key] ??= {})[base] ??= [{}, {}, {}, {}])
+      const cell = (cq[qi][code] ??= { units: 0, val: 0, name: skuNameById[p.sku_id] || code })
+      cell.units += units; cell.val += val
     }
   })
-  // 组装：每 scope → { skuByQuarter:[Q1..Q4 各自的机型行], month:[12 个月] }
-  type BpDetailRow = { key: string; name: string; siTgt: number; valTgt: number; siAct: number | null; valAct: number | null }
+  // 组装：每 scope → { skuByQuarter:[Q1..Q4 各自的机型行], month:[12 个月] }。children=颜色SKU实际（无 BP 目标）
+  type BpChild = { key: string; name: string; siAct: number; valAct: number }
+  type BpDetailRow = { key: string; name: string; siTgt: number; valTgt: number; siAct: number | null; valAct: number | null; children?: BpChild[] }
   const bpDetailByCountry: Record<string, { skuByQuarter: BpDetailRow[][]; month: BpDetailRow[] }> = {}
   for (const key of new Set<string>([...Object.keys(bpModelQ), ...Object.keys(actModelQ)])) {
     const models = new Set<string>([...Object.keys(bpModelQ[key] ?? {}), ...Object.keys(actModelQ[key] ?? {})])
@@ -418,8 +423,13 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       [...models].map(base => {
         const t = bpModelQ[key]?.[base]?.[qi], a = actModelQ[key]?.[base]?.[qi]
         const hasAct = !!a && (a.a > 0 || a.b > 0)
+        const childMap = actColorQ[key]?.[base]?.[qi] ?? {}
+        const children: BpChild[] = Object.entries(childMap)
+          .map(([code, c]) => ({ key: code, name: c.name, siAct: c.units, valAct: c.val }))
+          .sort((x, y) => y.valAct - x.valAct)
         return { key: base, name: bpDetailName[base] || modelDisplay[base]?.name || base,
-          siTgt: t?.a ?? 0, valTgt: t?.b ?? 0, siAct: hasAct ? a!.a : null, valAct: hasAct ? a!.b : null }
+          siTgt: t?.a ?? 0, valTgt: t?.b ?? 0, siAct: hasAct ? a!.a : null, valAct: hasAct ? a!.b : null,
+          children: children.length >= 2 ? children : undefined }
       }).filter(r => r.siTgt > 0 || r.valTgt > 0 || r.siAct != null)
         .sort((x, y) => ((y.valTgt || 0) + (y.valAct || 0)) - ((x.valTgt || 0) + (x.valAct || 0))),
     )
@@ -443,7 +453,17 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     if (/delivery\s*fee|freight|shipping/.test(s)) return 'Delivery Fee'
     return 'Other'
   }
-  const cnSkuAgg: Record<string, Record<string, { name: string; by: Record<string, number>; total: number }>> = { ALL: {} }
+  // 清掉 product 文案里重复的机型/描述噪声，尽量露出颜色。截断过长文案。
+  const cnLineLabel = (product: string | null, bm: string): string => {
+    let s = (product || bm).trim()
+    // 去掉结尾的类型词，突出前面的颜色/描述
+    s = s.replace(/\b(stock\s+)?price\s*protection\b.*$/i, '').replace(/\bpromotion\s+rebate\b.*$/i, '')
+      .replace(/\bquality\s+issue\s+reimbursement\b.*$/i, '').replace(/\bmargin\s+(protection|gap\s+covering.*)$/i, '')
+      .replace(/\bsample\s+support\b.*$/i, '').trim()
+    return s.length > 60 ? s.slice(0, 58) + '…' : (s || bm)
+  }
+  type CnLine = { desc: string; type: string; amt: number }
+  const cnSkuAgg: Record<string, Record<string, { name: string; by: Record<string, number>; total: number; lines: CnLine[] }>> = { ALL: {} }
   const cnSkuOthers: Record<string, Record<string, number>> = {}
   ;(cnRows ?? []).forEach((r: any) => {
     const ccode = ccodeById[r.country_id]; if (!ccode) return
@@ -452,15 +472,16 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       if (!bm || bm === '/') {
         const o = (cnSkuOthers[key] ??= {}); o[t] = (o[t] ?? 0) + eur
       } else {
-        const m = ((cnSkuAgg[key] ??= {})[bm] ??= { name: modelDisplay[bm]?.name || bm, by: {}, total: 0 })
+        const m = ((cnSkuAgg[key] ??= {})[bm] ??= { name: modelDisplay[bm]?.name || bm, by: {}, total: 0, lines: [] })
         m.by[t] = (m.by[t] ?? 0) + eur; m.total += eur
+        m.lines.push({ desc: cnLineLabel(r.product, bm), type: t, amt: eur })
       }
     }
   })
-  type CnSkuRow = { model: string; name: string; by: Record<string, number>; total: number }
+  type CnSkuRow = { model: string; name: string; by: Record<string, number>; total: number; lines: CnLine[] }
   const cnBySkuByCountry: Record<string, { rows: CnSkuRow[]; others: Record<string, number>; othersTotal: number }> = {}
   for (const key of new Set<string>([...Object.keys(cnSkuAgg), ...Object.keys(cnSkuOthers)])) {
-    const rows = Object.entries(cnSkuAgg[key] ?? {}).map(([model, v]) => ({ model, name: v.name, by: v.by, total: v.total })).sort((a, b) => b.total - a.total)
+    const rows = Object.entries(cnSkuAgg[key] ?? {}).map(([model, v]) => ({ model, name: v.name, by: v.by, total: v.total, lines: v.lines.sort((a, b) => b.amt - a.amt) })).sort((a, b) => b.total - a.total)
     const others = cnSkuOthers[key] ?? {}
     const othersTotal = Object.values(others).reduce((s, v) => s + v, 0)
     cnBySkuByCountry[key] = { rows, others, othersTotal }

@@ -6,14 +6,51 @@
  * 类型由 CN 源文案关键词判定（源表无独立类型字段）。金额已折 EUR。
  * 非产品 CN（无机型：调拨/参展/杂项）汇总到 Others 行。合计与 P&L 里的 CN 一致。
  */
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { fmtNum } from '@/lib/utils'
 
-export type CnSkuRow = { model: string; name: string; by: Record<string, number>; total: number }
+export type CnLine = { desc: string; type: string; amt: number }
+export type CnSkuRow = { model: string; name: string; by: Record<string, number>; total: number; lines: CnLine[] }
 export type CnBySku = { rows: CnSkuRow[]; others: Record<string, number>; othersTotal: number }
 
 const CN_TYPES = ['Rebate', 'Price Protection', 'Margin Protection', 'Quality', 'Delivery Fee', 'Other']
 const eur = (v: number) => `€${fmtNum(Math.round(v))}`
+
+// 一个机型行：可展开看每条 CN 明细（含颜色/描述）
+function CnRow({ r, cols }: { r: CnSkuRow; cols: string[] }) {
+  const [open, setOpen] = useState(false)
+  const lines = r.lines ?? []
+  const canExpand = lines.length >= 2
+  return (
+    <>
+      <tr className="hover:bg-gray-50/60">
+        <td className="px-3 py-2 text-left border-b border-gray-100 whitespace-nowrap">
+          {canExpand && (
+            <button onClick={() => setOpen(o => !o)} className="mr-1.5 text-gray-400 hover:text-gray-700 text-[10px] align-middle" title="show colours / lines">
+              <span className={`inline-block transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+            </button>
+          )}
+          <span className="font-medium text-gray-800">{r.name}</span>
+          <span className="ml-2 text-[11px] font-mono text-gray-400">{r.model}</span>
+          {canExpand && <span className="ml-1.5 text-[10px] text-gray-400">· {lines.length} lines</span>}
+        </td>
+        {cols.map(ty => (
+          <td key={ty} className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{r.by[ty] ? eur(r.by[ty]) : <span className="text-gray-300">—</span>}</td>
+        ))}
+        <td className="px-3 py-2 text-right font-bold text-rose-700 border-b border-l border-gray-100">{eur(r.total)}</td>
+      </tr>
+      {open && lines.map((ln, i) => (
+        <tr key={i} className="bg-gray-50/60 text-gray-500">
+          <td className="pl-9 pr-3 py-1.5 text-left border-b border-gray-100 whitespace-nowrap max-w-[360px] truncate" title={ln.desc}>{ln.desc}</td>
+          {cols.map(ty => (
+            <td key={ty} className="px-3 py-1.5 text-right border-b border-gray-100">{ln.type === ty ? <span className="text-rose-500">{eur(ln.amt)}</span> : <span className="text-gray-300">—</span>}</td>
+          ))}
+          <td className="px-3 py-1.5 text-right border-b border-l border-gray-100 text-rose-600">{eur(ln.amt)}</td>
+        </tr>
+      ))}
+    </>
+  )
+}
 
 export function CnBySkuTable({ data, periodLabel, scope, bare = false }: { data?: CnBySku; periodLabel: string; scope: string; bare?: boolean }) {
   const rows = data?.rows ?? []
@@ -57,18 +94,7 @@ export function CnBySkuTable({ data, periodLabel, scope, bare = false }: { data?
               </tr>
             </thead>
             <tbody className="tabular-nums">
-              {rows.map(r => (
-                <tr key={r.model} className="hover:bg-gray-50/60">
-                  <td className="px-3 py-2 text-left border-b border-gray-100 whitespace-nowrap">
-                    <span className="font-medium text-gray-800">{r.name}</span>
-                    <span className="ml-2 text-[11px] font-mono text-gray-400">{r.model}</span>
-                  </td>
-                  {cols.map(ty => (
-                    <td key={ty} className="px-3 py-2 text-right text-rose-600 border-b border-gray-100">{r.by[ty] ? eur(r.by[ty]) : dash}</td>
-                  ))}
-                  <td className="px-3 py-2 text-right font-bold text-rose-700 border-b border-l border-gray-100">{eur(r.total)}</td>
-                </tr>
-              ))}
+              {rows.map(r => <CnRow key={r.model} r={r} cols={cols} />)}
               {othersTotal > 0 && (
                 <tr className="bg-amber-50/40">
                   <td className="px-3 py-2 text-left border-b border-gray-100">
