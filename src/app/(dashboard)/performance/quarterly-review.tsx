@@ -114,14 +114,14 @@ export function QuarterlyReview({
                   {row.name}{row.ka_id == null && <span className="ml-1 text-[10px] text-blue-400" title="Added in review (not in KA map)">＋</span>}
                 </td>
                 {which === 'front' && (
-                  <td className="border-b border-r border-gray-100 bg-indigo-50/30 px-2 py-1.5 align-top text-xs text-indigo-900 whitespace-pre-line" style={{ minWidth: 140 }}>
+                  <td className="border-b border-r border-gray-100 bg-indigo-50/30 px-2.5 py-2 align-top text-[13px] leading-relaxed text-indigo-900 whitespace-pre-line" style={{ minWidth: 170 }}>
                     {prevTargetMap[row.name] ?? <span className="text-gray-300">—</span>}
                   </td>
                 )}
                 {c.map(([f]) => (
-                  <td key={f} className="border-b border-r border-gray-100 p-0">
-                    <textarea value={data[row.name]?.[f] ?? ''} onChange={e => set(row.name, f, e.target.value)} rows={3}
-                      className="w-full h-full min-h-[64px] resize-y bg-transparent px-2 py-1.5 text-xs text-gray-800 outline-none focus:bg-yellow-50 focus:ring-1 focus:ring-blue-300" placeholder="—" />
+                  <td key={f} className="border-b border-r border-gray-100 p-0" style={{ minWidth: 190 }}>
+                    <textarea value={data[row.name]?.[f] ?? ''} onChange={e => set(row.name, f, e.target.value)} rows={5}
+                      className="w-full h-full min-h-[112px] resize-y bg-transparent px-2.5 py-2 text-[13px] leading-relaxed text-gray-800 outline-none focus:bg-yellow-50 focus:ring-1 focus:ring-blue-300" placeholder="—" />
                   </td>
                 ))}
                 <td className="border-b border-gray-100 text-center align-middle">
@@ -169,7 +169,7 @@ export function QuarterlyReview({
       </div>
 
       <div style={{ perspective: '2500px' }}>
-        <div className="relative" style={{ transformStyle: 'preserve-3d', transition: 'transform 0.7s', transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)', height: '64vh', minHeight: 420 }}>
+        <div className="relative" style={{ transformStyle: 'preserve-3d', transition: 'transform 0.7s', transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)', height: '78vh', minHeight: 560 }}>
           {renderFace('front')}
           {renderFace('back')}
         </div>
