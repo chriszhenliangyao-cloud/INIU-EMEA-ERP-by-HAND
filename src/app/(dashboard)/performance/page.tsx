@@ -115,9 +115,11 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   })
 
   // ── Profitability(P&L)：营收 + 运费 + BOM + CN（都折成 EUR）──
-  const [{ data: freightRows }, { data: cnRows }, plnToEur, cnyToEur] = await Promise.all([
+  const [{ data: freightRows }, { data: cnRows }, { data: annualPlanRows }, { data: yearPosRows }, plnToEur, cnyToEur] = await Promise.all([
     supabase.from('po_freight').select('po_number, delivery_fee, currency').range(0, 9999),
     supabase.from('credit_note').select('country_id, base_model, amount, currency').gte('cn_date', periodStart).lt('cn_date', endExclusive).range(0, 9999),
+    supabase.from('annual_plan').select('country_id, quarter, iniu_si_value').eq('year', year).range(0, 9999),
+    supabase.from('channel_po').select('country_id, po_date, turnover, currency').gte('po_date', `${year}-01-01`).lt('po_date', `${year + 1}-01-01`).range(0, 49999),
     getToEur('PLN', 0.23),
     getToEur('CNY', 0.13),
   ])
@@ -296,6 +298,28 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     pnlPoByCountry[key] = rows.map(({ _po, ...r }) => r).sort((a, b) => b.value - a.value)
   }
 
+  // ── 年度达成：selectedYear 各季度 计划营收(annual_plan) vs 实际营收(channel_po)，按国家(+ALL) ──
+  const planQ: Record<number, number[]> = {}      // country_id → [Q1..Q4] 计划营收
+  ;(annualPlanRows ?? []).forEach((r: any) => {
+    const qi = parseInt(String(r.quarter).replace(/\D/g, ''), 10) - 1
+    if (qi < 0 || qi > 3) return
+    ;(planQ[r.country_id] ??= [0, 0, 0, 0])[qi] += Number(r.iniu_si_value) || 0
+  })
+  const actQ: Record<number, number[]> = {}       // country_id → [Q1..Q4] 实际营收(EUR)
+  ;(yearPosRows ?? []).forEach((p: any) => {
+    const mo = Number(String(p.po_date).slice(5, 7)), qi = Math.floor((mo - 1) / 3)
+    ;(actQ[p.country_id] ??= [0, 0, 0, 0])[qi] += toEur(p.turnover, p.currency)
+  })
+  const annualByCountry: Record<string, { plan: number[]; actual: number[] }> = { ALL: { plan: [0, 0, 0, 0], actual: [0, 0, 0, 0] } }
+  countries.forEach((c: any) => {
+    const plan = planQ[c.id] ?? [0, 0, 0, 0], actual = actQ[c.id] ?? [0, 0, 0, 0]
+    annualByCountry[c.code] = { plan, actual }
+    for (let i = 0; i < 4; i++) { annualByCountry.ALL.plan[i] += plan[i]; annualByCountry.ALL.actual[i] += actual[i] }
+  })
+  // 未开始的季度（当年且晚于本季度 → 用斜纹标注）
+  const nowQ = Math.floor(now.getMonth() / 3), nowY = now.getFullYear()
+  const futureQ = [0, 1, 2, 3].map(qi => year > nowY || (year === nowY && qi > nowQ))
+
   const initialCountryCode = (searchParams?.country === 'ALL' || (searchParams?.country && countries.some((c: any) => c.code === searchParams.country)))
     ? searchParams.country : (countries[0] as any)?.code ?? ''
 
@@ -322,6 +346,8 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
       cnOthersByCountry={cnOthersByCountry}
       pnlPoByCountry={pnlPoByCountry}
       cnOthersPoByCountry={cnOthersPoByCountry}
+      annualByCountry={annualByCountry}
+      futureQ={futureQ}
     />
   )
 }

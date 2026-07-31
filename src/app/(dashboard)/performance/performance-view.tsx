@@ -7,6 +7,7 @@ import { fmtNum } from '@/lib/utils'
 import { QuarterlyReview, type ReviewRow } from './quarterly-review'
 import { YearlyReview, type YCountry } from './yearly-review'
 import { ProfitabilityPanel, ProfitabilityByModel, type PnlRow, type PnlModelRow } from './profitability'
+import { AnnualAchievement } from './annual-achievement'
 
 type Country = { id: number; code: string; name_en: string; flag_emoji: string; sort_order: number }
 type Sku = { id: number; code: string; name: string; category: string | null; sort_order: number }
@@ -24,7 +25,7 @@ const SCORE_BANDS = [
 ]
 
 export function PerformanceView({
-  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModelsByCountry, cnOthersByCountry, pnlPoByCountry, cnOthersPoByCountry,
+  years, selectedYear, selectedQuarter, monthsIso, countries, skus, forecast, achieve, channels, reviews, prevReviews, prevQuarterLabel, initialCountryCode, viewerIsAdmin, yearly, pnl, pnlModelsByCountry, cnOthersByCountry, pnlPoByCountry, cnOthersPoByCountry, annualByCountry, futureQ,
 }: {
   years: number[]
   selectedYear: number
@@ -47,6 +48,8 @@ export function PerformanceView({
   cnOthersByCountry: Record<string, number>
   pnlPoByCountry: Record<string, PnlModelRow[]>
   cnOthersPoByCountry: Record<string, number>
+  annualByCountry: Record<string, { plan: number[]; actual: number[] }>
+  futureQ: boolean[]
 }) {
   const router = useRouter()
   const [countryCode, setCountryCode] = useState(initialCountryCode)
@@ -339,7 +342,10 @@ export function PerformanceView({
             const cnOthersPo = cnOthersPoByCountry[key] ?? 0
             const scope = isAll ? 'All countries' : `${country?.flag_emoji} ${country?.code}`
             const per = `${selectedYear} ${qLabel} · ${scope}`
+            const annual = annualByCountry[key] ?? { plan: [0, 0, 0, 0], actual: [0, 0, 0, 0] }
             return (
+              <>
+              <AnnualAchievement plan={annual.plan} actual={annual.actual} future={futureQ} year={selectedYear} quarter={selectedQuarter} scope={scope} />
               <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
                 <ProfitabilityPanel rows={pnlRows} periodLabel={`${selectedYear} ${qLabel}`} scope={scope} isAll={isAll} />
                 <ProfitabilityByModel rows={modelRows} cnOthers={cnOthers} periodLabel={per} />
@@ -349,6 +355,7 @@ export function PerformanceView({
                   desc={<>One row per PO, all live. <b>log</b> here is the PO's <b>actual</b> freight (exact, not allocated). GP = SI Value − log − BOM; NP = GP − CN. A model's CN is split across the POs carrying it by SI-Value share. CN that can't tie to a PO this period (products with no PO, delivery fees, transfers…) sits in <b>Others</b>. Click a header to sort.</>}
                 />
               </div>
+              </>
             )
           })()}
         </div>
