@@ -62,6 +62,7 @@ export function PerformanceView({
   const [hideZero, setHideZero] = useState(true)
   const [tab, setTab] = useState<'kpi' | 'review' | 'yearly'>('kpi')
   const [reviewSub, setReviewSub] = useState<'sales' | 'pnl'>('sales')
+  const [pnlView, setPnlView] = useState<'overview' | 'category' | 'sku' | 'po' | 'logistic' | 'cn'>('overview')
   const country = useMemo(() => countries.find(c => c.code === countryCode) ?? countries[0], [countries, countryCode])
   const M = monthsIso.length
   const qLabel = `Q${selectedQuarter}`
@@ -349,26 +350,48 @@ export function PerformanceView({
             const scope = isAll ? 'All countries' : `${country?.flag_emoji} ${country?.code}`
             const per = `${selectedYear} ${qLabel} · ${scope}`
             const annual = annualByCountry[key] ?? { plan: [0, 0, 0, 0], actual: [0, 0, 0, 0] }
+            const PNL_TABS: [typeof pnlView, string][] = [
+              ['overview', '💶 Overview'],
+              ['category', '🗂️ By category'],
+              ['sku', '📦 By SKU'],
+              ['po', '📄 By PO'],
+              ['logistic', '🚚 Logistics'],
+              ['cn', '🧾 Credit Notes'],
+            ]
             return (
               <>
               <AnnualAchievement plan={annual.plan} actual={annual.actual} future={futureQ} year={selectedYear} quarter={selectedQuarter} scope={scope} />
-              <BpDetails scope={scope} periodLabel={`${selectedYear} ${qLabel}`} data={bpDetailByCountry[key]} />
+              <BpDetails scope={scope} periodLabel={`${selectedYear} ${qLabel}`} qLabel={qLabel} data={bpDetailByCountry[key]} />
               <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
-                <ProfitabilityPanel rows={pnlRows} periodLabel={`${selectedYear} ${qLabel}`} scope={scope} isAll={isAll} />
-                <AchievementByCategory rows={pnlCatByCountry[key] ?? []} periodLabel={per} />
-                <ProfitabilityByModel rows={modelRows} cnOthers={cnOthers} periodLabel={per} />
-                <ProfitabilityByModel
-                  rows={poRows} cnOthers={cnOthersPo} periodLabel={per}
-                  title="🧾 P&L by PO" badge="Per PO" firstCol="PO" unitPlural="POs"
-                  desc={<>One row per PO, all live. <b>log</b> here is the PO's <b>actual</b> freight (exact, not allocated). GP = SI Value − log − BOM; NP = GP − CN. A model's CN is split across the POs carrying it by SI-Value share. CN that can't tie to a PO this period (products with no PO, delivery fees, transfers…) sits in <b>Others</b>. Click a header to sort.</>}
-                />
-                <LogisticByModel rows={modelRows} periodLabel={per} scope={scope} />
-                <LogisticByModel
-                  rows={poRows} periodLabel={per} scope={scope}
-                  title="🚚 Logistic cost by PO" badge="Avg unit cost" firstCol="PO" unitPlural="POs"
-                  desc={<>One row per PO for {scope}. <b>Logistic Cost</b> is the PO's <b>actual</b> delivery fee (exact, from the Shipment Workflow), converted to EUR; <b>Avg Unit Cost</b> = that freight ÷ the PO's units. A PO with no freight record yet shows <span className="text-gray-400">—</span>. Click a header to sort.</>}
-                />
-                <CnBySkuTable data={cnBySkuByCountry[key]} periodLabel={per} scope={scope} />
+                {/* 分段切换：总览 / by category / by SKU / by PO / 物流 / CN —— 点击切换，不再长滚动 */}
+                <div className="flex gap-1 mb-5 overflow-x-auto p-1 rounded-xl bg-gray-100 border border-gray-200 w-fit max-w-full">
+                  {PNL_TABS.map(([v, label]) => (
+                    <button key={v} onClick={() => setPnlView(v)}
+                      className={`px-3.5 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition ${pnlView === v ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {pnlView === 'overview' && <ProfitabilityPanel rows={pnlRows} periodLabel={`${selectedYear} ${qLabel}`} scope={scope} isAll={isAll} />}
+                {pnlView === 'category' && <AchievementByCategory rows={pnlCatByCountry[key] ?? []} periodLabel={per} bare />}
+                {pnlView === 'sku' && <ProfitabilityByModel rows={modelRows} cnOthers={cnOthers} periodLabel={per} bare />}
+                {pnlView === 'po' && (
+                  <ProfitabilityByModel
+                    rows={poRows} cnOthers={cnOthersPo} periodLabel={per} bare
+                    title="🧾 P&L by PO" badge="Per PO" firstCol="PO" unitPlural="POs"
+                    desc={<>One row per PO, all live. <b>log</b> here is the PO's <b>actual</b> freight (exact, not allocated). GP = SI Value − log − BOM; NP = GP − CN. A model's CN is split across the POs carrying it by SI-Value share. CN that can't tie to a PO this period (products with no PO, delivery fees, transfers…) sits in <b>Others</b>. Click a header to sort.</>}
+                  />
+                )}
+                {pnlView === 'logistic' && (<>
+                  <LogisticByModel rows={modelRows} periodLabel={per} scope={scope} bare />
+                  <LogisticByModel
+                    rows={poRows} periodLabel={per} scope={scope}
+                    title="🚚 Logistic cost by PO" badge="Avg unit cost" firstCol="PO" unitPlural="POs"
+                    desc={<>One row per PO for {scope}. <b>Logistic Cost</b> is the PO's <b>actual</b> delivery fee (exact, from the Shipment Workflow), converted to EUR; <b>Avg Unit Cost</b> = that freight ÷ the PO's units. A PO with no freight record yet shows <span className="text-gray-400">—</span>. Click a header to sort.</>}
+                  />
+                </>)}
+                {pnlView === 'cn' && <CnBySkuTable data={cnBySkuByCountry[key]} periodLabel={per} scope={scope} bare />}
               </div>
               </>
             )

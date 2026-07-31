@@ -15,7 +15,7 @@ export type CnBySku = { rows: CnSkuRow[]; others: Record<string, number>; others
 const CN_TYPES = ['Rebate', 'Price Protection', 'Margin Protection', 'Quality', 'Delivery Fee', 'Other']
 const eur = (v: number) => `€${fmtNum(Math.round(v))}`
 
-export function CnBySkuTable({ data, periodLabel, scope }: { data?: CnBySku; periodLabel: string; scope: string }) {
+export function CnBySkuTable({ data, periodLabel, scope, bare = false }: { data?: CnBySku; periodLabel: string; scope: string; bare?: boolean }) {
   const rows = data?.rows ?? []
   const others = data?.others ?? {}
   const othersTotal = data?.othersTotal ?? 0
@@ -32,7 +32,7 @@ export function CnBySkuTable({ data, periodLabel, scope }: { data?: CnBySku; per
   const dash = <span className="text-gray-300">—</span>
 
   return (
-    <div className="mt-8 pt-6 border-t border-gray-200">
+    <div className={bare ? '' : 'mt-8 pt-6 border-t border-gray-200'}>
       <div className="flex items-baseline gap-2 mb-1">
         <h2 className="text-lg font-semibold text-gray-900">🧾 Credit Notes by SKU</h2>
         <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">By type</span>

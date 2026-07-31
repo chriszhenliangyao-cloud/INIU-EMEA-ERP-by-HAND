@@ -24,7 +24,7 @@ const eurPct = (v: number, base: number) => (
   <>{eur(v)} <span className="font-normal text-gray-400">({pct(v, base)})</span></>
 )
 
-export function AchievementByCategory({ rows, periodLabel }: { rows: PnlCatRow[]; periodLabel: string }) {
+export function AchievementByCategory({ rows, periodLabel, bare = false }: { rows: PnlCatRow[]; periodLabel: string; bare?: boolean }) {
   const gp = (r: PnlCatRow) => r.revenue - r.log - r.bom
   const np = (r: PnlCatRow) => gp(r) - r.cn
   const ttl = useMemo(() => rows.reduce((a, r) => ({
@@ -35,7 +35,7 @@ export function AchievementByCategory({ rows, periodLabel }: { rows: PnlCatRow[]
   const achPill = (a: number, t: number) => t <= 0 ? '' : a / t >= 0.9 ? 'bg-emerald-100 text-emerald-700' : a / t >= 0.6 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
 
   return (
-    <div className="mt-8 pt-6 border-t border-gray-200">
+    <div className={bare ? '' : 'mt-8 pt-6 border-t border-gray-200'}>
       <div className="flex items-baseline gap-2 mb-1">
         <h2 className="text-lg font-semibold text-gray-900">🗂️ Achievement by category</h2>
         <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">BP target vs actual P&amp;L</span>

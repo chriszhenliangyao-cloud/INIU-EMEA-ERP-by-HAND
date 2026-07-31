@@ -45,7 +45,6 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
   ), [rows])
 
   const pending = <span className="text-gray-300" title="待补数据">—</span>
-  const cov = (fp: number, p: number) => (p > 0 ? Math.round((fp / p) * 100) : 0)
   const gpOf = (r: { revenue: number; freight: number; bom: number }) => r.revenue - r.freight - r.bom
   const npOf = (r: { revenue: number; freight: number; bom: number; cn: number }) => gpOf(r) - r.cn
   const ttlGp = gpOf(ttl), ttlNp = npOf(ttl)
@@ -65,7 +64,7 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
       <div className="flex gap-2 items-stretch overflow-x-auto pb-1 mb-4">
         <Tile label="Revenue" value={eur(ttl.revenue)} sub={`${ttl.pos} POs · ${fmtNum(ttl.units)} units`} />
         <Op>−</Op>
-        <Tile label="Freight" cost value={eur(ttl.freight)} sub={`${cov(ttl.freightPos, ttl.pos)}% of POs`} />
+        <Tile label="Freight" cost value={eur(ttl.freight)} sub={`freight on ${ttl.freightPos}/${ttl.pos} POs`} />
         <Op>=</Op>
         <Tile label="Gross Profit" gp value={eur(ttlGp)} sub={`GP ${pctText(ttlGp, ttl.revenue)}`} />
         <Op>−</Op>
@@ -80,7 +79,7 @@ export function ProfitabilityPanel({ rows, periodLabel, scope = 'All countries',
           <thead>
             <tr className="bg-gray-50 text-gray-600">
               <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Country</th>
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">POs</th>
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200 whitespace-nowrap">PO Qty</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Units</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Revenue</th>
               <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide border-b border-gray-200">Freight (%)</th>
@@ -146,10 +145,10 @@ const npOfModel = (r: PnlModelRow) => gpOfModel(r) - r.cn
 export function ProfitabilityByModel({
   rows, cnOthers = 0, periodLabel,
   title = '📦 P&L by SKU', badge = 'Per colour SKU', firstCol = 'SKU', unitPlural = 'SKUs',
-  desc,
+  desc, bare = false,
 }: {
   rows: PnlModelRow[]; cnOthers?: number; periodLabel: string
-  title?: string; badge?: string; firstCol?: string; unitPlural?: string; desc?: React.ReactNode
+  title?: string; badge?: string; firstCol?: string; unitPlural?: string; desc?: React.ReactNode; bare?: boolean
 }) {
   const [sort, setSort] = useState<SortKey>('value')
   const sortVal = (r: PnlModelRow, k: SortKey) => (k === 'gp' ? gpOfModel(r) : k === 'np' ? npOfModel(r) : r[k])
@@ -168,7 +167,7 @@ export function ProfitabilityByModel({
   )
 
   return (
-    <div className="mt-8 pt-6 border-t border-gray-200">
+    <div className={bare ? '' : 'mt-8 pt-6 border-t border-gray-200'}>
       <div className="flex items-baseline gap-2 mb-1">
         <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
         <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{badge}</span>
@@ -268,10 +267,10 @@ const eur2 = (v: number) => `€${v.toFixed(2)}`
 
 export function LogisticByModel({
   rows, periodLabel, scope,
-  title = '🚚 Logistic cost by SKU', badge = 'Avg unit cost', firstCol = 'SKU', unitPlural = 'SKUs', desc,
+  title = '🚚 Logistic cost by SKU', badge = 'Avg unit cost', firstCol = 'SKU', unitPlural = 'SKUs', desc, bare = false,
 }: {
   rows: PnlModelRow[]; periodLabel: string; scope: string
-  title?: string; badge?: string; firstCol?: string; unitPlural?: string; desc?: React.ReactNode
+  title?: string; badge?: string; firstCol?: string; unitPlural?: string; desc?: React.ReactNode; bare?: boolean
 }) {
   const [sort, setSort] = useState<LogSortKey>('cost')
   // 只看有 PO / 有台数的 SKU（noPo 亏损行没有物流），并计算每台平均运费
@@ -297,7 +296,7 @@ export function LogisticByModel({
   )
 
   return (
-    <div className="mt-8 pt-6 border-t border-gray-200">
+    <div className={bare ? '' : 'mt-8 pt-6 border-t border-gray-200'}>
       <div className="flex items-baseline gap-2 mb-1">
         <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
         <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">{badge}</span>

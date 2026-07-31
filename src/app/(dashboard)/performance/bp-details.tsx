@@ -25,7 +25,7 @@ function Ach({ a, t }: { a: number | null; t: number }) {
   return <span className={`ml-1 text-[11px] font-extrabold ${c}`}>({(r * 100).toFixed(0)}%)</span>
 }
 
-export function BpDetails({ scope, periodLabel, data }: { scope: string; periodLabel: string; data?: Detail }) {
+export function BpDetails({ scope, periodLabel, qLabel, data }: { scope: string; periodLabel: string; qLabel: string; data?: Detail }) {
   const [view, setView] = useState<'sku' | 'month'>('sku')
   const rows = (view === 'sku' ? data?.sku : data?.month) ?? []
   const T = rows.reduce((s, r) => {
@@ -35,7 +35,7 @@ export function BpDetails({ scope, periodLabel, data }: { scope: string; periodL
   return (
     <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5 mb-5">
       <div className="flex items-baseline gap-2 mb-4 flex-wrap">
-        <h2 className="text-lg font-semibold text-gray-900">📋 BP details</h2>
+        <h2 className="text-lg font-semibold text-gray-900">📋 BP &amp; Achievement</h2>
         <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{scope}</span>
         <span className="ml-auto text-xs text-gray-400">target = BP · actual = PO · {periodLabel}</span>
       </div>
@@ -45,8 +45,8 @@ export function BpDetails({ scope, periodLabel, data }: { scope: string; periodL
         <div className="inline-flex bg-slate-100 border border-slate-200 rounded-lg p-0.5">
           {(['sku', 'month'] as const).map(v => (
             <button key={v} onClick={() => setView(v)}
-              className={`text-xs font-semibold px-3.5 py-1.5 rounded-md capitalize transition-colors ${view === v ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-              {v === 'sku' ? 'SKU' : 'Month'}
+              className={`text-xs font-semibold px-3.5 py-1.5 rounded-md transition-colors ${view === v ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              {v === 'sku' ? `SKU (${qLabel})` : 'Month'}
             </button>
           ))}
         </div>
