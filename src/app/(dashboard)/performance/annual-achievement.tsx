@@ -66,8 +66,9 @@ export function AnnualAchievement({
   const P = isVol ? planQty : plan, A = isVol ? actualQty : actual
   const fmt = (v: number | null) => v == null ? '—' : isVol ? `${fmtNum(Math.round(v))} units` : `€${fmtNum(Math.round(v))}`
 
-  let ytdPlan = 0, ytdAct = 0
-  for (let i = 0; i < 4; i++) if (!future[i]) { ytdPlan += P[i]; ytdAct += A[i] }
+  // Year 条 = 全年 BP 目标（4 个季度之和，对齐 BP Overview 的 Annual SI / SI Value），实际=至今已达成（未来季度无 PO 自然为 0）
+  const yearPlan = P.reduce((a, b) => a + b, 0)
+  const yearAct = A.reduce((a, b) => a + b, 0)
   const hasData = plan.some(v => v > 0) || actual.some(v => v > 0) || planQty.some(v => v > 0) || actualQty.some(v => v > 0)
   const qi = Math.min(Math.max(quarter - 1, 0), 3)
 
@@ -91,7 +92,7 @@ export function AnnualAchievement({
         <div className="py-8 text-center text-gray-400 text-sm">No annual plan or PO data for {scope} {year} yet.</div>
       ) : (
         <>
-          <Bar title={`Year ${year}`} sub="YTD" actual={ytdAct} target={ytdPlan} fmt={fmt} />
+          <Bar title={`Year ${year}`} sub="full-year target" actual={yearAct} target={yearPlan} fmt={fmt} />
           <div className="ml-3 pl-5 border-l-2 border-slate-200">
             <Bar title={`Q${qi + 1} ${year}`} sub="this quarter" actual={A[qi]} target={P[qi]} fmt={fmt} future={future[qi]} mb="mb-0" />
           </div>
