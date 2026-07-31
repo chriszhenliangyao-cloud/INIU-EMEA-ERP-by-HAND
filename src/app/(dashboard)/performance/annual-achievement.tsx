@@ -12,13 +12,13 @@ const eur = (v: number | null) => v == null ? '—' : `€${fmtNum(Math.round(v)
 const pct = (a: number, b: number) => (b > 0 ? `${(a / b * 100).toFixed(1)}%` : '—')
 
 // 一条进度条：绿填=actual÷target，空白=gap；右下角标 gap 金额
-function Bar({ title, sub, actual, target, future = false }: {
-  title: string; sub: string; actual: number | null; target: number; future?: boolean
+function Bar({ title, sub, actual, target, future = false, mb = 'mb-5' }: {
+  title: string; sub: string; actual: number | null; target: number; future?: boolean; mb?: string
 }) {
   // 无计划：只有实际、没有目标
   if (target <= 0) {
     return (
-      <div className="mb-5">
+      <div className={mb}>
         <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1.5">
           <span className="text-sm font-bold text-gray-900">{title} <span className="ml-1.5 text-[11px] font-bold uppercase tracking-wide text-gray-400">{sub}</span></span>
           <span className="text-sm font-bold tabular-nums">{actual != null ? <>{eur(actual)} <span className="font-semibold text-gray-400 text-xs">actual · no target</span></> : <span className="text-gray-400 text-xs font-semibold">no plan</span>}</span>
@@ -32,7 +32,7 @@ function Bar({ title, sub, actual, target, future = false }: {
   const fill = future || actual == null ? 0 : Math.min(actual / target * 100, 100)
   const gap = actual == null ? null : actual - target
   return (
-    <div className="mb-5">
+    <div className={mb}>
       <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1.5">
         <span className="text-sm font-bold text-gray-900">{title} <span className="ml-1.5 text-[11px] font-bold uppercase tracking-wide text-gray-400">{sub}</span></span>
         <span className="text-sm font-bold tabular-nums">{eur(future ? null : actual)} <span className="font-semibold text-gray-400 text-xs">/ {eur(target)} target</span></span>
@@ -81,8 +81,12 @@ export function AnnualAchievement({
         <div className="py-8 text-center text-gray-400 text-sm">No annual plan or PO data for {scope} {year} yet.</div>
       ) : (
         <>
-          <Bar title={`Q${qi + 1} ${year}`} sub="this quarter" actual={actual[qi]} target={plan[qi]} future={future[qi]} />
+          {/* 先看整年 */}
           <Bar title={`Year ${year}`} sub="YTD" actual={ytdAct} target={ytdPlan} />
+          {/* 再看所选季度——缩进 + 左侧层级线，表现为这一年下的子季度 */}
+          <div className="ml-3 pl-5 border-l-2 border-slate-200">
+            <Bar title={`Q${qi + 1} ${year}`} sub="this quarter" actual={actual[qi]} target={plan[qi]} future={future[qi]} mb="mb-0" />
+          </div>
         </>
       )}
     </div>
