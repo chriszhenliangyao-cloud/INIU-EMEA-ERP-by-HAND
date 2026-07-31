@@ -62,7 +62,8 @@ export function PerformanceView({
   const [hideZero, setHideZero] = useState(true)
   const [tab, setTab] = useState<'kpi' | 'review' | 'yearly'>('kpi')
   const [reviewSub, setReviewSub] = useState<'sales' | 'pnl'>('sales')
-  const [pnlView, setPnlView] = useState<'overview' | 'category' | 'sku' | 'po' | 'logistic' | 'cn'>('overview')
+  const [pnlView, setPnlView] = useState<'overview' | 'category' | 'sku' | 'po'>('overview')
+  const [logView, setLogView] = useState<'sku' | 'po'>('sku')
   const country = useMemo(() => countries.find(c => c.code === countryCode) ?? countries[0], [countries, countryCode])
   const M = monthsIso.length
   const qLabel = `Q${selectedQuarter}`
@@ -355,21 +356,18 @@ export function PerformanceView({
               ['category', '🗂️ By category'],
               ['sku', '📦 By SKU'],
               ['po', '📄 By PO'],
-              ['logistic', '🚚 Logistics'],
-              ['cn', '🧾 Credit Notes'],
             ]
+            const cardCls = 'bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5'
+            const segCls = (on: boolean) => `px-3.5 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition ${on ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`
             return (
               <>
               <AnnualAchievement plan={annual.plan} actual={annual.actual} future={futureQ} year={selectedYear} quarter={selectedQuarter} scope={scope} />
               <BpDetails scope={scope} periodLabel={`${selectedYear} ${qLabel}`} qLabel={qLabel} data={bpDetailByCountry[key]} />
-              <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl p-5">
-                {/* 分段切换：总览 / by category / by SKU / by PO / 物流 / CN —— 点击切换，不再长滚动 */}
+              {/* 模块一：Profitability (P&L) —— 总览 / by category / by SKU / by PO */}
+              <div className={`${cardCls} mb-5`}>
                 <div className="flex gap-1 mb-5 overflow-x-auto p-1 rounded-xl bg-gray-100 border border-gray-200 w-fit max-w-full">
                   {PNL_TABS.map(([v, label]) => (
-                    <button key={v} onClick={() => setPnlView(v)}
-                      className={`px-3.5 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition ${pnlView === v ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                      {label}
-                    </button>
+                    <button key={v} onClick={() => setPnlView(v)} className={segCls(pnlView === v)}>{label}</button>
                   ))}
                 </div>
 
@@ -383,15 +381,28 @@ export function PerformanceView({
                     desc={<>One row per PO, all live. <b>log</b> here is the PO's <b>actual</b> freight (exact, not allocated). GP = SI Value − log − BOM; NP = GP − CN. A model's CN is split across the POs carrying it by SI-Value share. CN that can't tie to a PO this period (products with no PO, delivery fees, transfers…) sits in <b>Others</b>. Click a header to sort.</>}
                   />
                 )}
-                {pnlView === 'logistic' && (<>
-                  <LogisticByModel rows={modelRows} periodLabel={per} scope={scope} bare />
+              </div>
+
+              {/* 模块二：Logistics —— 独立模块，by SKU / by PO 切换 */}
+              <div className={`${cardCls} mb-5`}>
+                <div className="flex gap-1 mb-5 overflow-x-auto p-1 rounded-xl bg-gray-100 border border-gray-200 w-fit max-w-full">
+                  {([['sku', '🚚 By SKU'], ['po', '📄 By PO']] as ['sku' | 'po', string][]).map(([v, label]) => (
+                    <button key={v} onClick={() => setLogView(v)} className={segCls(logView === v)}>{label}</button>
+                  ))}
+                </div>
+                {logView === 'sku' && <LogisticByModel rows={modelRows} periodLabel={per} scope={scope} bare />}
+                {logView === 'po' && (
                   <LogisticByModel
-                    rows={poRows} periodLabel={per} scope={scope}
+                    rows={poRows} periodLabel={per} scope={scope} bare
                     title="🚚 Logistic cost by PO" badge="Avg unit cost" firstCol="PO" unitPlural="POs"
                     desc={<>One row per PO for {scope}. <b>Logistic Cost</b> is the PO's <b>actual</b> delivery fee (exact, from the Shipment Workflow), converted to EUR; <b>Avg Unit Cost</b> = that freight ÷ the PO's units. A PO with no freight record yet shows <span className="text-gray-400">—</span>. Click a header to sort.</>}
                   />
-                </>)}
-                {pnlView === 'cn' && <CnBySkuTable data={cnBySkuByCountry[key]} periodLabel={per} scope={scope} bare />}
+                )}
+              </div>
+
+              {/* 模块三：Credit Notes —— 独立模块 */}
+              <div className={cardCls}>
+                <CnBySkuTable data={cnBySkuByCountry[key]} periodLabel={per} scope={scope} bare />
               </div>
               </>
             )
