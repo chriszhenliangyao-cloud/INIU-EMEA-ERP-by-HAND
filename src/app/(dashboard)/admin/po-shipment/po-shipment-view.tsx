@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { fmtNum } from '@/lib/utils'
 import { fmtMoney, stageOf, toEUR, convertMoney, type Batch, type OpsRow, type Stage } from '../../po/_ops'
 import { PoDocsModal } from './po-docs-modal'
+import { buildXlsx, downloadXlsx, type XlsxCell, type XlsxMerge, type XlsxStyle } from '@/lib/xlsx'
 
 export type SkuOpt = { id: number; code: string; name: string }
 export type CountryOpt = { id: number; code: string; name: string; flag: string; currency?: string | null }
@@ -1106,7 +1107,6 @@ function FreightCell({ po, rec, viewCcy, onSave, busy, fxToEur }: {
 
 // ===== Export Excel: pick POs → one row per SKU, batches expanded across, unknown ETA left blank to fill =====
 const STAGE_LABEL: Record<Stage, string> = { new: 'New PO', toship: 'To Ship', shipped: 'Shipped', delivered: 'Delivered', partial: 'Partial', cancelled: 'Cancelled' }
-const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 // 交期表每行的格位(slot)与默认值。SKU/PO 等为身份列，其余可覆盖。orange=待填 ETA。
 type LtCell = { slot: string; def: string; num?: boolean; orange?: boolean }
@@ -1129,53 +1129,61 @@ function ltCells(l: OpsRow, bs: Batch[], maxB: number): LtCell[] {
   return cells
 }
 
-// valueOf: (po_line_id, slot, default) → 展示值（有人工覆盖则用覆盖，否则默认）。用于导出与编辑器共用同一套取值。
-function buildXlsHtml(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: string, valueOf: (lineId: number, slot: string, def: string) => string = (_l, _s, d) => d): string {
-  // max batches of any single SKU in the selection → how many batch column-groups to expand
+// 交期表 → 真·.xlsx（官方 Excel 直接打开）。valueOf(override ?? default) 与编辑器共用同一套取值。
+const LT_STYLES: XlsxStyle[] = [
+  { bold: true, color: 'FFFFFF', fill: '1F2937', align: 'center', border: true },  // 1 dark 表头
+  { bold: true, color: 'FFFFFF', fill: '0F766E', align: 'center', border: true },  // 2 teal Batch 组
+  { bold: true, color: 'FFFFFF', fill: '4B5563', align: 'center', border: true },  // 3 sub Qty/Ship/ETA
+  { bold: true, color: 'FFFFFF', fill: 'B45309', align: 'center', border: true },  // 4 amber Second Batch
+  { bold: true, size: 14 },                                                        // 5 title
+  { border: true },                                                                // 6 文本格
+  { border: true, align: 'right', numFmt: '#,##0' },                               // 7 数字格
+  { fill: 'FFF7ED', border: true },                                                // 8 橙色待填
+  { border: true, align: 'right', color: 'B45309', numFmt: '#,##0' },              // 9 Remaining 红字
+]
+function buildLeadtimeXlsx(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: string, valueOf: (lineId: number, slot: string, def: string) => string): Blob {
   let maxB = 1
   groups.forEach(g => g.lines.forEach(l => { maxB = Math.max(maxB, (batchesByPo.get(l.id) ?? []).length) }))
+  const fixed = ['PO #', 'KA', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
+  const nCol = fixed.length + maxB * 3 + 2
+  const rows: XlsxCell[][] = []
+  const merges: XlsxMerge[] = []
 
-  const th = (t: string) => `<th style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">${esc(t)}</th>`
-  // numeric cells: no format (stay summable in Excel); text/date cells: mso-number-format '@' to avoid mangling SKU codes / PO#s / ISO dates
-  const td = (t: any, opt: { num?: boolean; c?: string; bg?: string } = {}) =>
-    `<td style="border:0.5px solid #cbd5e1;padding:4px 8px;${opt.num ? 'text-align:right;' : "mso-number-format:'\\@';"}${opt.c ? `color:${opt.c};` : ''}${opt.bg ? `background:${opt.bg};` : ''}">${esc(t)}</td>`
+  // row0 标题（跨列）
+  const title: XlsxCell[] = Array.from({ length: nCol }, () => ({ v: '' }))
+  title[0] = { v: `INIU · PO Shipment Tracking — Exported ${today} · ${groups.length} POs · orange = ETA to fill`, s: 5 }
+  rows.push(title); merges.push({ r1: 0, c1: 0, r2: 0, c2: nCol - 1 })
 
-  const fixedCols = ['PO #', 'KA', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
-  const totalCols = fixedCols.length + maxB * 3 + 2   // + batch groups + (Backorder ETA, Notes)
+  // row1 分组抬头
+  const gh: XlsxCell[] = Array.from({ length: nCol }, () => ({ v: '', s: 1 }))
+  fixed.forEach((h, c) => { gh[c] = { v: h, s: 1 }; merges.push({ r1: 1, c1: c, r2: 2, c2: c }) })
+  for (let i = 0; i < maxB; i++) { const c = fixed.length + i * 3; gh[c] = { v: `Batch ${i + 1}`, s: 2 }; gh[c + 1] = { v: '', s: 2 }; gh[c + 2] = { v: '', s: 2 }; merges.push({ r1: 1, c1: c, r2: 1, c2: c + 2 }) }
+  const sbCol = fixed.length + maxB * 3
+  gh[sbCol] = { v: 'Second Batch ETA', s: 4 }; merges.push({ r1: 1, c1: sbCol, r2: 2, c2: sbCol })
+  gh[sbCol + 1] = { v: 'Notes', s: 1 }; merges.push({ r1: 1, c1: sbCol + 1, r2: 2, c2: sbCol + 1 })
+  rows.push(gh)
 
-  const batchGroupTh = Array.from({ length: maxB }, (_, i) =>
-    `<th colspan="3" style="background:#0f766e;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">Batch ${i + 1}</th>`).join('')
-  const batchSubTh = Array.from({ length: maxB }, () => `${th('Qty')}${th('Ship Date')}${th('ETA')}`).join('')
+  // row2 子表头（Qty/Ship Date/ETA）
+  const sh: XlsxCell[] = Array.from({ length: nCol }, () => ({ v: '' }))
+  for (let i = 0; i < maxB; i++) { const c = fixed.length + i * 3; sh[c] = { v: 'Qty', s: 3 }; sh[c + 1] = { v: 'Ship Date', s: 3 }; sh[c + 2] = { v: 'ETA', s: 3 } }
+  rows.push(sh)
 
-  const head =
-    `<tr>${fixedCols.map(h => `<th rowspan="2" style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">${esc(h)}</th>`).join('')}` +
-    batchGroupTh +
-    `<th rowspan="2" style="background:#b45309;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">Second Batch ETA (fill in)</th>` +
-    `<th rowspan="2" style="background:#1f2937;color:#fff;border:0.5px solid #94a3b8;padding:5px 8px;font-weight:600;">Notes</th></tr>` +
-    `<tr>${batchSubTh}</tr>`
-
-  const spacer = `<tr><td colspan="${totalCols}" style="height:7px;border:none;background:#fff;"></td></tr>`
-
-  // one blank row between different POs. 每格取 valueOf(override ?? default)；仍为空的 ETA 格保留橙色。
-  const body = groups.map(g => g.lines.map(l => {
+  // 数据行
+  groups.forEach(g => g.lines.forEach(l => {
     const bs = batchesByPo.get(l.id) ?? []
-    return `<tr>` + ltCells(l, bs, maxB).map(c => {
-      const v = valueOf(l.id, c.slot, c.def)
-      const orange = c.orange && !String(v).trim()
-      const red = c.slot === 'remaining' && Number(c.def) > 0
-      return td(v, { num: c.num, bg: orange ? '#fff7ed' : '', c: red ? '#b45309' : '' })
-    }).join('') + `</tr>`
-  }).join('')).join(spacer)
+    rows.push(ltCells(l, bs, maxB).map(cc => {
+      const raw = valueOf(l.id, cc.slot, cc.def)
+      const orange = cc.orange && !raw.trim()
+      let s = 6
+      if (cc.num) s = (cc.slot === 'remaining' && Number(cc.def) > 0) ? 9 : 7
+      if (orange) s = 8
+      if (cc.num && raw.trim() !== '' && !isNaN(Number(raw))) return { v: Number(raw), s }  // 纯数字 → 以数字写(可求和)
+      return { v: raw, s }
+    }))
+  }))
 
-  const skuLines = groups.reduce((s, g) => s + g.lines.length, 0)
-  const title = `<tr><td colspan="4" style="font-size:15px;font-weight:700;padding:6px 8px;">INIU · PO Shipment Tracking</td>` +
-    `<td colspan="${totalCols - 4}" style="padding:6px 8px;color:#64748b;">Exported ${today} · ${groups.length} POs · ${skuLines} SKU lines · orange cells = ETA to fill in</td></tr>`
-
-  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8">` +
-    `<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>PO Tracking</x:Name>` +
-    `<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->` +
-    `</head><body><table border="0" cellspacing="0" style="font-family:Arial,sans-serif;font-size:12px;">` +
-    `<thead>${title}${head}</thead><tbody>${body}</tbody></table></body></html>`
+  const cols = [14, 12, 11, 14, 24, 10, 9, 9, 10, ...Array.from({ length: maxB * 3 }, () => 11), 18, 28]
+  return buildXlsx({ sheet: 'PO Tracking', rows, merges, cols, freezeRows: 3, styles: LT_STYLES })
 }
 
 function ExportModal({ rows, batchesByPo, today, onClose, onEdit }: {
@@ -1322,12 +1330,8 @@ function LeadtimeEditorModal({ groups, batchesByPo, today, supabase, onClose }: 
   }
 
   const doExport = () => {
-    const html = buildXlsHtml(groups, batchesByPo, today, (lineId, slot, def) => val(lineId, slot, def))
-    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' })
-    const url = URL.createObjectURL(blob); const a = document.createElement('a')
-    a.href = url; a.download = `Order Leadtime-${today.replace(/-/g, '')}.xls`
-    document.body.appendChild(a); a.click(); a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    const blob = buildLeadtimeXlsx(groups, batchesByPo, today, (lineId, slot, def) => val(lineId, slot, def))
+    downloadXlsx(blob, `Order Leadtime-${today.replace(/-/g, '')}.xlsx`)
   }
 
   const FIXED = ['PO #', 'KA', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
@@ -1349,7 +1353,7 @@ function LeadtimeEditorModal({ groups, batchesByPo, today, supabase, onClose }: 
                 <tr>
                   {FIXED.map(h => <th key={h} rowSpan={2} className="bg-gray-800 text-white border border-slate-400 px-2 py-1.5 font-semibold">{h}</th>)}
                   {Array.from({ length: maxB }, (_, i) => <th key={i} colSpan={3} className="bg-teal-700 text-white border border-slate-400 px-2 py-1.5 font-semibold">Batch {i + 1}</th>)}
-                  <th rowSpan={2} className="bg-amber-700 text-white border border-slate-400 px-2 py-1.5 font-semibold">Backorder ETA</th>
+                  <th rowSpan={2} className="bg-amber-700 text-white border border-slate-400 px-2 py-1.5 font-semibold">Second Batch ETA</th>
                   <th rowSpan={2} className="bg-gray-800 text-white border border-slate-400 px-2 py-1.5 font-semibold">Notes</th>
                 </tr>
                 <tr>
@@ -1384,7 +1388,7 @@ function LeadtimeEditorModal({ groups, batchesByPo, today, supabase, onClose }: 
           )}
         </div>
         <div className="flex justify-between items-center p-4 pt-3 border-t border-gray-100">
-          <span className="text-xs text-gray-400">{saving ? '保存中…' : '✓ 已自动保存'} · 导出 <span className="font-mono text-gray-500">Order Leadtime-{today.replace(/-/g, '')}.xls</span> · Excel / WPS 直接打开</span>
+          <span className="text-xs text-gray-400">{saving ? '保存中…' : '✓ 已自动保存'} · 导出 <span className="font-mono text-gray-500">Order Leadtime-{today.replace(/-/g, '')}.xlsx</span> · 官方 Excel / WPS 直接打开</span>
           <div className="flex gap-2">
             <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">关闭</button>
             <button onClick={doExport} className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">📥 导出 Excel</button>
