@@ -80,17 +80,25 @@ export default async function AdminSkuPage() {
 
   const cnyToEur = await getCnyToEur()
 
-  // 每国定价：活跃国家清单 + 各 SKU 已存的 RRP / FD buying price（RLS 自动按 can_access_country 过滤）
-  const [{ data: countryRows }, { data: priceRows }] = await Promise.all([
-    supabase.from('country').select('id, code, name_en, flag_emoji, currency').eq('is_active', true).order('sort_order'),
-    supabase.from('sku_country_pricing').select('sku_id, country_id, rrp, fd_buying_price').range(0, 49999),
+  // 每国定价：活跃国家 + RRP(sku_country_pricing) + 各 FD 出货价(sku_fd_price，一个国家可多个 FD)。RLS 自动按国家过滤。
+  const [{ data: countryRows }, { data: rrpRows }, { data: fdRows }] = await Promise.all([
+    supabase.from('country').select('id, code, name_en, flag_emoji, currency, sort_order').eq('is_active', true).order('sort_order'),
+    supabase.from('sku_country_pricing').select('sku_id, country_id, rrp').range(0, 49999),
+    supabase.from('sku_fd_price').select('sku_id, country_id, fd, fd_buying_price, currency').range(0, 99999),
   ])
   const rrpBySku: Record<number, Record<number, number>> = {}
-  const fdBySku: Record<number, Record<number, number>> = {}
-  ;(priceRows ?? []).forEach((r: any) => {
-    if (r.rrp != null) (rrpBySku[r.sku_id] ??= {})[r.country_id] = Number(r.rrp)
-    if (r.fd_buying_price != null) (fdBySku[r.sku_id] ??= {})[r.country_id] = Number(r.fd_buying_price)
+  ;(rrpRows ?? []).forEach((r: any) => { if (r.rrp != null) (rrpBySku[r.sku_id] ??= {})[r.country_id] = Number(r.rrp) })
+
+  // FD 出货价：sku → "country|fd" → price；并汇总出现过的 (country, fd) 列
+  const fdBySku: Record<number, Record<string, number>> = {}
+  const fdColMap = new Map<string, { country_id: number; fd: string; currency: string | null }>()
+  ;(fdRows ?? []).forEach((r: any) => {
+    const key = `${r.country_id}|${r.fd}`
+    if (r.fd_buying_price != null) (fdBySku[r.sku_id] ??= {})[key] = Number(r.fd_buying_price)
+    if (!fdColMap.has(key)) fdColMap.set(key, { country_id: r.country_id, fd: r.fd, currency: r.currency })
   })
+  const cSort: Record<number, number> = {}; (countryRows ?? []).forEach((c: any) => { cSort[c.id] = c.sort_order ?? 999 })
+  const fdCols = [...fdColMap.values()].sort((a, b) => (cSort[a.country_id] - cSort[b.country_id]) || a.fd.localeCompare(b.fd))
 
   return (
     <SkuManagementView
@@ -104,6 +112,7 @@ export default async function AdminSkuPage() {
       countries={countryRows ?? []}
       rrpBySku={rrpBySku}
       fdBySku={fdBySku}
+      fdCols={fdCols}
     />
   )
 }

@@ -68,7 +68,8 @@ type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number }
 
 type Warehouse = { name: string; location: string }
 type CountryOpt = { id: number; code: string; name_en: string; flag_emoji: string | null; currency: string | null }
-export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, warehouses, stockAsOf, cnyToEur = 0.13, countries = [], rrpBySku = {}, fdBySku = {} }: {
+type FdCol = { country_id: number; fd: string; currency: string | null }   // 一个国家×FD 列
+export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, warehouses, stockAsOf, cnyToEur = 0.13, countries = [], rrpBySku = {}, fdBySku = {}, fdCols = [] }: {
   allSkus: Sku[]; viewerName: string
   canEdit: boolean                       // admin 才为 true；false = 销售只读，隐藏全部写操作
   stockBySku: Record<number, Record<string, number>>
@@ -77,8 +78,11 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
   cnyToEur?: number                      // 实时 CNY→EUR，用于 BOM(RMB) 旁的 €≈ 提示
   countries?: CountryOpt[]               // 活跃国家（每国定价用）
   rrpBySku?: Record<number, Record<number, number>>  // sku_id → country_id → RRP（RLS 已过滤）
-  fdBySku?: Record<number, Record<number, number>>   // sku_id → country_id → FD buying price
+  fdBySku?: Record<number, Record<string, number>>   // sku_id → "country|fd" → FD buying price
+  fdCols?: FdCol[]                       // 出现过的 国家×FD 列（ES 可有 Linku/Esprinet/ICP）
 }) {
+  const cById: Record<number, CountryOpt> = {}; countries.forEach(c => { cById[c.id] = c })
+  const fdKey = (country_id: number, fd: string) => `${country_id}|${fd}`
   const router = useRouter()
   // 库存列：仓库显示码（DB 里的中文名是数据 key，这里只做展示映射）+ 数字格式化；行合计 = 各仓相加
   const shortWh = (name: string) => WH_CODE[name] ?? name.replace('国仓', '').replace('仓', '')
@@ -286,43 +290,44 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
               ))}
             </div>
           </div>
-          {countries.length === 0 ? (
-            <div className="py-12 text-center text-gray-400 text-sm">无可显示的国家。</div>
-          ) : (
+          {(() => {
+            const cols = priceMetric === 'rrp'
+              ? countries.map(c => ({ key: `${c.id}`, country_id: c.id, label: `${c.flag_emoji ?? ''} ${c.code}`, sub: c.currency ?? '' }))
+              : fdCols.map(f => ({ key: fdKey(f.country_id, f.fd), country_id: f.country_id, label: `${cById[f.country_id]?.flag_emoji ?? ''} ${cById[f.country_id]?.code ?? ''} · ${f.fd}`, sub: f.currency ?? '' }))
+            if (cols.length === 0) return <div className="py-12 text-center text-gray-400 text-sm">无定价数据。</div>
+            return (
             <div className="overflow-auto max-h-[750px]">
-              <table className="w-full text-sm border-collapse tabular-nums" style={{ minWidth: CODE_W + NAME_W + countries.length * 110 }}>
+              <table className="w-full text-sm border-collapse tabular-nums" style={{ minWidth: CODE_W + NAME_W + cols.length * 130 }}>
                 <thead>
                   <tr className="bg-white">
                     <th className="sticky top-0 left-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]" style={{ minWidth: CODE_W, width: CODE_W }}>Code</th>
                     <th className="sticky top-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>Name</th>
-                    {countries.map(c => (
-                      <th key={c.id} className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-semibold text-gray-600 border-b border-black/[0.06] whitespace-nowrap">
-                        {c.flag_emoji} {c.code} <span className="text-gray-400 font-normal">{c.currency}</span>
+                    {cols.map(col => (
+                      <th key={col.key} className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-semibold text-gray-600 border-b border-black/[0.06] whitespace-nowrap">
+                        {col.label} <span className="text-gray-400 font-normal">{col.sub}</span>
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {filteredSkus.length === 0 && (
-                    <tr><td colSpan={2 + countries.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
+                    <tr><td colSpan={2 + cols.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
                   )}
-                  {filteredSkus.map(s => {
-                    const src = priceMetric === 'rrp' ? rrpBySku : fdBySku
-                    return (
-                      <tr key={s.id} className="hover:bg-gray-50/60 group">
-                        <td className="sticky left-0 z-10 bg-white group-hover:bg-gray-50 px-3 py-1.5 font-mono text-xs font-semibold text-gray-900 border-b border-black/[0.04]" style={{ minWidth: CODE_W, width: CODE_W }}>{s.code}</td>
-                        <td className="sticky z-10 bg-white group-hover:bg-gray-50 px-3 py-1.5 text-xs text-gray-600 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>{s.name}</td>
-                        {countries.map(c => {
-                          const v = src[s.id]?.[c.id]
-                          return <td key={c.id} className={`px-3 py-1.5 text-right border-b border-black/[0.04] ${v != null ? 'text-gray-900 font-medium' : 'text-gray-300'}`}>{v != null ? v.toFixed(2) : '—'}</td>
-                        })}
-                      </tr>
-                    )
-                  })}
+                  {filteredSkus.map(s => (
+                    <tr key={s.id} className="hover:bg-gray-50/60 group">
+                      <td className="sticky left-0 z-10 bg-white group-hover:bg-gray-50 px-3 py-1.5 font-mono text-xs font-semibold text-gray-900 border-b border-black/[0.04]" style={{ minWidth: CODE_W, width: CODE_W }}>{s.code}</td>
+                      <td className="sticky z-10 bg-white group-hover:bg-gray-50 px-3 py-1.5 text-xs text-gray-600 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>{s.name}</td>
+                      {cols.map(col => {
+                        const v = priceMetric === 'rrp' ? rrpBySku[s.id]?.[col.country_id] : fdBySku[s.id]?.[col.key]
+                        return <td key={col.key} className={`px-3 py-1.5 text-right border-b border-black/[0.04] ${v != null ? 'text-gray-900 font-medium' : 'text-gray-300'}`}>{v != null ? v.toFixed(2) : '—'}</td>
+                      })}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-          )}
+            )
+          })()}
         </div>
       )}
 
@@ -445,11 +450,12 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
         mode="create"
         cnyToEur={cnyToEur}
         countries={countries}
-        onSubmit={async (input, priceRows) => {
+        fdCols={fdCols}
+        onSubmit={async (input, rrpRows, fdRows) => {
           const r = await createSKU(input as SkuInput)
           if (!r.ok) { flash('error', r.error); return false }
           const newId = (r.data as any)?.id
-          if (newId && priceRows.some(x => x.rrp != null || x.fd_buying_price != null)) await saveSkuCountryPricing(newId, priceRows)
+          if (newId && (rrpRows.some(x => x.rrp != null) || fdRows.some(x => x.fd_buying_price != null))) await saveSkuCountryPricing(newId, rrpRows, fdRows)
           flash('success', `SKU ${input.code} created`)
           router.refresh()
           return true
@@ -465,12 +471,13 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
           initial={editingSku}
           cnyToEur={cnyToEur}
           countries={countries}
+          fdCols={fdCols}
           initialRrp={rrpBySku[editingSku.id]}
           initialFd={fdBySku[editingSku.id]}
-          onSubmit={async (input, priceRows) => {
+          onSubmit={async (input, rrpRows, fdRows) => {
             const r = await updateSKU(editingSku.id, input)
             if (!r.ok) { flash('error', r.error); return false }
-            const rr = await saveSkuCountryPricing(editingSku.id, priceRows)
+            const rr = await saveSkuCountryPricing(editingSku.id, rrpRows, fdRows)
             if (!rr.ok) { flash('error', `Pricing: ${rr.error}`); return false }
             flash('success', `${input.code ?? editingSku.code} updated`)
             router.refresh()
@@ -751,29 +758,36 @@ function DeleteButton({ sku, disabled, onDelete }: {
 // ────────────────────────────────────────────
 // Drawer form — 共用 create/edit
 // ────────────────────────────────────────────
-function SkuFormDrawer({ open, onClose, mode, initial, onSubmit, cnyToEur = 0.13, countries = [], initialRrp, initialFd }: {
+function SkuFormDrawer({ open, onClose, mode, initial, onSubmit, cnyToEur = 0.13, countries = [], fdCols = [], initialRrp, initialFd }: {
   open: boolean
   onClose: () => void
   mode: 'create' | 'edit'
   initial?: Sku
-  onSubmit: (input: SkuInput, priceRows: { country_id: number; rrp: number | null; fd_buying_price: number | null; currency: string | null }[]) => Promise<boolean>
+  onSubmit: (
+    input: SkuInput,
+    rrpRows: { country_id: number; rrp: number | null; currency: string | null }[],
+    fdRows: { country_id: number; fd: string; fd_buying_price: number | null; currency: string | null }[],
+  ) => Promise<boolean>
   cnyToEur?: number
   countries?: CountryOpt[]
-  initialRrp?: Record<number, number>   // country_id → RRP（编辑时已存的每国定价）
-  initialFd?: Record<number, number>    // country_id → FD buying price
+  fdCols?: FdCol[]
+  initialRrp?: Record<number, number>   // country_id → RRP
+  initialFd?: Record<string, number>    // "country|fd" → FD buying price
 }) {
+  const cById2: Record<number, CountryOpt> = {}; countries.forEach(c => { cById2[c.id] = c })
+  const fkey = (country_id: number, fd: string) => `${country_id}|${fd}`
   const [form, setForm] = useState<SkuInput>(() => normalize(initial))
   const [rrpByCountry, setRrpByCountry] = useState<Record<number, string>>({})   // country_id → RRP 输入值
-  const [fdByCountry, setFdByCountry] = useState<Record<number, string>>({})     // country_id → FD buying price 输入值
+  const [fdByKey, setFdByKey] = useState<Record<string, string>>({})             // "country|fd" → FD 出货价输入值
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
     if (open) {
       setForm(normalize(initial))
       setRrpByCountry(Object.fromEntries((countries ?? []).map(c => [c.id, initialRrp?.[c.id] != null ? String(initialRrp[c.id]) : ''])))
-      setFdByCountry(Object.fromEntries((countries ?? []).map(c => [c.id, initialFd?.[c.id] != null ? String(initialFd[c.id]) : ''])))
+      setFdByKey(Object.fromEntries((fdCols ?? []).map(f => { const k = fkey(f.country_id, f.fd); return [k, initialFd?.[k] != null ? String(initialFd[k]) : ''] })))
     }
-  }, [open, initial, initialRrp, initialFd, countries])
+  }, [open, initial, initialRrp, initialFd, countries, fdCols])
 
   useEffect(() => {
     if (!open) return
@@ -793,12 +807,16 @@ function SkuFormDrawer({ open, onClose, mode, initial, onSubmit, cnyToEur = 0.13
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const priceRows = (countries ?? []).map(c => {
-      const rraw = (rrpByCountry[c.id] ?? '').trim(), fraw = (fdByCountry[c.id] ?? '').trim()
-      return { country_id: c.id, rrp: rraw === '' ? null : Number(rraw), fd_buying_price: fraw === '' ? null : Number(fraw), currency: c.currency }
+    const rrpRows = (countries ?? []).map(c => {
+      const raw = (rrpByCountry[c.id] ?? '').trim()
+      return { country_id: c.id, rrp: raw === '' ? null : Number(raw), currency: c.currency }
+    })
+    const fdRows = (fdCols ?? []).map(f => {
+      const raw = (fdByKey[fkey(f.country_id, f.fd)] ?? '').trim()
+      return { country_id: f.country_id, fd: f.fd, fd_buying_price: raw === '' ? null : Number(raw), currency: f.currency ?? cById2[f.country_id]?.currency ?? null }
     })
     startTransition(async () => {
-      const ok = await onSubmit(form, priceRows)
+      const ok = await onSubmit(form, rrpRows, fdRows)
       if (ok) onClose()
     })
   }
@@ -898,35 +916,50 @@ function SkuFormDrawer({ open, onClose, mode, initial, onSubmit, cnyToEur = 0.13
               </p>
             </Field>
 
-            {/* 每国定价：RRP（建议零售价）+ FD buying price（对分销商出货价），各国不同 */}
+            {/* 每国 RRP */}
             <div className="mt-4">
-              <div className="text-[13px] font-medium text-gray-700 mb-1">Per-country pricing · 各国定价</div>
-              <p className="text-[11px] text-gray-400 mb-2">同一产品各国 <b>RRP</b>(建议零售价)与 <b>FD buying price</b>(对分销商出货价)都不同,按各国本币填写。销售只看得到自己负责国家的定价(RLS)。</p>
-              {countries.length === 0 ? (
-                <p className="text-[12px] text-gray-400">无可编辑的国家。</p>
-              ) : (
-                <div className="overflow-hidden rounded-lg border border-gray-200">
-                  <div className="grid grid-cols-[auto_1fr_1fr] items-center bg-gray-50 text-[10.5px] font-semibold uppercase tracking-wide text-gray-500">
-                    <span className="px-3 py-1.5">Country</span>
-                    <span className="px-3 py-1.5 border-l border-gray-200">RRP</span>
-                    <span className="px-3 py-1.5 border-l border-gray-200">FD buying price</span>
-                  </div>
+              <div className="text-[13px] font-medium text-gray-700 mb-1">RRP · 各国建议零售价</div>
+              <p className="text-[11px] text-gray-400 mb-2">同一产品各国定价不同,按各国本币填写。销售只看得到自己负责国家的定价(RLS)。</p>
+              {countries.length === 0 ? <p className="text-[12px] text-gray-400">无可编辑的国家。</p> : (
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                   {countries.map(c => (
-                    <div key={c.id} className="grid grid-cols-[auto_1fr_1fr] items-center border-t border-gray-100">
-                      <span className="px-3 py-1.5 w-16 text-[13px] text-gray-600 whitespace-nowrap">{c.flag_emoji} {c.code}</span>
-                      {([['rrp', rrpByCountry, setRrpByCountry], ['fd', fdByCountry, setFdByCountry]] as const).map(([kind, state, setState]) => (
-                        <div key={kind} className="relative border-l border-gray-100">
-                          <input type="number" step="0.01" min={0} value={state[c.id] ?? ''}
-                            onChange={(e) => setState(p => ({ ...p, [c.id]: e.target.value }))}
-                            className="w-full bg-transparent px-3 py-1.5 pr-12 text-[13px] outline-none focus:bg-yellow-50" placeholder="—" />
-                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">{c.currency || ''}</span>
-                        </div>
-                      ))}
+                    <div key={c.id} className="flex items-center gap-2">
+                      <span className="w-14 shrink-0 text-[13px] text-gray-600 whitespace-nowrap">{c.flag_emoji} {c.code}</span>
+                      <div className="relative flex-1">
+                        <input type="number" step="0.01" min={0} value={rrpByCountry[c.id] ?? ''}
+                          onChange={(e) => setRrpByCountry(p => ({ ...p, [c.id]: e.target.value }))}
+                          className={`${inputCls} pr-12`} placeholder="—" />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">{c.currency || ''}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
+
+            {/* FD buying price · 每个 国家×分销商(FD) 各一个（如 ES: Linku / Esprinet / ICP）*/}
+            {fdCols.length > 0 && (
+              <div className="mt-4">
+                <div className="text-[13px] font-medium text-gray-700 mb-1">FD buying price · 对分销商出货价</div>
+                <p className="text-[11px] text-gray-400 mb-2">一个国家可有多个分销商(FD),出货价各不相同,按各国本币填写。</p>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  {fdCols.map(f => {
+                    const k = fkey(f.country_id, f.fd), c = cById2[f.country_id]
+                    return (
+                      <div key={k} className="flex items-center gap-2">
+                        <span className="w-28 shrink-0 text-[12px] text-gray-600 whitespace-nowrap truncate" title={`${c?.code} · ${f.fd}`}>{c?.flag_emoji} {c?.code} · {f.fd}</span>
+                        <div className="relative flex-1">
+                          <input type="number" step="0.01" min={0} value={fdByKey[k] ?? ''}
+                            onChange={(e) => setFdByKey(p => ({ ...p, [k]: e.target.value }))}
+                            className={`${inputCls} pr-12`} placeholder="—" />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">{f.currency || c?.currency || ''}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </Section>
 
           {/* Lifecycle */}

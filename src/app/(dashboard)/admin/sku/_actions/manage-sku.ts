@@ -192,30 +192,38 @@ export async function updateSKU(id: number, input: Partial<SkuInput>): Promise<A
 const num = (v: unknown) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null)
 export async function saveSkuCountryPricing(
   sku_id: number,
-  rows: { country_id: number; rrp: number | null; fd_buying_price: number | null; currency: string | null }[],
+  rrp: { country_id: number; rrp: number | null; currency: string | null }[],
+  fd: { country_id: number; fd: string; fd_buying_price: number | null; currency: string | null }[],
 ): Promise<ActionResult> {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Not signed in' }
   const denied = await requireAdmin()
   if (denied) return { ok: false, error: denied }
+  const now = new Date().toISOString()
 
-  // 一行两值：任一有值 → upsert；两值都空 → 删除该国行
-  const toUpsert = rows
-    .filter(r => num(r.rrp) != null || num(r.fd_buying_price) != null)
-    .map(r => ({ sku_id, country_id: r.country_id, rrp: num(r.rrp), fd_buying_price: num(r.fd_buying_price), currency: r.currency || null, updated_by: user.id, updated_at: new Date().toISOString() }))
-  const toClear = rows.filter(r => num(r.rrp) == null && num(r.fd_buying_price) == null).map(r => r.country_id)
-
-  if (toClear.length) {
-    const { error } = await supabase.from('sku_country_pricing').delete().eq('sku_id', sku_id).in('country_id', toClear)
+  // 1) RRP → sku_country_pricing（有值 upsert，空则删该国行）
+  const rrpUp = rrp.filter(r => num(r.rrp) != null).map(r => ({ sku_id, country_id: r.country_id, rrp: num(r.rrp), currency: r.currency || null, updated_by: user.id, updated_at: now }))
+  const rrpClear = rrp.filter(r => num(r.rrp) == null).map(r => r.country_id)
+  if (rrpClear.length) {
+    const { error } = await supabase.from('sku_country_pricing').delete().eq('sku_id', sku_id).in('country_id', rrpClear)
     if (error) return { ok: false, error: error.message, code: error.code }
   }
-  if (toUpsert.length) {
-    const { error } = await supabase.from('sku_country_pricing').upsert(toUpsert, { onConflict: 'sku_id,country_id' })
-    if (error) {
-      if (error.code === '42501') return { ok: false, error: 'Admin permission required', code: 'NOT_ADMIN' }
-      return { ok: false, error: error.message, code: error.code }
-    }
+  if (rrpUp.length) {
+    const { error } = await supabase.from('sku_country_pricing').upsert(rrpUp, { onConflict: 'sku_id,country_id' })
+    if (error) return { ok: false, error: error.code === '42501' ? 'Admin permission required' : error.message, code: error.code }
+  }
+
+  // 2) FD 出货价 → sku_fd_price（每个 country×fd 一行）
+  const fdUp = fd.filter(r => num(r.fd_buying_price) != null).map(r => ({ sku_id, country_id: r.country_id, fd: r.fd, fd_buying_price: num(r.fd_buying_price), currency: r.currency || null, updated_by: user.id, updated_at: now }))
+  const fdClear = fd.filter(r => num(r.fd_buying_price) == null)
+  for (const r of fdClear) {
+    const { error } = await supabase.from('sku_fd_price').delete().eq('sku_id', sku_id).eq('country_id', r.country_id).eq('fd', r.fd)
+    if (error) return { ok: false, error: error.message, code: error.code }
+  }
+  if (fdUp.length) {
+    const { error } = await supabase.from('sku_fd_price').upsert(fdUp, { onConflict: 'sku_id,country_id,fd' })
+    if (error) return { ok: false, error: error.code === '42501' ? 'Admin permission required' : error.message, code: error.code }
   }
   revalidatePath('/admin/sku')
   return { ok: true }
