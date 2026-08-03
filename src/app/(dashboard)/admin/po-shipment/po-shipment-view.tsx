@@ -60,6 +60,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
   const [exportOpen, setExportOpen] = useState(false)
   const [poDetailsOpen, setPoDetailsOpen] = useState(false)
   const [docsPo, setDocsPo] = useState<string | null>(null)
+  const [bulkShipGrp, setBulkShipGrp] = useState<Grp | null>(null)   // 打开「选择发货」弹窗的 PO 组
   // 周台账：选中周 + 显示范围（周数）
   const [ledgerWeek, setLedgerWeek] = useState<string | null>(null)
   const [weeksBack, setWeeksBack] = useState(8)
@@ -176,6 +177,13 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
     const n = Math.floor(Number(input))
     if (!Number.isFinite(n) || n <= 0 || n >= l.qty) { alert(`请输入 1 到 ${l.qty - 1} 之间的数量（整单发完请用 Mark shipped）。`); return }
     addBatches([{ po_id: l.id, qty: n, ship_date: dateOf(key) }], key)
+  }
+  // 「选择发货」弹窗提交：一次性对所选 SKU 各按指定数量建批次（各行独立结算 → 发满归 Shipped、未满归 Partial）
+  const submitBulkShip = async (picks: { po_id: number; qty: number }[], ship_date: string, key: string) => {
+    const b = picks.filter(p => p.qty > 0).map(p => ({ ...p, ship_date }))
+    if (!b.length) { alert('请至少选择一个 SKU 并填写发货数量。'); return }
+    await addBatches(b, key)
+    setBulkShipGrp(null)
   }
   // 发完全部剩余量 → 该行结清，自动归 Shipped
   const shipRemaining = (l: OpsRow, key: string) => {
@@ -302,7 +310,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
           <div className="rounded-[10px] overflow-hidden mt-2.5" style={{ borderLeft: `3px solid ${m.a}` }}>
             <div className="overflow-x-auto max-h-[600px] overflow-y-auto border border-gray-100 border-l-0 rounded-r-[10px]">
               {grouped && <GroupedTable stage={active} meta={m} rows={list} open={open} toggle={toggle} busy={busy} dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today}
-                onConfirm={confirmPo} onCancel={cancelPo} onShip={markShipped} onPartial={markPartial} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
+                onConfirm={confirmPo} onCancel={cancelPo} onShip={markShipped} onPartial={markPartial} onBulkShip={setBulkShipGrp} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'partial' && <PartialGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
                 dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipGroup={markShipped} onShipRemaining={shipRemaining} onPartialRemaining={partialRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
@@ -316,6 +324,9 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
 
       <WeeklyLedger weeks={shownWeeks} active={activeWeek} onPick={setLedgerWeek}
         weeksBack={weeksBack} setWeeksBack={setWeeksBack} total={ledger.length} />
+
+      {bulkShipGrp && <BulkShipModal grp={bulkShipGrp} today={today} busy={busy}
+        onClose={() => setBulkShipGrp(null)} onSubmit={submitBulkShip} />}
 
       {addOpen && <AddPoModal today={today} skus={skus} countries={countries} kas={kas} onClose={() => setAddOpen(false)}
         onDone={() => { setAddOpen(false); router.refresh() }} supabase={supabase} />}
@@ -487,11 +498,11 @@ function groupByPo(rows: OpsRow[]): Grp[] {
   return out.sort((a, z) => z.po_date.localeCompare(a.po_date))
 }
 
-function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, today, onConfirm, onCancel, onShip, onPartial, poSearch, docCounts, onDocs, kaProps }: {
+function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, today, onConfirm, onCancel, onShip, onPartial, onBulkShip, poSearch, docCounts, onDocs, kaProps }: {
   stage: Stage; meta: StageMeta; rows: OpsRow[]; open: Set<string>; toggle: (k: string) => void; busy: string | null
   dateOf: (k: string) => string; setDate: (k: string, v: string) => void; today: string
   onConfirm: (ids: number[], key: string) => void; onCancel: (ids: number[], key: string) => void
-  onShip: (lines: OpsRow[], key: string) => void; onPartial: (l: OpsRow, key: string) => void; poSearch: string
+  onShip: (lines: OpsRow[], key: string) => void; onPartial: (l: OpsRow, key: string) => void; onBulkShip: (g: Grp) => void; poSearch: string
   docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps
 }) {
   const groups = useMemo(() => groupByPo(rows), [rows])
@@ -536,6 +547,7 @@ function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, 
                       <>
                         <input type="date" value={dateOf(gk)} max={today} onChange={e => setDate(gk, e.target.value)} className="lg-date w-full" />
                         <button onClick={() => onShip(g.lines, gk)} disabled={busy === gk} className="btn b-green w-full">{busy === gk ? '…' : `🚚 整张 PO 发货 (${ids.length})`}</button>
+                        <button onClick={() => onBulkShip(g)} disabled={busy === gk} className="btn b-blue w-full" title="打开发货明细，勾选要发的 SKU 并填数量，一次提交">◑ 选择发货…</button>
                         <button onClick={() => onCancel(ids, gk)} disabled={busy === gk} className="btn b-red w-full">✗ Cancel 整张 PO</button>
                       </>
                     )}
@@ -1429,6 +1441,98 @@ const lineTurnover = (l: PoLine): number | null => {
   const q = Number(l.qty), p = Number(l.price)
   if (!l.qty || !l.price || !Number.isFinite(q) || !Number.isFinite(p)) return null
   return Math.round(q * p * 100) / 100
+}
+
+// ===== 选择发货弹窗：勾选 PO 内的 SKU + 填发货数量，一次性提交（各行独立结算）=====
+function BulkShipModal({ grp, today, busy, onClose, onSubmit }: {
+  grp: Grp; today: string; busy: string | null
+  onClose: () => void
+  onSubmit: (picks: { po_id: number; qty: number }[], ship_date: string, key: string) => void
+}) {
+  const gk = `grp:${grp.key}`
+  const rem = (l: OpsRow) => l.qty - (l.delivered_qty ?? 0)
+  const [date, setDate] = useState(today)
+  // 每行：是否勾选 + 本次发货数量（默认全选、发满剩余量）
+  const [pick, setPick] = useState<Record<number, { on: boolean; qty: number }>>(
+    () => Object.fromEntries(grp.lines.map(l => [l.id, { on: rem(l) > 0, qty: Math.max(rem(l), 0) }])),
+  )
+  const setLine = (id: number, patch: Partial<{ on: boolean; qty: number }>) =>
+    setPick(p => ({ ...p, [id]: { ...p[id], ...patch } }))
+  const allOn = grp.lines.every(l => pick[l.id]?.on)
+  const toggleAll = (on: boolean) => setPick(Object.fromEntries(grp.lines.map(l => [l.id, { on: on && rem(l) > 0, qty: pick[l.id]?.qty ?? Math.max(rem(l), 0) }])))
+  const fillAll = () => setPick(Object.fromEntries(grp.lines.map(l => [l.id, { on: rem(l) > 0, qty: Math.max(rem(l), 0) }])))
+
+  const selected = grp.lines.filter(l => pick[l.id]?.on && (pick[l.id]?.qty ?? 0) > 0)
+  const totalUnits = selected.reduce((s, l) => s + Math.min(pick[l.id].qty, rem(l)), 0)
+  const partialCount = selected.filter(l => pick[l.id].qty < rem(l)).length
+
+  const submit = () => {
+    const picks = selected.map(l => ({ po_id: l.id, qty: Math.min(Math.floor(pick[l.id].qty), rem(l)) })).filter(p => p.qty > 0)
+    if (!picks.length) { alert('请至少勾选一个 SKU 并填写发货数量。'); return }
+    onSubmit(picks, date, gk)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[860px] p-5 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-lg font-semibold text-gray-900">◑ 选择发货 · <span className="font-mono text-base">{grp.po_number ?? '（无 PO #）'}</span></div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="text-xs text-gray-400 mb-3">{grp.country_flag} {grp.country_code} · {grp.ka_name ?? '-'} · 勾选要发的 SKU 并填数量（可只发一部分）。发满剩余量的行归 <span className="text-emerald-600">Shipped</span>，未发满的进 <span className="text-sky-600">Partial</span> 继续跟。</div>
+
+        <div className="flex items-center gap-3 mb-2 text-xs">
+          <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={allOn} onChange={e => toggleAll(e.target.checked)} /> 全选</label>
+          <button onClick={fillAll} className="text-blue-600 hover:underline">全部发满剩余量</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto border border-gray-200 rounded-xl">
+          <table className="w-full text-[12.5px]">
+            <thead className="sticky top-0 bg-gray-50">
+              <tr className="text-left text-[11px] text-gray-500 border-b border-gray-200">
+                <th className="py-1.5 px-3 font-semibold w-8"></th>
+                <th className="py-1.5 px-2 font-semibold">SKU</th>
+                <th className="py-1.5 px-2 font-semibold">Product</th>
+                <th className="py-1.5 px-2 font-semibold text-right">Ordered</th>
+                <th className="py-1.5 px-2 font-semibold text-right">Remaining</th>
+                <th className="py-1.5 px-2 font-semibold text-right">Ship qty</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {grp.lines.map(l => {
+                const r = rem(l); const p = pick[l.id]; const done = r <= 0
+                return (
+                  <tr key={l.id} className={p?.on ? 'bg-sky-50/40' : done ? 'opacity-40' : ''}>
+                    <td className="py-1.5 px-3"><input type="checkbox" checked={!!p?.on} disabled={done} onChange={e => setLine(l.id, { on: e.target.checked })} /></td>
+                    <td className="py-1.5 px-2 font-mono text-[11px] text-gray-700 whitespace-nowrap">{l.sku_code}</td>
+                    <td className="py-1.5 px-2 text-gray-600">{l.sku_name || '-'}</td>
+                    <td className="py-1.5 px-2 text-right tabular-nums text-gray-500">{fmtNum(l.qty)}</td>
+                    <td className="py-1.5 px-2 text-right tabular-nums font-medium">{done ? <span className="text-emerald-600 text-[11px]">已发完</span> : fmtNum(r)}</td>
+                    <td className="py-1.5 px-2 text-right">
+                      <input type="number" min={0} max={r} disabled={done || !p?.on} value={p?.qty ?? 0}
+                        onChange={e => setLine(l.id, { qty: Math.max(0, Math.min(Math.floor(Number(e.target.value) || 0), r)) })}
+                        className="w-20 text-right border border-gray-300 rounded-md px-2 py-1 text-[12px] disabled:bg-gray-50 disabled:text-gray-300" />
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 mt-3 flex-wrap">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-gray-500">发货日</span>
+            <input type="date" value={date} max={today} onChange={e => setDate(e.target.value)} className="border border-gray-300 rounded-md px-2 py-1 text-[13px]" />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 tabular-nums">已选 <b className="text-gray-800">{selected.length}</b> SKU · <b className="text-gray-800">{fmtNum(totalUnits)}</b> 件{partialCount > 0 && <> · <span className="text-sky-600">{partialCount} 行部分发</span></>}</span>
+            <button onClick={submit} disabled={busy === gk || !selected.length} className="btn b-green px-4 py-2 text-[13px]">{busy === gk ? '发货中…' : `🚚 确认发货 (${selected.length})`}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function AddPoModal({ today, skus, countries, kas, onClose, onDone, supabase }: {

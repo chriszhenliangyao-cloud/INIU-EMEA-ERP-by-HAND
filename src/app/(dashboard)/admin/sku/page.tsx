@@ -80,6 +80,18 @@ export default async function AdminSkuPage() {
 
   const cnyToEur = await getCnyToEur()
 
+  // 每国定价：活跃国家清单 + 各 SKU 已存的 RRP / FD buying price（RLS 自动按 can_access_country 过滤）
+  const [{ data: countryRows }, { data: priceRows }] = await Promise.all([
+    supabase.from('country').select('id, code, name_en, flag_emoji, currency').eq('is_active', true).order('sort_order'),
+    supabase.from('sku_country_pricing').select('sku_id, country_id, rrp, fd_buying_price').range(0, 49999),
+  ])
+  const rrpBySku: Record<number, Record<number, number>> = {}
+  const fdBySku: Record<number, Record<number, number>> = {}
+  ;(priceRows ?? []).forEach((r: any) => {
+    if (r.rrp != null) (rrpBySku[r.sku_id] ??= {})[r.country_id] = Number(r.rrp)
+    if (r.fd_buying_price != null) (fdBySku[r.sku_id] ??= {})[r.country_id] = Number(r.fd_buying_price)
+  })
+
   return (
     <SkuManagementView
       allSkus={allSkus ?? []}
@@ -89,6 +101,9 @@ export default async function AdminSkuPage() {
       warehouses={warehouses}
       stockAsOf={stockAsOf}
       cnyToEur={cnyToEur}
+      countries={countryRows ?? []}
+      rrpBySku={rrpBySku}
+      fdBySku={fdBySku}
     />
   )
 }

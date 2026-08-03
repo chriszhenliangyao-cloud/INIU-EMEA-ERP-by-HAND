@@ -14,7 +14,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   createSKU, updateSKU, deactivateSKU, reactivateSKU,
-  deleteSKUPermanently, getSKUReferenceCount,
+  deleteSKUPermanently, getSKUReferenceCount, saveSkuCountryPricing,
 } from './_actions/manage-sku'
 import type { SkuInput } from './_actions/manage-sku'
 import { buildWorkbook, downloadWorkbook, type XRow } from '@/lib/spreadsheet'
@@ -67,13 +67,17 @@ const WH_FULL: Record<string, string> = {
 type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number }
 
 type Warehouse = { name: string; location: string }
-export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, warehouses, stockAsOf, cnyToEur = 0.13 }: {
+type CountryOpt = { id: number; code: string; name_en: string; flag_emoji: string | null; currency: string | null }
+export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, warehouses, stockAsOf, cnyToEur = 0.13, countries = [], rrpBySku = {}, fdBySku = {} }: {
   allSkus: Sku[]; viewerName: string
   canEdit: boolean                       // admin 才为 true；false = 销售只读，隐藏全部写操作
   stockBySku: Record<number, Record<string, number>>
   warehouses: Warehouse[]
   stockAsOf: string
   cnyToEur?: number                      // 实时 CNY→EUR，用于 BOM(RMB) 旁的 €≈ 提示
+  countries?: CountryOpt[]               // 活跃国家（每国定价用）
+  rrpBySku?: Record<number, Record<number, number>>  // sku_id → country_id → RRP（RLS 已过滤）
+  fdBySku?: Record<number, Record<number, number>>   // sku_id → country_id → FD buying price
 }) {
   const router = useRouter()
   // 库存列：仓库显示码（DB 里的中文名是数据 key，这里只做展示映射）+ 数字格式化；行合计 = 各仓相加
@@ -90,6 +94,8 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
   const [exportOpen, setExportOpen] = useState(false)   // 箱规导出选择器
   const [editingSku, setEditingSku] = useState<Sku | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
+  const [viewMode, setViewMode] = useState<'stock' | 'pricing'>('stock')   // 主表切换：库存 / 各国定价
+  const [priceMetric, setPriceMetric] = useState<'rrp' | 'fd'>('rrp')       // 定价视图内切换：RRP / FD buying price
   const [isPending, startTransition] = useTransition()
 
   const flash = (kind: Toast['kind'], msg: string) => {
@@ -258,7 +264,70 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
         )}
       </div>
 
-      {/* 主表 */}
+      {/* 视图切换：库存 / 各国定价 */}
+      <div className="flex gap-1 mb-4 p-1 rounded-xl bg-gray-100 border border-gray-200 w-fit">
+        {([['stock', '📦 Inventory / Specs'], ['pricing', '💶 Pricing (RRP / FD)']] as ['stock' | 'pricing', string][]).map(([v, label]) => (
+          <button key={v} onClick={() => setViewMode(v)}
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition ${viewMode === v ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* 定价表：SKU × 各国 RRP / FD buying price（本币，只读；编辑仍在 SKU 抽屉里） */}
+      {viewMode === 'pricing' && (
+        <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-2.5 text-xs text-gray-500 border-b border-black/[0.06] flex-wrap">
+            <span>💶 <b className="text-gray-700 font-semibold">Per-country pricing</b> · 各国本币 · 销售只看得到自己国家（RLS）· 编辑请在 SKU 抽屉里</span>
+            <div className="ml-auto inline-flex bg-slate-100 border border-slate-200 rounded-lg p-0.5">
+              {([['rrp', 'RRP'], ['fd', 'FD buying price']] as ['rrp' | 'fd', string][]).map(([m, label]) => (
+                <button key={m} onClick={() => setPriceMetric(m)}
+                  className={`text-xs font-semibold px-3 py-1 rounded-md transition ${priceMetric === m ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
+              ))}
+            </div>
+          </div>
+          {countries.length === 0 ? (
+            <div className="py-12 text-center text-gray-400 text-sm">无可显示的国家。</div>
+          ) : (
+            <div className="overflow-auto max-h-[750px]">
+              <table className="w-full text-sm border-collapse tabular-nums" style={{ minWidth: CODE_W + NAME_W + countries.length * 110 }}>
+                <thead>
+                  <tr className="bg-white">
+                    <th className="sticky top-0 left-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-black/[0.06]" style={{ minWidth: CODE_W, width: CODE_W }}>Code</th>
+                    <th className="sticky top-0 z-30 bg-white px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>Name</th>
+                    {countries.map(c => (
+                      <th key={c.id} className="sticky top-0 z-20 bg-white px-3 py-2.5 text-right text-[11px] font-semibold text-gray-600 border-b border-black/[0.06] whitespace-nowrap">
+                        {c.flag_emoji} {c.code} <span className="text-gray-400 font-normal">{c.currency}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSkus.length === 0 && (
+                    <tr><td colSpan={2 + countries.length} className="py-12 text-center text-gray-400">No SKUs match the filters</td></tr>
+                  )}
+                  {filteredSkus.map(s => {
+                    const src = priceMetric === 'rrp' ? rrpBySku : fdBySku
+                    return (
+                      <tr key={s.id} className="hover:bg-gray-50/60 group">
+                        <td className="sticky left-0 z-10 bg-white group-hover:bg-gray-50 px-3 py-1.5 font-mono text-xs font-semibold text-gray-900 border-b border-black/[0.04]" style={{ minWidth: CODE_W, width: CODE_W }}>{s.code}</td>
+                        <td className="sticky z-10 bg-white group-hover:bg-gray-50 px-3 py-1.5 text-xs text-gray-600 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>{s.name}</td>
+                        {countries.map(c => {
+                          const v = src[s.id]?.[c.id]
+                          return <td key={c.id} className={`px-3 py-1.5 text-right border-b border-black/[0.04] ${v != null ? 'text-gray-900 font-medium' : 'text-gray-300'}`}>{v != null ? v.toFixed(2) : '—'}</td>
+                        })}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 主表：库存 / 箱规 */}
+      {viewMode === 'stock' && (
       <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2.5 text-xs text-gray-500 border-b border-black/[0.06]">
           <span>📦 <b className="text-gray-700 font-semibold">Inventory</b> · HQ = 生产部 (domestic) · DE1 / DE2 / FR1 = overseas 3PL · Total = all warehouses · 只读（随供应链快照更新）</span>
@@ -367,6 +436,7 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
           </table>
         </div>
       </div>
+      )}
 
       {/* Add SKU drawer */}
       <SkuFormDrawer
@@ -374,9 +444,12 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
         onClose={() => setAddOpen(false)}
         mode="create"
         cnyToEur={cnyToEur}
-        onSubmit={async (input) => {
+        countries={countries}
+        onSubmit={async (input, priceRows) => {
           const r = await createSKU(input as SkuInput)
           if (!r.ok) { flash('error', r.error); return false }
+          const newId = (r.data as any)?.id
+          if (newId && priceRows.some(x => x.rrp != null || x.fd_buying_price != null)) await saveSkuCountryPricing(newId, priceRows)
           flash('success', `SKU ${input.code} created`)
           router.refresh()
           return true
@@ -391,9 +464,14 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
           mode="edit"
           initial={editingSku}
           cnyToEur={cnyToEur}
-          onSubmit={async (input) => {
+          countries={countries}
+          initialRrp={rrpBySku[editingSku.id]}
+          initialFd={fdBySku[editingSku.id]}
+          onSubmit={async (input, priceRows) => {
             const r = await updateSKU(editingSku.id, input)
             if (!r.ok) { flash('error', r.error); return false }
+            const rr = await saveSkuCountryPricing(editingSku.id, priceRows)
+            if (!rr.ok) { flash('error', `Pricing: ${rr.error}`); return false }
             flash('success', `${input.code ?? editingSku.code} updated`)
             router.refresh()
             return true
@@ -673,20 +751,29 @@ function DeleteButton({ sku, disabled, onDelete }: {
 // ────────────────────────────────────────────
 // Drawer form — 共用 create/edit
 // ────────────────────────────────────────────
-function SkuFormDrawer({ open, onClose, mode, initial, onSubmit, cnyToEur = 0.13 }: {
+function SkuFormDrawer({ open, onClose, mode, initial, onSubmit, cnyToEur = 0.13, countries = [], initialRrp, initialFd }: {
   open: boolean
   onClose: () => void
   mode: 'create' | 'edit'
   initial?: Sku
-  onSubmit: (input: SkuInput) => Promise<boolean>
+  onSubmit: (input: SkuInput, priceRows: { country_id: number; rrp: number | null; fd_buying_price: number | null; currency: string | null }[]) => Promise<boolean>
   cnyToEur?: number
+  countries?: CountryOpt[]
+  initialRrp?: Record<number, number>   // country_id → RRP（编辑时已存的每国定价）
+  initialFd?: Record<number, number>    // country_id → FD buying price
 }) {
   const [form, setForm] = useState<SkuInput>(() => normalize(initial))
+  const [rrpByCountry, setRrpByCountry] = useState<Record<number, string>>({})   // country_id → RRP 输入值
+  const [fdByCountry, setFdByCountry] = useState<Record<number, string>>({})     // country_id → FD buying price 输入值
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
-    if (open) setForm(normalize(initial))
-  }, [open, initial])
+    if (open) {
+      setForm(normalize(initial))
+      setRrpByCountry(Object.fromEntries((countries ?? []).map(c => [c.id, initialRrp?.[c.id] != null ? String(initialRrp[c.id]) : ''])))
+      setFdByCountry(Object.fromEntries((countries ?? []).map(c => [c.id, initialFd?.[c.id] != null ? String(initialFd[c.id]) : ''])))
+    }
+  }, [open, initial, initialRrp, initialFd, countries])
 
   useEffect(() => {
     if (!open) return
@@ -706,8 +793,12 @@ function SkuFormDrawer({ open, onClose, mode, initial, onSubmit, cnyToEur = 0.13
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    const priceRows = (countries ?? []).map(c => {
+      const rraw = (rrpByCountry[c.id] ?? '').trim(), fraw = (fdByCountry[c.id] ?? '').trim()
+      return { country_id: c.id, rrp: rraw === '' ? null : Number(rraw), fd_buying_price: fraw === '' ? null : Number(fraw), currency: c.currency }
+    })
     startTransition(async () => {
-      const ok = await onSubmit(form)
+      const ok = await onSubmit(form, priceRows)
       if (ok) onClose()
     })
   }
@@ -798,18 +889,43 @@ function SkuFormDrawer({ open, onClose, mode, initial, onSubmit, cnyToEur = 0.13
 
           {/* Pricing */}
           <Section title="Pricing (admin internal)">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="RRP €">
-                <input type="number" step="0.01" value={form.rrp_eur ?? ''} onChange={(e) => setNum('rrp_eur', e.target.value)} className={inputCls} />
-              </Field>
-              <Field label="BOM ¥ (RMB · 成本)">
-                <input type="number" step="0.01" value={form.bom_cost_rmb ?? ''} onChange={(e) => setNum('bom_cost_rmb', e.target.value)} className={inputCls} />
-                <p className="mt-1 text-[11px] text-gray-400">
-                  {form.bom_cost_rmb != null && form.bom_cost_rmb !== undefined && Number(form.bom_cost_rmb) > 0
-                    ? <>≈ €{(Number(form.bom_cost_rmb) * cnyToEur).toFixed(2)} @ live rate · used in GP</>
-                    : <>Stored in RMB; GP uses the live CNY→EUR rate</>}
-                </p>
-              </Field>
+            <Field label="BOM ¥ (RMB · 成本)">
+              <input type="number" step="0.01" value={form.bom_cost_rmb ?? ''} onChange={(e) => setNum('bom_cost_rmb', e.target.value)} className={inputCls} />
+              <p className="mt-1 text-[11px] text-gray-400">
+                {form.bom_cost_rmb != null && form.bom_cost_rmb !== undefined && Number(form.bom_cost_rmb) > 0
+                  ? <>≈ €{(Number(form.bom_cost_rmb) * cnyToEur).toFixed(2)} @ live rate · used in GP</>
+                  : <>Stored in RMB; GP uses the live CNY→EUR rate</>}
+              </p>
+            </Field>
+
+            {/* 每国定价：RRP（建议零售价）+ FD buying price（对分销商出货价），各国不同 */}
+            <div className="mt-4">
+              <div className="text-[13px] font-medium text-gray-700 mb-1">Per-country pricing · 各国定价</div>
+              <p className="text-[11px] text-gray-400 mb-2">同一产品各国 <b>RRP</b>(建议零售价)与 <b>FD buying price</b>(对分销商出货价)都不同,按各国本币填写。销售只看得到自己负责国家的定价(RLS)。</p>
+              {countries.length === 0 ? (
+                <p className="text-[12px] text-gray-400">无可编辑的国家。</p>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-gray-200">
+                  <div className="grid grid-cols-[auto_1fr_1fr] items-center bg-gray-50 text-[10.5px] font-semibold uppercase tracking-wide text-gray-500">
+                    <span className="px-3 py-1.5">Country</span>
+                    <span className="px-3 py-1.5 border-l border-gray-200">RRP</span>
+                    <span className="px-3 py-1.5 border-l border-gray-200">FD buying price</span>
+                  </div>
+                  {countries.map(c => (
+                    <div key={c.id} className="grid grid-cols-[auto_1fr_1fr] items-center border-t border-gray-100">
+                      <span className="px-3 py-1.5 w-16 text-[13px] text-gray-600 whitespace-nowrap">{c.flag_emoji} {c.code}</span>
+                      {([['rrp', rrpByCountry, setRrpByCountry], ['fd', fdByCountry, setFdByCountry]] as const).map(([kind, state, setState]) => (
+                        <div key={kind} className="relative border-l border-gray-100">
+                          <input type="number" step="0.01" min={0} value={state[c.id] ?? ''}
+                            onChange={(e) => setState(p => ({ ...p, [c.id]: e.target.value }))}
+                            className="w-full bg-transparent px-3 py-1.5 pr-12 text-[13px] outline-none focus:bg-yellow-50" placeholder="—" />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">{c.currency || ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </Section>
 
