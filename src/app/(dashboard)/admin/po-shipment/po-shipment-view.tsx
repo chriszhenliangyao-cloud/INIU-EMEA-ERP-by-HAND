@@ -1168,19 +1168,24 @@ function buildLeadtimeXlsx(groups: Grp[], batchesByPo: Map<number, Batch[]>, tod
   for (let i = 0; i < maxB; i++) { const c = fixed.length + i * 3; sh[c] = { v: 'Qty', s: 3 }; sh[c + 1] = { v: 'Ship Date', s: 3 }; sh[c + 2] = { v: 'ETA', s: 3 } }
   rows.push(sh)
 
-  // 数据行
-  groups.forEach(g => g.lines.forEach(l => {
-    const bs = batchesByPo.get(l.id) ?? []
-    rows.push(ltCells(l, bs, maxB).map(cc => {
-      const raw = valueOf(l.id, cc.slot, cc.def)
-      const orange = cc.orange && !raw.trim()
-      let s = 6
-      if (cc.num) s = (cc.slot === 'remaining' && Number(cc.def) > 0) ? 9 : 7
-      if (orange) s = 8
-      if (cc.num && raw.trim() !== '' && !isNaN(Number(raw))) return { v: Number(raw), s }  // 纯数字 → 以数字写(可求和)
-      return { v: raw, s }
-    }))
-  }))
+  // 数据行；同 PO 的前三列(PO#/KA/PO Date)纵向合并，只在首行留值
+  groups.forEach(g => {
+    const firstRow = rows.length   // 该 PO 首个数据行的行号
+    g.lines.forEach((l, li) => {
+      const bs = batchesByPo.get(l.id) ?? []
+      rows.push(ltCells(l, bs, maxB).map((cc, ci) => {
+        if (ci < 3 && li > 0) return { v: '', s: 6 }   // 合并列非首行 → 空
+        const raw = valueOf(l.id, cc.slot, cc.def)
+        const orange = cc.orange && !raw.trim()
+        let s = 6
+        if (cc.num) s = (cc.slot === 'remaining' && Number(cc.def) > 0) ? 9 : 7
+        if (orange) s = 8
+        if (cc.num && raw.trim() !== '' && !isNaN(Number(raw))) return { v: Number(raw), s }  // 纯数字 → 以数字写(可求和)
+        return { v: raw, s }
+      }))
+    })
+    if (g.lines.length > 1) for (let c = 0; c < 3; c++) merges.push({ r1: firstRow, c1: c, r2: firstRow + g.lines.length - 1, c2: c })
+  })
 
   const cols = [14, 12, 11, 14, 24, 10, 9, 9, 10, ...Array.from({ length: maxB * 3 }, () => 11), 18, 28]
   return buildXlsx({ sheet: 'PO Tracking', rows, merges, cols, freezeRows: 3, styles: LT_STYLES })
@@ -1365,16 +1370,19 @@ function LeadtimeEditorModal({ groups, batchesByPo, today, supabase, onClose }: 
                 </tr>
               </thead>
               <tbody>
-                {lines.map(l => {
+                {groups.map(g => g.lines.map((l, li) => {
                   const bs = batchesByPo.get(l.id) ?? []
+                  const first = li === 0                     // 同 PO 只在首行展示 PO#/KA/PO Date，纵向合并
                   return (
                     <tr key={l.id} className="hover:bg-gray-50/40">
-                      {ltCells(l, bs, maxB).map(c => {
+                      {ltCells(l, bs, maxB).map((c, ci) => {
+                        const merged = ci < 3               // 前三列 = 每 PO 相同的身份列
+                        if (merged && !first) return null    // 非首行跳过（被 rowSpan 覆盖）
                         const v = val(l.id, c.slot, c.def)
                         const orange = c.orange && !v.trim()
                         const wide = c.slot === 'product' || c.slot === 'notes'
                         return (
-                          <td key={c.slot} className={`border border-slate-200 p-0 ${orange ? 'bg-amber-50' : ''}`}>
+                          <td key={c.slot} rowSpan={merged ? g.lines.length : undefined} className={`border border-slate-200 p-0 align-top ${orange ? 'bg-amber-50' : ''} ${merged ? 'bg-gray-50/40' : ''}`}>
                             <input value={v} onChange={e => onChange(l.id, c.slot, e.target.value)} onBlur={() => persist(l.id, c.slot, c.def)}
                               className={`w-full bg-transparent px-2 py-1 outline-none focus:bg-yellow-50 ${c.num ? 'text-right' : ''} ${wide ? 'min-w-[150px]' : 'min-w-[74px]'}`} />
                           </td>
@@ -1382,7 +1390,7 @@ function LeadtimeEditorModal({ groups, batchesByPo, today, supabase, onClose }: 
                       })}
                     </tr>
                   )
-                })}
+                }))}
               </tbody>
             </table>
           )}
