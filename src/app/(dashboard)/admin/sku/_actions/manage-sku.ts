@@ -229,6 +229,42 @@ export async function saveSkuCountryPricing(
   return { ok: true }
 }
 
+// 单格内联编辑：某 SKU×国家 的 RRP
+export async function setSkuRrp(sku_id: number, country_id: number, rrp: number | null, currency: string | null): Promise<ActionResult> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: 'Not signed in' }
+  const denied = await requireAdmin(); if (denied) return { ok: false, error: denied }
+  const v = num(rrp)
+  if (v == null) {
+    const { error } = await supabase.from('sku_country_pricing').delete().eq('sku_id', sku_id).eq('country_id', country_id)
+    if (error) return { ok: false, error: error.message, code: error.code }
+  } else {
+    const { error } = await supabase.from('sku_country_pricing').upsert({ sku_id, country_id, rrp: v, currency: currency || null, updated_by: user.id, updated_at: new Date().toISOString() }, { onConflict: 'sku_id,country_id' })
+    if (error) return { ok: false, error: error.code === '42501' ? 'Admin permission required' : error.message, code: error.code }
+  }
+  revalidatePath('/admin/sku')
+  return { ok: true }
+}
+
+// 单格内联编辑：某 SKU×国家×FD 的出货价
+export async function setSkuFdPrice(sku_id: number, country_id: number, fd: string, price: number | null, currency: string | null): Promise<ActionResult> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: 'Not signed in' }
+  const denied = await requireAdmin(); if (denied) return { ok: false, error: denied }
+  const v = num(price)
+  if (v == null) {
+    const { error } = await supabase.from('sku_fd_price').delete().eq('sku_id', sku_id).eq('country_id', country_id).eq('fd', fd)
+    if (error) return { ok: false, error: error.message, code: error.code }
+  } else {
+    const { error } = await supabase.from('sku_fd_price').upsert({ sku_id, country_id, fd, fd_buying_price: v, currency: currency || null, updated_by: user.id, updated_at: new Date().toISOString() }, { onConflict: 'sku_id,country_id,fd' })
+    if (error) return { ok: false, error: error.code === '42501' ? 'Admin permission required' : error.message, code: error.code }
+  }
+  revalidatePath('/admin/sku')
+  return { ok: true }
+}
+
 // ───────────────────────────────────────
 // 3. Deactivate (软删)
 // ───────────────────────────────────────

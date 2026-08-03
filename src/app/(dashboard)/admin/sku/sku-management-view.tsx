@@ -14,7 +14,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   createSKU, updateSKU, deactivateSKU, reactivateSKU,
-  deleteSKUPermanently, getSKUReferenceCount, saveSkuCountryPricing,
+  deleteSKUPermanently, getSKUReferenceCount, saveSkuCountryPricing, setSkuRrp, setSkuFdPrice,
 } from './_actions/manage-sku'
 import type { SkuInput } from './_actions/manage-sku'
 import { buildWorkbook, downloadWorkbook, type XRow } from '@/lib/spreadsheet'
@@ -69,7 +69,7 @@ type Toast = { kind: 'success' | 'error' | 'info'; msg: string; id: number }
 type Warehouse = { name: string; location: string }
 type CountryOpt = { id: number; code: string; name_en: string; flag_emoji: string | null; currency: string | null }
 type FdCol = { country_id: number; fd: string; currency: string | null }   // 一个国家×FD 列
-export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, warehouses, stockAsOf, cnyToEur = 0.13, countries = [], rrpBySku = {}, fdBySku = {}, fdCols = [] }: {
+export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, warehouses, stockAsOf, cnyToEur = 0.13, countries = [], rrpBySku = {}, fdBySku = {}, fdCols = [], plnToEur = 0.233 }: {
   allSkus: Sku[]; viewerName: string
   canEdit: boolean                       // admin 才为 true；false = 销售只读，隐藏全部写操作
   stockBySku: Record<number, Record<string, number>>
@@ -80,6 +80,7 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
   rrpBySku?: Record<number, Record<number, number>>  // sku_id → country_id → RRP（RLS 已过滤）
   fdBySku?: Record<number, Record<string, number>>   // sku_id → "country|fd" → FD buying price
   fdCols?: FdCol[]                       // 出现过的 国家×FD 列（ES 可有 Linku/Esprinet/ICP）
+  plnToEur?: number                      // 实时 PLN→EUR，PLN 价格旁展示 €≈
 }) {
   const cById: Record<number, CountryOpt> = {}; countries.forEach(c => { cById[c.id] = c })
   const fdKey = (country_id: number, fd: string) => `${country_id}|${fd}`
@@ -184,6 +185,17 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
     router.refresh()
     return true
   }
+  // 行内保存定价（RRP / FD 出货价，可空清除）
+  const onSaveRrp = async (sku: Sku, country_id: number, v: number | null): Promise<boolean> => {
+    const r = await setSkuRrp(sku.id, country_id, v, cById[country_id]?.currency ?? null)
+    if (!r.ok) { flash('error', r.error); return false }
+    flash('success', `${sku.code} · ${cById[country_id]?.code} RRP ${v != null ? 'updated' : 'cleared'}`); router.refresh(); return true
+  }
+  const onSaveFd = async (sku: Sku, country_id: number, fd: string, currency: string | null, v: number | null): Promise<boolean> => {
+    const r = await setSkuFdPrice(sku.id, country_id, fd, v, currency ?? cById[country_id]?.currency ?? null)
+    if (!r.ok) { flash('error', r.error); return false }
+    flash('success', `${sku.code} · ${cById[country_id]?.code}·${fd} ${v != null ? 'updated' : 'cleared'}`); router.refresh(); return true
+  }
 
   return (
     <div className="p-6 max-w-[1700px] mx-auto">
@@ -282,7 +294,7 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
       {viewMode === 'pricing' && (
         <div className="bg-white border border-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.05)] rounded-2xl overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-2.5 text-xs text-gray-500 border-b border-black/[0.06] flex-wrap">
-            <span>💶 <b className="text-gray-700 font-semibold">Per-country pricing</b> · 各国本币 · 销售只看得到自己国家（RLS）· 编辑请在 SKU 抽屉里</span>
+            <span>💶 <b className="text-gray-700 font-semibold">Per-country pricing</b> · 各国本币（PLN 旁注 €≈）· 销售只看自己国家（RLS）· {canEdit ? '点数字即可行内改价' : '只读'}</span>
             <div className="ml-auto inline-flex bg-slate-100 border border-slate-200 rounded-lg p-0.5">
               {([['rrp', 'RRP'], ['fd', 'FD buying price']] as ['rrp' | 'fd', string][]).map(([m, label]) => (
                 <button key={m} onClick={() => setPriceMetric(m)}
@@ -292,9 +304,9 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
           </div>
           {(() => {
             const cols = priceMetric === 'rrp'
-              ? countries.map(c => ({ key: `${c.id}`, country_id: c.id, label: `${c.flag_emoji ?? ''} ${c.code}`, sub: c.currency ?? '' }))
-              : fdCols.map(f => ({ key: fdKey(f.country_id, f.fd), country_id: f.country_id, label: `${cById[f.country_id]?.flag_emoji ?? ''} ${cById[f.country_id]?.code ?? ''} · ${f.fd}`, sub: f.currency ?? '' }))
-            if (cols.length === 0) return <div className="py-12 text-center text-gray-400 text-sm">无定价数据。</div>
+              ? countries.map(c => ({ key: `${c.id}`, country_id: c.id, fd: null as string | null, currency: c.currency, label: `${c.flag_emoji ?? ''} ${c.code}`, sub: c.currency ?? '' }))
+              : fdCols.map(f => ({ key: fdKey(f.country_id, f.fd), country_id: f.country_id, fd: f.fd, currency: f.currency, label: `${cById[f.country_id]?.flag_emoji ?? ''} ${cById[f.country_id]?.code ?? ''} · ${f.fd}`, sub: f.currency ?? '' }))
+            if (cols.length === 0) return <div className="py-12 text-center text-gray-400 text-sm">无定价数据（你可能没有可见的国家）。</div>
             return (
             <div className="overflow-auto max-h-[750px]">
               <table className="w-full text-sm border-collapse tabular-nums" style={{ minWidth: CODE_W + NAME_W + cols.length * 130 }}>
@@ -319,7 +331,12 @@ export function SkuManagementView({ allSkus, viewerName, canEdit, stockBySku, wa
                       <td className="sticky z-10 bg-white group-hover:bg-gray-50 px-3 py-1.5 text-xs text-gray-600 border-b border-r-2 border-black/[0.06]" style={{ left: CODE_W, minWidth: NAME_W, width: NAME_W }}>{s.name}</td>
                       {cols.map(col => {
                         const v = priceMetric === 'rrp' ? rrpBySku[s.id]?.[col.country_id] : fdBySku[s.id]?.[col.key]
-                        return <td key={col.key} className={`px-3 py-1.5 text-right border-b border-black/[0.04] ${v != null ? 'text-gray-900 font-medium' : 'text-gray-300'}`}>{v != null ? v.toFixed(2) : '—'}</td>
+                        return (
+                          <td key={col.key} className="px-3 py-1 text-right border-b border-black/[0.04]">
+                            <PriceCell value={v} currency={col.currency} plnToEur={plnToEur} canEdit={canEdit}
+                              onSave={(nv) => col.fd ? onSaveFd(s, col.country_id, col.fd, col.currency, nv) : onSaveRrp(s, col.country_id, nv)} />
+                          </td>
+                        )
                       })}
                     </tr>
                   ))}
@@ -704,6 +721,53 @@ function BoxQtyCell({ sku, onSave, canEdit }: { sku: Sku; onSave: (sku: Sku, qty
         placeholder="每箱数量"
         className="w-20 text-right tabular-nums text-[11px] rounded border border-blue-300 bg-white px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-blue-200"
       />
+      {saving && <span className="text-[10px] text-gray-400">…</span>}
+    </span>
+  )
+}
+
+// ── 内联可编辑的价格单元格（RRP / FD 出货价）。PLN 旁展示 €≈；admin 可点改，销售只读 ──
+function PriceCell({ value, currency, plnToEur, canEdit, onSave }: {
+  value: number | null | undefined
+  currency: string | null
+  plnToEur: number
+  canEdit: boolean
+  onSave: (v: number | null) => Promise<boolean>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(value != null ? String(value) : '')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { if (!editing) setVal(value != null ? String(value) : '') }, [value, editing])
+
+  const display = value != null
+    ? <span className="tabular-nums text-gray-900 font-medium">{value.toFixed(2)}{currency === 'PLN' && plnToEur > 0 && <span className="ml-1 text-[10px] font-normal text-gray-400">(€{(value * plnToEur).toFixed(2)})</span>}</span>
+    : <span className="text-gray-300">—</span>
+
+  if (!canEdit) return <div className="text-right">{display}</div>
+
+  const commit = async () => {
+    const raw = val.trim()
+    const next = raw === '' ? null : Number(raw)
+    if (next === (value ?? null)) { setEditing(false); return }
+    if (next != null && (!Number.isFinite(next) || next < 0)) { alert('价格应为非负数'); return }
+    setSaving(true); const ok = await onSave(next); setSaving(false)
+    if (ok) setEditing(false)
+  }
+  if (!editing) {
+    return (
+      <button onClick={() => setEditing(true)} title="点击编辑价格" className="group inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-blue-50 transition-colors">
+        {display}
+        <span className="text-[10px] text-gray-300 opacity-0 group-hover:opacity-100">✎</span>
+      </button>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 justify-end">
+      <input autoFocus value={val} disabled={saving}
+        onChange={(e) => setVal(e.target.value.replace(/[^\d.]/g, ''))}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') { setVal(value != null ? String(value) : ''); setEditing(false) } }}
+        onBlur={commit}
+        className="w-24 text-right tabular-nums text-[12px] rounded border border-blue-300 bg-white px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-blue-200" />
       {saving && <span className="text-[10px] text-gray-400">…</span>}
     </span>
   )

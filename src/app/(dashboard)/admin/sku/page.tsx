@@ -3,17 +3,17 @@ import { getCurrentUser } from '@/lib/auth/current-user'
 import { SkuManagementView } from './sku-management-view'
 
 // BOM(RMB) 在抽屉里显示 €≈ 折算用的实时汇率：ECB(frankfurter) 主、er-api 兜底、周缓存。
-async function getCnyToEur(): Promise<number> {
+async function getToEur(base: string, fallback: number): Promise<number> {
   const WEEK = 60 * 60 * 24 * 7
-  for (const url of ['https://api.frankfurter.dev/v1/latest?base=CNY&symbols=EUR', 'https://open.er-api.com/v6/latest/CNY']) {
+  for (const url of [`https://api.frankfurter.dev/v1/latest?base=${base}&symbols=EUR`, `https://open.er-api.com/v6/latest/${base}`]) {
     try {
       const res = await fetch(url, { next: { revalidate: WEEK } })
       if (!res.ok) continue
       const r = (await res.json())?.rates?.EUR
-      if (typeof r === 'number' && r > 0 && r < 1) return r
+      if (typeof r === 'number' && r > 0 && r < 5) return r
     } catch { /* 下一个源 */ }
   }
-  return 0.13
+  return fallback
 }
 
 /**
@@ -78,14 +78,16 @@ export default async function AdminSkuPage() {
     .sort((a, b) => (whLoc[a] === 'domestic' ? 0 : 1) - (whLoc[b] === 'domestic' ? 0 : 1) || a.localeCompare(b, 'zh'))
     .map(name => ({ name, location: whLoc[name] }))
 
-  const cnyToEur = await getCnyToEur()
+  const [cnyToEur, plnToEur] = await Promise.all([getToEur('CNY', 0.13), getToEur('PLN', 0.233)])
 
   // 每国定价：活跃国家 + RRP(sku_country_pricing) + 各 FD 出货价(sku_fd_price，一个国家可多个 FD)。RLS 自动按国家过滤。
-  const [{ data: countryRows }, { data: rrpRows }, { data: fdRows }] = await Promise.all([
+  const [{ data: allCountryRows }, { data: rrpRows }, { data: fdRows }] = await Promise.all([
     supabase.from('country').select('id, code, name_en, flag_emoji, currency, sort_order').eq('is_active', true).order('sort_order'),
     supabase.from('sku_country_pricing').select('sku_id, country_id, rrp').range(0, 49999),
     supabase.from('sku_fd_price').select('sku_id, country_id, fd, fd_buying_price, currency').range(0, 99999),
   ])
+  // 只保留该用户有权限的国家（销售仅见自己国家；admin 全见）——RRP 列与抽屉输入都据此过滤
+  const countryRows = (allCountryRows ?? []).filter((c: any) => me.canAccessCountry(c.id))
   const rrpBySku: Record<number, Record<number, number>> = {}
   ;(rrpRows ?? []).forEach((r: any) => { if (r.rrp != null) (rrpBySku[r.sku_id] ??= {})[r.country_id] = Number(r.rrp) })
 
@@ -113,6 +115,7 @@ export default async function AdminSkuPage() {
       rrpBySku={rrpBySku}
       fdBySku={fdBySku}
       fdCols={fdCols}
+      plnToEur={plnToEur}
     />
   )
 }
