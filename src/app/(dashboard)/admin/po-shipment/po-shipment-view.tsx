@@ -8,8 +8,10 @@ import { fmtMoney, stageOf, toEUR, convertMoney, type Batch, type OpsRow, type S
 import { PoDocsModal } from './po-docs-modal'
 
 export type SkuOpt = { id: number; code: string; name: string }
-export type CountryOpt = { id: number; code: string; name: string; flag: string }
-export type KaOpt = { id: number; name: string; country_id: number }
+export type CountryOpt = { id: number; code: string; name: string; flag: string; currency?: string | null }
+export type KaOpt = { id: number; name: string; country_id: number; fd?: string | null }
+// FD 出货价查表：`${sku_id}|${country_id}|${fd}` → 单价
+export type FdPriceMap = Record<string, number>
 
 type StageMeta = { key: Stage; icon: string; label: string; a: string; bg: string; bd: string; tx: string; desc: string }
 const STAGES: Record<Stage, StageMeta> = {
@@ -41,10 +43,11 @@ const isoMonday = (iso: string): string => {
   return d.toISOString().slice(0, 10)
 }
 
-export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, countries, kas, freight, fxToEur }: {
+export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, countries, kas, freight, fxToEur, fdPrice = {} }: {
   rows: OpsRow[]; batches: Batch[]; docCounts: Record<string, number>; plnToEur: number; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]
   freight: Record<string, { fee: number | null; currency: string | null }>
   fxToEur: Record<string, number>
+  fdPrice?: FdPriceMap
 }) {
   const supabase = useRef(createClient()).current
   const router = useRouter()
@@ -61,6 +64,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
   const [poDetailsOpen, setPoDetailsOpen] = useState(false)
   const [docsPo, setDocsPo] = useState<string | null>(null)
   const [bulkShipGrp, setBulkShipGrp] = useState<Grp | null>(null)   // 打开「选择发货」弹窗的 PO 组
+  const [ltGroups, setLtGroups] = useState<Grp[] | null>(null)      // 打开交期编辑器的已选 PO
   // 周台账：选中周 + 显示范围（周数）
   const [ledgerWeek, setLedgerWeek] = useState<string | null>(null)
   const [weeksBack, setWeeksBack] = useState(8)
@@ -328,9 +332,11 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
       {bulkShipGrp && <BulkShipModal grp={bulkShipGrp} today={today} busy={busy}
         onClose={() => setBulkShipGrp(null)} onSubmit={submitBulkShip} />}
 
-      {addOpen && <AddPoModal today={today} skus={skus} countries={countries} kas={kas} onClose={() => setAddOpen(false)}
+      {addOpen && <AddPoModal today={today} skus={skus} countries={countries} kas={kas} fdPrice={fdPrice} onClose={() => setAddOpen(false)}
         onDone={() => { setAddOpen(false); router.refresh() }} supabase={supabase} />}
-      {exportOpen && <ExportModal rows={rows} batchesByPo={batchesByPo} today={today} onClose={() => setExportOpen(false)} />}
+      {exportOpen && <ExportModal rows={rows} batchesByPo={batchesByPo} today={today} onClose={() => setExportOpen(false)}
+        onEdit={(g) => { setExportOpen(false); setLtGroups(g) }} />}
+      {ltGroups && <LeadtimeEditorModal groups={ltGroups} batchesByPo={batchesByPo} today={today} supabase={supabase} onClose={() => setLtGroups(null)} />}
       {poDetailsOpen && <PoDetailsExportModal rows={rows} today={today} onClose={() => setPoDetailsOpen(false)} />}
       {docsPo && <PoDocsModal poNumber={docsPo} onClose={() => setDocsPo(null)} onChanged={() => router.refresh()} />}
     </div>
@@ -1102,7 +1108,29 @@ function FreightCell({ po, rec, viewCcy, onSave, busy, fxToEur }: {
 const STAGE_LABEL: Record<Stage, string> = { new: 'New PO', toship: 'To Ship', shipped: 'Shipped', delivered: 'Delivered', partial: 'Partial', cancelled: 'Cancelled' }
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-function buildXlsHtml(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: string): string {
+// 交期表每行的格位(slot)与默认值。SKU/PO 等为身份列，其余可覆盖。orange=待填 ETA。
+type LtCell = { slot: string; def: string; num?: boolean; orange?: boolean }
+function ltCells(l: OpsRow, bs: Batch[], maxB: number): LtCell[] {
+  const delivered = bs.reduce((s, b) => s + b.qty, 0)
+  const remaining = l.qty - delivered
+  const cells: LtCell[] = [
+    { slot: 'po_number', def: l.po_number ?? '' }, { slot: 'ka', def: l.ka_name ?? '' }, { slot: 'po_date', def: l.po_date ?? '' },
+    { slot: 'sku_code', def: l.sku_code ?? '' }, { slot: 'product', def: l.sku_name ?? '' }, { slot: 'status', def: STAGE_LABEL[stageOf(l)] },
+    { slot: 'ordered', def: String(l.qty), num: true }, { slot: 'shipped', def: String(delivered), num: true }, { slot: 'remaining', def: String(remaining), num: true },
+  ]
+  for (let i = 0; i < maxB; i++) {
+    const b = bs[i]
+    cells.push({ slot: `b${i}_qty`, def: b ? String(b.qty) : '', num: true })
+    cells.push({ slot: `b${i}_ship`, def: b ? (b.ship_date ?? '') : '' })
+    cells.push({ slot: `b${i}_eta`, def: b ? (b.delivery_date ?? '') : '', orange: !!b && !b.delivery_date })
+  }
+  cells.push({ slot: 'backorder_eta', def: '', orange: remaining > 0 })
+  cells.push({ slot: 'notes', def: l.notes ?? '' })
+  return cells
+}
+
+// valueOf: (po_line_id, slot, default) → 展示值（有人工覆盖则用覆盖，否则默认）。用于导出与编辑器共用同一套取值。
+function buildXlsHtml(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: string, valueOf: (lineId: number, slot: string, def: string) => string = (_l, _s, d) => d): string {
   // max batches of any single SKU in the selection → how many batch column-groups to expand
   let maxB = 1
   groups.forEach(g => g.lines.forEach(l => { maxB = Math.max(maxB, (batchesByPo.get(l.id) ?? []).length) }))
@@ -1128,26 +1156,15 @@ function buildXlsHtml(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: s
 
   const spacer = `<tr><td colspan="${totalCols}" style="height:7px;border:none;background:#fff;"></td></tr>`
 
-  // one blank row between different POs
+  // one blank row between different POs. 每格取 valueOf(override ?? default)；仍为空的 ETA 格保留橙色。
   const body = groups.map(g => g.lines.map(l => {
     const bs = batchesByPo.get(l.id) ?? []
-    const delivered = bs.reduce((s, b) => s + b.qty, 0)
-    const remaining = l.qty - delivered
-    const stage = STAGE_LABEL[stageOf(l)]
-    const batchCells = Array.from({ length: maxB }, (_, i) => {
-      const b = bs[i]
-      if (!b) return td('') + td('') + td('')
-      // ETA = delivery date; shipped-but-not-delivered → blank orange cell to fill in
-      return td(b.qty, { num: true }) + td(b.ship_date ?? '') + td(b.delivery_date ?? '', { bg: b.delivery_date ? '' : '#fff7ed' })
-    }).join('')
-    return `<tr>` +
-      td(l.po_number ?? '') + td(l.ka_name ?? '') + td(l.po_date) +
-      td(l.sku_code) + td(l.sku_name) + td(stage) +
-      td(l.qty, { num: true }) + td(delivered, { num: true }) + td(remaining, { num: true, c: remaining > 0 ? '#b45309' : '' }) +
-      batchCells +
-      td('', { bg: remaining > 0 ? '#fff7ed' : '' }) +   // Backorder ETA — blank to fill
-      td(l.notes ?? '') +
-      `</tr>`
+    return `<tr>` + ltCells(l, bs, maxB).map(c => {
+      const v = valueOf(l.id, c.slot, c.def)
+      const orange = c.orange && !String(v).trim()
+      const red = c.slot === 'remaining' && Number(c.def) > 0
+      return td(v, { num: c.num, bg: orange ? '#fff7ed' : '', c: red ? '#b45309' : '' })
+    }).join('') + `</tr>`
   }).join('')).join(spacer)
 
   const skuLines = groups.reduce((s, g) => s + g.lines.length, 0)
@@ -1161,8 +1178,9 @@ function buildXlsHtml(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: s
     `<thead>${title}${head}</thead><tbody>${body}</tbody></table></body></html>`
 }
 
-function ExportModal({ rows, batchesByPo, today, onClose }: {
+function ExportModal({ rows, batchesByPo, today, onClose, onEdit }: {
   rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; today: string; onClose: () => void
+  onEdit: (picked: Grp[]) => void
 }) {
   const groups = useMemo(() => groupByPo(rows), [rows])   // all POs, PO date desc
   const [sel, setSel] = useState<Set<string>>(new Set())
@@ -1194,17 +1212,10 @@ function ExportModal({ rows, batchesByPo, today, onClose }: {
   }
   const grpBatches = (g: Grp) => g.lines.reduce((s, l) => s + (batchesByPo.get(l.id) ?? []).length, 0)
 
-  const doExport = () => {
+  const openEditor = () => {
     const picked = groups.filter(g => sel.has(g.key))
     if (!picked.length) { alert('Please select at least one PO.'); return }
-    const html = buildXlsHtml(picked, batchesByPo, today)
-    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `Order Leadtime-${today.replace(/-/g, '')}.xls`
-    document.body.appendChild(a); a.click(); a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
-    onClose()
+    onEdit(picked)
   }
 
   return (
@@ -1259,11 +1270,124 @@ function ExportModal({ rows, batchesByPo, today, onClose }: {
         </div>
 
         <div className="flex justify-between items-center mt-4">
-          <span className="text-xs text-gray-400">导出 <span className="font-mono text-gray-500">Order Leadtime-{today.replace(/-/g, '')}.xls</span> · Excel / WPS 直接打开</span>
+          <span className="text-xs text-gray-400">下一步在 ERP 里填 / 改交期(自动存,可在上次基础上改),再导出 Excel。</span>
           <div className="flex gap-2">
             <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">取消</button>
-            <button onClick={doExport} disabled={!sel.size}
-              className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">📋 导出 ({sel.size})</button>
+            <button onClick={openEditor} disabled={!sel.size}
+              className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">编辑交期 ({sel.size}) →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ===== Order Leadtime 编辑器：选完 PO → 在 ERP 里以 Excel 同格式填/改交期(边改边存)，再导出 =====
+function LeadtimeEditorModal({ groups, batchesByPo, today, supabase, onClose }: {
+  groups: Grp[]; batchesByPo: Map<number, Batch[]>; today: string
+  supabase: ReturnType<typeof createClient>; onClose: () => void
+}) {
+  const lines = useMemo(() => groups.flatMap(g => g.lines), [groups])
+  const maxB = useMemo(() => Math.max(1, ...lines.map(l => (batchesByPo.get(l.id) ?? []).length)), [lines, batchesByPo])
+  const [ov, setOv] = useState<Record<number, Record<string, string>>>({})
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase.from('po_leadtime').select('po_line_id, slot, value').in('po_line_id', lines.map(l => l.id))
+      if (!alive) return
+      const m: Record<number, Record<string, string>> = {}
+      ;(data ?? []).forEach((r: any) => { (m[r.po_line_id] ??= {})[r.slot] = r.value ?? '' })
+      setOv(m); setLoading(false)
+    })()
+    return () => { alive = false }
+  }, [lines, supabase])
+
+  const val = (lineId: number, slot: string, def: string) => (ov[lineId] && slot in ov[lineId]) ? ov[lineId][slot] : def
+  const onChange = (lineId: number, slot: string, v: string) => setOv(prev => ({ ...prev, [lineId]: { ...(prev[lineId] ?? {}), [slot]: v } }))
+
+  const persist = async (lineId: number, slot: string, def: string) => {
+    const cur = ov[lineId]?.[slot]
+    if (cur === undefined) return
+    setSaving(true)
+    if (cur.trim() === '' || cur === def) {   // 空 / 与默认相同 → 删覆盖，回落默认
+      await supabase.from('po_leadtime').delete().eq('po_line_id', lineId).eq('slot', slot)
+      setOv(prev => { const c = { ...(prev[lineId] ?? {}) }; delete c[slot]; return { ...prev, [lineId]: c } })
+    } else {
+      await supabase.from('po_leadtime').upsert({ po_line_id: lineId, slot, value: cur }, { onConflict: 'po_line_id,slot' })
+    }
+    setSaving(false)
+  }
+
+  const doExport = () => {
+    const html = buildXlsHtml(groups, batchesByPo, today, (lineId, slot, def) => val(lineId, slot, def))
+    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' })
+    const url = URL.createObjectURL(blob); const a = document.createElement('a')
+    a.href = url; a.download = `Order Leadtime-${today.replace(/-/g, '')}.xls`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const FIXED = ['PO #', 'KA', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[96vw] max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between p-4 pb-2">
+          <div>
+            <div className="text-lg font-semibold text-gray-900">📋 Order Leadtime · 填写 / 更新交期</div>
+            <div className="text-xs text-gray-400 mt-0.5">和导出 Excel 同格式。<span className="text-amber-600 font-medium">橙色格</span>是待填 ETA；所有格可改、<b>边改边自动保存</b>，同一 PO 下次打开自动带出上次的值。{lines.length} 行 · {groups.length} PO</div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="flex-1 overflow-auto px-4">
+          {loading ? <div className="py-16 text-center text-gray-400 text-sm">加载上次交期…</div> : (
+            <table className="text-[12px] border-collapse whitespace-nowrap tabular-nums">
+              <thead className="sticky top-0 z-10">
+                <tr>
+                  {FIXED.map(h => <th key={h} rowSpan={2} className="bg-gray-800 text-white border border-slate-400 px-2 py-1.5 font-semibold">{h}</th>)}
+                  {Array.from({ length: maxB }, (_, i) => <th key={i} colSpan={3} className="bg-teal-700 text-white border border-slate-400 px-2 py-1.5 font-semibold">Batch {i + 1}</th>)}
+                  <th rowSpan={2} className="bg-amber-700 text-white border border-slate-400 px-2 py-1.5 font-semibold">Backorder ETA</th>
+                  <th rowSpan={2} className="bg-gray-800 text-white border border-slate-400 px-2 py-1.5 font-semibold">Notes</th>
+                </tr>
+                <tr>
+                  {Array.from({ length: maxB }, (_, i) => <Fragment key={i}>
+                    <th className="bg-gray-600 text-white border border-slate-400 px-2 py-1 font-medium">Qty</th>
+                    <th className="bg-gray-600 text-white border border-slate-400 px-2 py-1 font-medium">Ship Date</th>
+                    <th className="bg-gray-600 text-white border border-slate-400 px-2 py-1 font-medium">ETA</th>
+                  </Fragment>)}
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map(l => {
+                  const bs = batchesByPo.get(l.id) ?? []
+                  return (
+                    <tr key={l.id} className="hover:bg-gray-50/40">
+                      {ltCells(l, bs, maxB).map(c => {
+                        const v = val(l.id, c.slot, c.def)
+                        const orange = c.orange && !v.trim()
+                        const wide = c.slot === 'product' || c.slot === 'notes'
+                        return (
+                          <td key={c.slot} className={`border border-slate-200 p-0 ${orange ? 'bg-amber-50' : ''}`}>
+                            <input value={v} onChange={e => onChange(l.id, c.slot, e.target.value)} onBlur={() => persist(l.id, c.slot, c.def)}
+                              className={`w-full bg-transparent px-2 py-1 outline-none focus:bg-yellow-50 ${c.num ? 'text-right' : ''} ${wide ? 'min-w-[150px]' : 'min-w-[74px]'}`} />
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="flex justify-between items-center p-4 pt-3 border-t border-gray-100">
+          <span className="text-xs text-gray-400">{saving ? '保存中…' : '✓ 已自动保存'} · 导出 <span className="font-mono text-gray-500">Order Leadtime-{today.replace(/-/g, '')}.xls</span> · Excel / WPS 直接打开</span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">关闭</button>
+            <button onClick={doExport} className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">📥 导出 Excel</button>
           </div>
         </div>
       </div>
@@ -1435,7 +1559,7 @@ function KaTh({ value, onChange, options }: KaProps) {
 }
 
 // ===== 手动新建 PO（落 New PO；一张 PO 多个 SKU，每个 SKU 存一行）=====
-type PoLine = { key: number; skuCode: string; qty: string; price: string }
+type PoLine = { key: number; skuCode: string; qty: string; price: string; priceAuto?: boolean }
 const CCY_FMT = (v: number, ccy: string) => (ccy === 'PLN' ? 'zł ' : '€') + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const lineTurnover = (l: PoLine): number | null => {
   const q = Number(l.qty), p = Number(l.price)
@@ -1535,8 +1659,8 @@ function BulkShipModal({ grp, today, busy, onClose, onSubmit }: {
   )
 }
 
-function AddPoModal({ today, skus, countries, kas, onClose, onDone, supabase }: {
-  today: string; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]
+function AddPoModal({ today, skus, countries, kas, fdPrice, onClose, onDone, supabase }: {
+  today: string; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]; fdPrice: FdPriceMap
   onClose: () => void; onDone: () => void; supabase: ReturnType<typeof createClient>
 }) {
   const [countryId, setCountryId] = useState<number | ''>('')
@@ -1544,15 +1668,27 @@ function AddPoModal({ today, skus, countries, kas, onClose, onDone, supabase }: 
   const [poNumber, setPoNumber] = useState('')
   const [poDate, setPoDate] = useState(today)
   const [currency, setCurrency] = useState('EUR')
-  const [lines, setLines] = useState<PoLine[]>([{ key: 1, skuCode: '', qty: '', price: '' }])
+  const [lines, setLines] = useState<PoLine[]>([{ key: 1, skuCode: '', qty: '', price: '', priceAuto: true }])
   const [saving, setSaving] = useState(false)
   const nextKey = useRef(2)
 
   const kaOptions = kas.filter(k => k.country_id === countryId)
   const skuByCode = useMemo(() => new Map(skus.map(s => [s.code.toLowerCase(), s])), [skus])
   const resolve = (code: string) => skuByCode.get(code.trim().toLowerCase())
+  const kaFd = kas.find(k => k.id === kaId)?.fd ?? null   // 选中 KA 对应的分销商(FD)
 
-  const addLine = () => setLines(ls => [...ls, { key: nextKey.current++, skuCode: '', qty: '', price: '' }])
+  // 选完 国家×渠道(→FD)×SKU 后，自动带出该 SKU 的 FD 出货价（字符串；无则空）
+  const autoPrice = (skuCode: string, cid: number | '', fd: string | null): string => {
+    const sku = resolve(skuCode)
+    if (!sku || !cid || !fd) return ''
+    const v = fdPrice[`${sku.id}|${cid}|${fd}`]
+    return v != null ? String(v) : ''
+  }
+  // 重填所有「未手动改过价」的行（priceAuto !== false）
+  const refillAuto = (cid: number | '', fd: string | null) =>
+    setLines(ls => ls.map(l => l.priceAuto === false ? l : { ...l, price: autoPrice(l.skuCode, cid, fd), priceAuto: true }))
+
+  const addLine = () => setLines(ls => [...ls, { key: nextKey.current++, skuCode: '', qty: '', price: '', priceAuto: true }])
   const delLine = (key: number) => setLines(ls => ls.length > 1 ? ls.filter(l => l.key !== key) : ls)
   const setLine = (key: number, patch: Partial<PoLine>) => setLines(ls => ls.map(l => l.key === key ? { ...l, ...patch } : l))
   const grandTotal = lines.reduce((s, l) => s + (lineTurnover(l) ?? 0), 0)
@@ -1593,10 +1729,17 @@ function AddPoModal({ today, skus, countries, kas, onClose, onDone, supabase }: 
         <datalist id="sku-options">{skus.map(s => <option key={s.id} value={s.code}>{s.name}</option>)}</datalist>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Country *"><select value={countryId} onChange={e => { setCountryId(Number(e.target.value) || ''); setKaId('') }} className="fld">
+          <Field label="Country *"><select value={countryId} onChange={e => {
+            const cid = Number(e.target.value) || ''; setCountryId(cid); setKaId('')
+            const cur = countries.find(c => c.id === cid)?.currency; if (cur) setCurrency(cur)   // 默认该国本币
+            refillAuto(cid, null)   // KA 已清空 → 自动价清空
+          }} className="fld">
             <option value="">—</option>{countries.map(c => <option key={c.id} value={c.id}>{c.flag} {c.name}</option>)}</select></Field>
-          <Field label="KA"><select value={kaId} onChange={e => setKaId(Number(e.target.value) || '')} disabled={!countryId} className="fld">
-            <option value="">—</option>{kaOptions.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}</select></Field>
+          <Field label="KA"><select value={kaId} onChange={e => {
+            const id = Number(e.target.value) || ''; setKaId(id)
+            refillAuto(countryId, kas.find(k => k.id === id)?.fd ?? null)   // 按新 KA 的 FD 重填自动价
+          }} disabled={!countryId} className="fld">
+            <option value="">—</option>{kaOptions.map(k => <option key={k.id} value={k.id}>{k.name}{k.fd ? ` · ${k.fd}` : ''}</option>)}</select></Field>
           <Field label="PO #"><input value={poNumber} onChange={e => setPoNumber(e.target.value)} className="fld" placeholder="optional" /></Field>
           <Field label="PO Date *"><input type="date" value={poDate} max={today} onChange={e => setPoDate(e.target.value)} className="fld" /></Field>
           <Field label="Currency"><select value={currency} onChange={e => setCurrency(e.target.value)} className="fld"><option>EUR</option><option>PLN</option></select></Field>
@@ -1620,12 +1763,18 @@ function AddPoModal({ today, skus, countries, kas, onClose, onDone, supabase }: 
               return (
                 <Fragment key={l.key}>
                   <div className="min-w-0">
-                    <input list="sku-options" value={l.skuCode} onChange={e => setLine(l.key, { skuCode: e.target.value })}
+                    <input list="sku-options" value={l.skuCode} onChange={e => {
+                      const v = e.target.value
+                      // 未手动改价的行：随 SKU 自动带出 FD 出货价
+                      setLine(l.key, l.priceAuto === false ? { skuCode: v } : { skuCode: v, price: autoPrice(v, countryId, kaFd), priceAuto: true })
+                    }}
                       placeholder="输入 PB / PX… 或点下拉" className={`fld w-full ${bad ? 'border-rose-400' : ''}`} />
                     <div className={`text-[10px] mt-0.5 truncate ${bad ? 'text-rose-500' : 'text-gray-400'}`}>{bad ? '⚠ 无法识别此 SKU' : sku ? sku.name : ' '}</div>
                   </div>
                   <input type="number" value={l.qty} onChange={e => setLine(l.key, { qty: e.target.value })} placeholder="0" className="fld text-right h-[35px]" />
-                  <input type="number" value={l.price} onChange={e => setLine(l.key, { price: e.target.value })} placeholder="optional" className="fld text-right h-[35px]" />
+                  <input type="number" value={l.price} title={l.priceAuto !== false && l.price ? 'FD 出货价自动带出，可改' : undefined}
+                    onChange={e => setLine(l.key, { price: e.target.value, priceAuto: false })}
+                    placeholder="optional" className={`fld text-right h-[35px] ${l.priceAuto !== false && l.price ? 'text-gray-400 italic' : ''}`} />
                   <div className="h-[35px] flex items-center justify-end px-2 rounded-lg bg-gray-50 border border-gray-200 text-[13px] tabular-nums text-gray-600">{t == null ? '–' : CCY_FMT(t, currency)}</div>
                   <button onClick={() => delLine(l.key)} disabled={lines.length === 1} title="删除此行"
                     className="h-[35px] rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30 disabled:hover:bg-transparent transition">×</button>
