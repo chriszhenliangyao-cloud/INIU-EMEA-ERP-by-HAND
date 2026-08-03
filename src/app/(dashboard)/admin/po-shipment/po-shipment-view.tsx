@@ -1690,15 +1690,18 @@ function AddPoModal({ today, skus, countries, kas, fdPrice, onClose, onDone, sup
   const kaFd = kas.find(k => k.id === kaId)?.fd ?? null   // 选中 KA 对应的分销商(FD)
 
   // 选完 国家×渠道(→FD)×SKU 后，自动带出该 SKU 的 FD 出货价（字符串；无则空）
-  const autoPrice = (skuCode: string, cid: number | '', fd: string | null): string => {
+  //   仅当 PO 币种 == 该 FD 出货价的币种(=该国本币)时才带价，避免把 PLN 价填进 EUR 单。
+  const autoPrice = (skuCode: string, cid: number | '', fd: string | null, cur: string): string => {
     const sku = resolve(skuCode)
     if (!sku || !cid || !fd) return ''
+    const priceCur = countries.find(c => c.id === cid)?.currency ?? 'EUR'
+    if (priceCur !== cur) return ''
     const v = fdPrice[`${sku.id}|${cid}|${fd}`]
     return v != null ? String(v) : ''
   }
   // 重填所有「未手动改过价」的行（priceAuto !== false）
-  const refillAuto = (cid: number | '', fd: string | null) =>
-    setLines(ls => ls.map(l => l.priceAuto === false ? l : { ...l, price: autoPrice(l.skuCode, cid, fd), priceAuto: true }))
+  const refillAuto = (cid: number | '', fd: string | null, cur: string) =>
+    setLines(ls => ls.map(l => l.priceAuto === false ? l : { ...l, price: autoPrice(l.skuCode, cid, fd, cur), priceAuto: true }))
 
   const addLine = () => setLines(ls => [...ls, { key: nextKey.current++, skuCode: '', qty: '', price: '', priceAuto: true }])
   const delLine = (key: number) => setLines(ls => ls.length > 1 ? ls.filter(l => l.key !== key) : ls)
@@ -1743,18 +1746,17 @@ function AddPoModal({ today, skus, countries, kas, fdPrice, onClose, onDone, sup
         <div className="grid grid-cols-2 gap-3">
           <Field label="Country *"><select value={countryId} onChange={e => {
             const cid = Number(e.target.value) || ''; setCountryId(cid); setKaId('')
-            const cur = countries.find(c => c.id === cid)?.currency; if (cur) setCurrency(cur)   // 默认该国本币
-            refillAuto(cid, null)   // KA 已清空 → 自动价清空
+            refillAuto(cid, null, currency)   // 币种默认 EUR 不随国家改；KA 已清空 → 自动价清空
           }} className="fld">
             <option value="">—</option>{countries.map(c => <option key={c.id} value={c.id}>{c.flag} {c.name}</option>)}</select></Field>
           <Field label="KA"><select value={kaId} onChange={e => {
             const id = Number(e.target.value) || ''; setKaId(id)
-            refillAuto(countryId, kas.find(k => k.id === id)?.fd ?? null)   // 按新 KA 的 FD 重填自动价
+            refillAuto(countryId, kas.find(k => k.id === id)?.fd ?? null, currency)   // 按新 KA 的 FD 重填自动价
           }} disabled={!countryId} className="fld">
             <option value="">—</option>{kaOptions.map(k => <option key={k.id} value={k.id}>{k.name}{k.fd ? ` · ${k.fd}` : ''}</option>)}</select></Field>
           <Field label="PO #"><input value={poNumber} onChange={e => setPoNumber(e.target.value)} className="fld" placeholder="optional" /></Field>
           <Field label="PO Date *"><input type="date" value={poDate} max={today} onChange={e => setPoDate(e.target.value)} className="fld" /></Field>
-          <Field label="Currency"><select value={currency} onChange={e => setCurrency(e.target.value)} className="fld"><option>EUR</option><option>PLN</option></select></Field>
+          <Field label="Currency"><select value={currency} onChange={e => { const cur = e.target.value; setCurrency(cur); refillAuto(countryId, kaFd, cur) }} className="fld"><option>EUR</option><option>PLN</option></select></Field>
         </div>
 
         <div className="mt-5">
@@ -1778,7 +1780,7 @@ function AddPoModal({ today, skus, countries, kas, fdPrice, onClose, onDone, sup
                     <input list="sku-options" value={l.skuCode} onChange={e => {
                       const v = e.target.value
                       // 未手动改价的行：随 SKU 自动带出 FD 出货价
-                      setLine(l.key, l.priceAuto === false ? { skuCode: v } : { skuCode: v, price: autoPrice(v, countryId, kaFd), priceAuto: true })
+                      setLine(l.key, l.priceAuto === false ? { skuCode: v } : { skuCode: v, price: autoPrice(v, countryId, kaFd, currency), priceAuto: true })
                     }}
                       placeholder="输入 PB / PX… 或点下拉" className={`fld w-full ${bad ? 'border-rose-400' : ''}`} />
                     <div className={`text-[10px] mt-0.5 truncate ${bad ? 'text-rose-500' : 'text-gray-400'}`}>{bad ? '⚠ 无法识别此 SKU' : sku ? sku.name : ' '}</div>
