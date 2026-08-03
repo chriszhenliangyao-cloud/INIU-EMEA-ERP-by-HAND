@@ -1125,7 +1125,7 @@ function ltCells(l: OpsRow, bs: Batch[], maxB: number): LtCell[] {
     cells.push({ slot: `b${i}_eta`, def: b ? (b.delivery_date ?? '') : '', orange: !!b && !b.delivery_date })
   }
   cells.push({ slot: 'backorder_eta', def: '', orange: remaining > 0 })
-  cells.push({ slot: 'notes', def: l.notes ?? '' })
+  cells.push({ slot: 'notes', def: '' })   // Notes 默认留空(不再带出 channel_po.notes),需要时手填
   return cells
 }
 
