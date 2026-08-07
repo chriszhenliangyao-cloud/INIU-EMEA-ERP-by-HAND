@@ -1114,7 +1114,7 @@ function ltCells(l: OpsRow, bs: Batch[], maxB: number): LtCell[] {
   const delivered = bs.reduce((s, b) => s + b.qty, 0)
   const remaining = l.qty - delivered
   const cells: LtCell[] = [
-    { slot: 'po_number', def: l.po_number ?? '' }, { slot: 'ka', def: l.ka_name ?? '' }, { slot: 'po_date', def: l.po_date ?? '' },
+    { slot: 'po_number', def: l.po_number ?? '' }, { slot: 'ka', def: l.ka_name ?? '' }, { slot: 'account', def: '' }, { slot: 'po_date', def: l.po_date ?? '' },
     { slot: 'sku_code', def: l.sku_code ?? '' }, { slot: 'product', def: l.sku_name ?? '' }, { slot: 'status', def: STAGE_LABEL[stageOf(l)] },
     { slot: 'ordered', def: String(l.qty), num: true }, { slot: 'shipped', def: String(delivered), num: true }, { slot: 'remaining', def: String(remaining), num: true },
   ]
@@ -1146,7 +1146,7 @@ const LT_STYLES: XlsxStyle[] = [
 function buildLeadtimeXlsx(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: string, valueOf: (lineId: number, slot: string, def: string) => string): Blob {
   let maxB = 1
   groups.forEach(g => g.lines.forEach(l => { maxB = Math.max(maxB, (batchesByPo.get(l.id) ?? []).length) }))
-  const fixed = ['PO #', 'Account', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
+  const fixed = ['PO #', 'KA', 'Account', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
   const nCol = fixed.length + maxB * 3 + 2
   const rows: XlsxCell[][] = []
   const merges: XlsxMerge[] = []
@@ -1177,7 +1177,7 @@ function buildLeadtimeXlsx(groups: Grp[], batchesByPo: Map<number, Batch[]>, tod
     g.lines.forEach((l, li) => {
       const bs = batchesByPo.get(l.id) ?? []
       rows.push(ltCells(l, bs, maxB).map((cc, ci) => {
-        if (ci < 3 && li > 0) return { v: '', s: 6 }   // 合并列非首行 → 空
+        if (ci < 4 && li > 0) return { v: '', s: 6 }   // 合并身份列(PO#/KA/Account/PO Date)非首行 → 空
         const raw = valueOf(l.id, cc.slot, cc.def)
         const orange = cc.orange && !raw.trim()
         let s = 6
@@ -1187,21 +1187,21 @@ function buildLeadtimeXlsx(groups: Grp[], batchesByPo: Map<number, Batch[]>, tod
         return { v: raw, s }
       }))
     })
-    if (g.lines.length > 1) for (let c = 0; c < 3; c++) merges.push({ r1: firstRow, c1: c, r2: firstRow + g.lines.length - 1, c2: c })
+    if (g.lines.length > 1) for (let c = 0; c < 4; c++) merges.push({ r1: firstRow, c1: c, r2: firstRow + g.lines.length - 1, c2: c })
     // 每个 PO 末尾追加一行 Total —— 写入真·公式 =SUM(...)（官方 Excel 打开即算，改数字自动更新）
     const n = g.lines.length
     const shippedOf = (l: OpsRow) => (batchesByPo.get(l.id) ?? []).reduce((s, b) => s + b.qty, 0)
     const totalRow: XlsxCell[] = Array.from({ length: nCol }, () => ({ v: '', s: 10 }))
-    totalRow[5] = { v: 'Total', s: 10 }
+    totalRow[6] = { v: 'Total', s: 10 }   // 'Total' 放 Status 列，紧邻数字列
     const put = (c: number, cached: number) => { const col = XLC(c); totalRow[c] = { f: `SUM(${col}${firstRow + 1}:${col}${firstRow + n})`, v: cached, s: 11 } }
-    put(6, g.lines.reduce((s, l) => s + l.qty, 0))                                  // Ordered
-    put(7, g.lines.reduce((s, l) => s + shippedOf(l), 0))                           // Shipped
-    put(8, g.lines.reduce((s, l) => s + (l.qty - shippedOf(l)), 0))                 // Remaining
+    put(7, g.lines.reduce((s, l) => s + l.qty, 0))                                  // Ordered
+    put(8, g.lines.reduce((s, l) => s + shippedOf(l), 0))                           // Shipped
+    put(9, g.lines.reduce((s, l) => s + (l.qty - shippedOf(l)), 0))                 // Remaining
     for (let i = 0; i < maxB; i++) put(fixed.length + i * 3, g.lines.reduce((s, l) => { const b = (batchesByPo.get(l.id) ?? [])[i]; return s + (b ? b.qty : 0) }, 0))  // 各 Batch Qty
     rows.push(totalRow)
   })
 
-  const cols = [14, 12, 11, 14, 24, 10, 9, 9, 10, ...Array.from({ length: maxB * 3 }, () => 11), 18, 28]
+  const cols = [14, 12, 16, 11, 14, 24, 10, 9, 9, 10, ...Array.from({ length: maxB * 3 }, () => 11), 18, 28]
   return buildXlsx({ sheet: 'PO Tracking', rows, merges, cols, freezeRows: 3, styles: LT_STYLES })
 }
 
@@ -1353,7 +1353,7 @@ function LeadtimeEditorModal({ groups, batchesByPo, today, supabase, onClose }: 
     downloadXlsx(blob, `Order Leadtime-${today.replace(/-/g, '')}.xlsx`)
   }
 
-  const FIXED = ['PO #', 'Account', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
+  const FIXED = ['PO #', 'KA', 'Account', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -1384,27 +1384,53 @@ function LeadtimeEditorModal({ groups, batchesByPo, today, supabase, onClose }: 
                 </tr>
               </thead>
               <tbody>
-                {groups.map(g => g.lines.map((l, li) => {
-                  const bs = batchesByPo.get(l.id) ?? []
-                  const first = li === 0                     // 同 PO 只在首行展示 PO#/KA/PO Date，纵向合并
+                {groups.map(g => {
+                  const shippedOf = (l: OpsRow) => (batchesByPo.get(l.id) ?? []).reduce((s, b) => s + b.qty, 0)
+                  // 每个 PO 末尾 Total 行的各列合计（Ordered/Shipped/Remaining + 各 Batch Qty）
+                  const sumSlot = (slot: string): number | null => {
+                    if (slot === 'ordered') return g.lines.reduce((s, l) => s + l.qty, 0)
+                    if (slot === 'shipped') return g.lines.reduce((s, l) => s + shippedOf(l), 0)
+                    if (slot === 'remaining') return g.lines.reduce((s, l) => s + (l.qty - shippedOf(l)), 0)
+                    const m = slot.match(/^b(\d+)_qty$/)
+                    if (m) { const bi = +m[1]; return g.lines.reduce((s, l) => { const b = (batchesByPo.get(l.id) ?? [])[bi]; return s + (b ? b.qty : 0) }, 0) }
+                    return null
+                  }
                   return (
-                    <tr key={l.id} className="hover:bg-gray-50/40">
-                      {ltCells(l, bs, maxB).map((c, ci) => {
-                        const merged = ci < 3               // 前三列 = 每 PO 相同的身份列
-                        if (merged && !first) return null    // 非首行跳过（被 rowSpan 覆盖）
-                        const v = val(l.id, c.slot, c.def)
-                        const orange = c.orange && !v.trim()
-                        const wide = c.slot === 'product' || c.slot === 'notes'
+                    <Fragment key={'g' + g.lines[0].id}>
+                      {g.lines.map((l, li) => {
+                        const bs = batchesByPo.get(l.id) ?? []
+                        const first = li === 0                     // 同 PO 只在首行展示身份列，纵向合并
                         return (
-                          <td key={c.slot} rowSpan={merged ? g.lines.length : undefined} className={`border border-slate-200 p-0 align-top ${orange ? 'bg-amber-50' : ''} ${merged ? 'bg-gray-50/40' : ''}`}>
-                            <input value={v} onChange={e => onChange(l.id, c.slot, e.target.value)} onBlur={() => persist(l.id, c.slot, c.def)}
-                              className={`w-full bg-transparent px-2 py-1 outline-none focus:bg-yellow-50 ${c.num ? 'text-right' : ''} ${wide ? 'min-w-[150px]' : 'min-w-[74px]'}`} />
-                          </td>
+                          <tr key={l.id} className="hover:bg-gray-50/40">
+                            {ltCells(l, bs, maxB).map((c, ci) => {
+                              const merged = ci < 4               // 前四列(PO#/KA/Account/PO Date) = 每 PO 相同的身份列
+                              if (merged && !first) return null    // 非首行跳过（被 rowSpan 覆盖）
+                              const v = val(l.id, c.slot, c.def)
+                              const orange = c.orange && !v.trim()
+                              const wide = c.slot === 'product' || c.slot === 'notes'
+                              return (
+                                <td key={c.slot} rowSpan={merged ? g.lines.length : undefined} className={`border border-slate-200 p-0 align-top ${orange ? 'bg-amber-50' : ''} ${merged ? 'bg-gray-50/40' : ''}`}>
+                                  <input value={v} onChange={e => onChange(l.id, c.slot, e.target.value)} onBlur={() => persist(l.id, c.slot, c.def)}
+                                    className={`w-full bg-transparent px-2 py-1 outline-none focus:bg-yellow-50 ${c.num ? 'text-right' : ''} ${wide ? 'min-w-[150px]' : 'min-w-[74px]'}`} />
+                                </td>
+                              )
+                            })}
+                          </tr>
                         )
                       })}
-                    </tr>
+                      <tr className="bg-gray-100 font-semibold text-gray-800">
+                        {ltCells(g.lines[0], batchesByPo.get(g.lines[0].id) ?? [], maxB).map(c => {
+                          const sum = sumSlot(c.slot)
+                          return (
+                            <td key={c.slot} className={`border border-slate-200 px-2 py-1 ${c.num ? 'text-right tabular-nums' : ''}`}>
+                              {c.slot === 'status' ? 'Total' : (sum != null ? fmtNum(sum) : '')}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    </Fragment>
                   )
-                }))}
+                })}
               </tbody>
             </table>
           )}
