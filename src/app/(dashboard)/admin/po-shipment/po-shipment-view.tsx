@@ -1140,14 +1140,17 @@ const LT_STYLES: XlsxStyle[] = [
   { border: true, align: 'right', numFmt: '#,##0' },                               // 7 数字格
   { fill: 'FFF7ED', border: true },                                                // 8 橙色待填
   { border: true, align: 'right', color: 'B45309', numFmt: '#,##0' },              // 9 Remaining 红字
+  { bold: true, fill: 'E5E7EB', border: true },                                    // 10 Total 行标签
+  { bold: true, fill: 'E5E7EB', border: true, align: 'right', numFmt: '#,##0' },   // 11 Total 行数字（=SUM 公式）
 ]
 function buildLeadtimeXlsx(groups: Grp[], batchesByPo: Map<number, Batch[]>, today: string, valueOf: (lineId: number, slot: string, def: string) => string): Blob {
   let maxB = 1
   groups.forEach(g => g.lines.forEach(l => { maxB = Math.max(maxB, (batchesByPo.get(l.id) ?? []).length) }))
-  const fixed = ['PO #', 'KA', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
+  const fixed = ['PO #', 'Account', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
   const nCol = fixed.length + maxB * 3 + 2
   const rows: XlsxCell[][] = []
   const merges: XlsxMerge[] = []
+  const XLC = (i: number) => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26) } return s }  // 0-based 列号 → Excel 列字母
 
   // row0 标题（跨列）
   const title: XlsxCell[] = Array.from({ length: nCol }, () => ({ v: '' }))
@@ -1185,6 +1188,17 @@ function buildLeadtimeXlsx(groups: Grp[], batchesByPo: Map<number, Batch[]>, tod
       }))
     })
     if (g.lines.length > 1) for (let c = 0; c < 3; c++) merges.push({ r1: firstRow, c1: c, r2: firstRow + g.lines.length - 1, c2: c })
+    // 每个 PO 末尾追加一行 Total —— 写入真·公式 =SUM(...)（官方 Excel 打开即算，改数字自动更新）
+    const n = g.lines.length
+    const shippedOf = (l: OpsRow) => (batchesByPo.get(l.id) ?? []).reduce((s, b) => s + b.qty, 0)
+    const totalRow: XlsxCell[] = Array.from({ length: nCol }, () => ({ v: '', s: 10 }))
+    totalRow[5] = { v: 'Total', s: 10 }
+    const put = (c: number, cached: number) => { const col = XLC(c); totalRow[c] = { f: `SUM(${col}${firstRow + 1}:${col}${firstRow + n})`, v: cached, s: 11 } }
+    put(6, g.lines.reduce((s, l) => s + l.qty, 0))                                  // Ordered
+    put(7, g.lines.reduce((s, l) => s + shippedOf(l), 0))                           // Shipped
+    put(8, g.lines.reduce((s, l) => s + (l.qty - shippedOf(l)), 0))                 // Remaining
+    for (let i = 0; i < maxB; i++) put(fixed.length + i * 3, g.lines.reduce((s, l) => { const b = (batchesByPo.get(l.id) ?? [])[i]; return s + (b ? b.qty : 0) }, 0))  // 各 Batch Qty
+    rows.push(totalRow)
   })
 
   const cols = [14, 12, 11, 14, 24, 10, 9, 9, 10, ...Array.from({ length: maxB * 3 }, () => 11), 18, 28]
@@ -1339,7 +1353,7 @@ function LeadtimeEditorModal({ groups, batchesByPo, today, supabase, onClose }: 
     downloadXlsx(blob, `Order Leadtime-${today.replace(/-/g, '')}.xlsx`)
   }
 
-  const FIXED = ['PO #', 'KA', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
+  const FIXED = ['PO #', 'Account', 'PO Date', 'SKU', 'Product', 'Status', 'Ordered', 'Shipped', 'Remaining']
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>

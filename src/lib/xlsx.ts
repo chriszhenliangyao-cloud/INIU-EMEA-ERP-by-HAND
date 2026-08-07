@@ -20,7 +20,7 @@ export type XlsxStyle = {
   numFmt?: string      // 自定义数字格式，如 '#,##0'
   size?: number
 }
-export type XlsxCell = { v: string | number | null; s?: number }
+export type XlsxCell = { v?: string | number | null; s?: number; f?: string }   // f = formula (no leading '='); v = cached value
 export type XlsxMerge = { r1: number; c1: number; r2: number; c2: number }   // 0-based inclusive
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -73,6 +73,10 @@ function buildSheet(rows: XlsxCell[][], merges: XlsxMerge[], cols: number[] | un
   const sheetData = rows.map((row, r) => {
     const cells = row.map((cell, c) => {
       const sAttr = cell.s ? ` s="${cell.s}"` : ''
+      if (cell.f != null) {   // formula cell (numeric result); include cached <v> when known
+        const vXml = typeof cell.v === 'number' ? `<v>${cell.v}</v>` : ''
+        return `<c r="${ref(r, c)}"${sAttr}><f>${esc(cell.f)}</f>${vXml}</c>`
+      }
       if (cell.v == null || cell.v === '') return `<c r="${ref(r, c)}"${sAttr}/>`
       if (typeof cell.v === 'number') return `<c r="${ref(r, c)}"${sAttr}><v>${cell.v}</v></c>`
       return `<c r="${ref(r, c)}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${esc(cell.v)}</t></is></c>`
