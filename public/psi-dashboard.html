@@ -3147,7 +3147,6 @@ document.addEventListener('DOMContentLoaded', initApp);
       <div class="wa-canvas" id="wa-canvas">
         <div class="wa-empty" id="wa-empty">
           <div class="wa-empty-card">
-            <div class="wa-empty-badge">▚</div>
             <div class="wa-empty-title">从这里开始拼一份周报</div>
             <div class="wa-empty-desc">点右上角「+ 图表板块」，选 Category → Series → Family → Product 任意一层，<br>即出曲线图 + heatmap；再加「分析板块」写洞察。板块可自由拖动、缩放、叠放。</div>
             <button class="wa-btn wa-btn-primary" data-wa-add="chart"><span class="wa-plus">+</span> 添加第一个图表板块</button>
@@ -3159,106 +3158,69 @@ document.addEventListener('DOMContentLoaded', initApp);
 
   <style>
   /* ===== Weekly Analysis canvas ===== */
-  .wa-root{ --wa-blue:#2563eb; --wa-ink:#0f172a; --wa-dim:#64748b; --wa-faint:#94a3b8; --wa-border:#e6e9ef; --wa-soft:#f4f6fa;
-    --wa-accent:#2563eb; --wa-accent-weak:#eef3ff; color:var(--wa-ink); }
-  .wa-root *{ box-sizing:border-box; }
-  /* toolbar */
+  .wa-root{ --wa-blue:#2563eb; --wa-ink:#0f172a; --wa-dim:#64748b; --wa-faint:#94a3b8; --wa-border:#e2e8f0; --wa-soft:#f1f5f9; }
   .wa-toolbar{ position:sticky; top:0; z-index:40; display:flex; align-items:center; justify-content:space-between; gap:16px;
-    background:rgba(255,255,255,0.82); backdrop-filter:saturate(1.4) blur(10px); border:1px solid var(--wa-border); border-radius:14px;
-    padding:10px 14px; box-shadow:0 2px 10px rgba(15,23,42,0.05); margin-bottom:16px; }
-  .wa-toolbar-left{ display:flex; align-items:center; gap:10px; min-width:0; flex:1; }
-  .wa-title-input{ font-size:15.5px; font-weight:800; letter-spacing:-.01em; color:var(--wa-ink); border:none; outline:none; background:transparent;
-    padding:5px 8px; border-radius:8px; min-width:220px; max-width:380px; transition:background .12s; }
-  .wa-title-input:hover{ background:var(--wa-soft); }
-  .wa-title-input:focus{ background:var(--wa-soft); box-shadow:inset 0 0 0 1px #dbe2ee; }
-  .wa-scope-hint{ font-size:11px; color:var(--wa-faint); white-space:nowrap; display:inline-flex; align-items:center; gap:5px; }
-  .wa-scope-hint::before{ content:''; width:6px; height:6px; border-radius:50%; background:#34d399; box-shadow:0 0 0 3px #34d39926; }
-  .wa-toolbar-right{ display:flex; align-items:center; gap:7px; flex-wrap:wrap; justify-content:flex-end; }
-  .wa-sep{ width:1px; height:22px; background:var(--wa-border); margin:0 3px; }
-  .wa-btn{ display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:650; color:#334155;
-    background:#fff; border:1px solid #dfe4ec; border-radius:9px; padding:7px 12px; cursor:pointer; line-height:1;
-    transition:all .14s ease; white-space:nowrap; box-shadow:0 1px 1.5px rgba(15,23,42,0.03); }
-  .wa-btn:hover{ border-color:#cbd3e0; background:#fbfcfe; transform:translateY(-1px); box-shadow:0 3px 8px rgba(15,23,42,0.06); }
-  .wa-btn:active{ transform:translateY(0); }
-  .wa-btn-primary{ background:linear-gradient(180deg,#3b7bff,#2563eb); border-color:#2563eb; color:#fff; box-shadow:0 2px 8px rgba(37,99,235,.28); }
-  .wa-btn-primary:hover{ background:linear-gradient(180deg,#3573f5,#1d4fd7); border-color:#1d4fd7; }
+    background:rgba(255,255,255,0.92); backdrop-filter:blur(6px); border:1px solid var(--wa-border); border-radius:12px;
+    padding:10px 14px; box-shadow:0 1px 2px rgba(15,23,42,0.04); margin-bottom:14px; }
+  .wa-toolbar-left{ display:flex; align-items:center; gap:12px; min-width:0; flex:1; }
+  .wa-title-input{ font-size:15px; font-weight:700; color:var(--wa-ink); border:none; outline:none; background:transparent;
+    padding:4px 6px; border-radius:6px; min-width:220px; max-width:360px; }
+  .wa-title-input:focus{ background:var(--wa-soft); }
+  .wa-scope-hint{ font-size:11px; color:var(--wa-faint); white-space:nowrap; }
+  .wa-toolbar-right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .wa-sep{ width:1px; height:20px; background:var(--wa-border); margin:0 2px; }
+  .wa-btn{ display:inline-flex; align-items:center; gap:5px; font-size:12.5px; font-weight:600; color:#334155;
+    background:#fff; border:1px solid #d7dce5; border-radius:8px; padding:6px 11px; cursor:pointer; line-height:1;
+    transition:all .12s ease; white-space:nowrap; }
+  .wa-btn:hover{ border-color:#c2cad6; background:#fafbfc; }
+  .wa-btn-primary{ background:var(--wa-blue); border-color:var(--wa-blue); color:#fff; }
+  .wa-btn-primary:hover{ background:#1d4fd7; border-color:#1d4fd7; }
   .wa-btn-dark{ background:var(--wa-ink); border-color:var(--wa-ink); color:#fff; }
   .wa-btn-dark:hover{ background:#1e293b; }
-  .wa-btn-ghost{ background:transparent; border-color:transparent; color:var(--wa-dim); box-shadow:none; }
-  .wa-btn-ghost:hover{ background:var(--wa-soft); color:#334155; box-shadow:none; transform:none; }
+  .wa-btn-ghost{ background:transparent; border-color:transparent; color:var(--wa-dim); }
+  .wa-btn-ghost:hover{ background:var(--wa-soft); color:#334155; }
   .wa-plus{ font-size:15px; font-weight:700; line-height:0; margin-top:-1px; }
-  /* canvas */
-  .wa-canvas{ position:relative; width:100%; min-height:780px;
-    background-color:#fafbfd;
-    background-image:radial-gradient(circle at center, #dfe4ee 1px, transparent 1.4px);
-    background-size:24px 24px; border:1px solid var(--wa-border); border-radius:16px; overflow:hidden;
-    box-shadow:inset 0 1px 3px rgba(15,23,42,0.03); }
+  .wa-canvas{ position:relative; width:100%; min-height:760px;
+    background-color:#fbfcfe;
+    background-image:radial-gradient(circle, #e6eaf1 1px, transparent 1px);
+    background-size:22px 22px; border:1px solid var(--wa-border); border-radius:14px; overflow:hidden; }
   .wa-empty{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:24px; }
-  .wa-empty-card{ text-align:center; max-width:540px; background:rgba(255,255,255,0.7); backdrop-filter:blur(2px);
-    border:1px solid var(--wa-border); border-radius:18px; padding:38px 40px; box-shadow:0 10px 30px rgba(15,23,42,0.06); }
-  .wa-empty-badge{ width:46px; height:46px; margin:0 auto 14px; border-radius:13px; display:flex; align-items:center; justify-content:center;
-    background:linear-gradient(180deg,#eaf1ff,#dbe7ff); color:#2563eb; font-size:22px; font-weight:800; box-shadow:0 4px 12px rgba(37,99,235,.18); }
-  .wa-empty-title{ font-size:19px; font-weight:800; letter-spacing:-.01em; color:#1e293b; margin-bottom:8px; }
-  .wa-empty-desc{ font-size:13px; color:var(--wa-dim); line-height:1.75; margin-bottom:20px; }
+  .wa-empty-card{ text-align:center; max-width:520px; }
+  .wa-empty-title{ font-size:18px; font-weight:800; color:#1e293b; margin-bottom:8px; }
+  .wa-empty-desc{ font-size:13px; color:var(--wa-dim); line-height:1.7; margin-bottom:18px; }
   /* item */
-  .wa-item{ position:absolute; background:#fff; border:1px solid var(--wa-border); border-radius:14px;
-    box-shadow:0 6px 20px rgba(15,23,42,0.07), 0 1px 3px rgba(15,23,42,0.05); display:flex; flex-direction:column; overflow:hidden;
-    transition:box-shadow .16s ease; }
-  .wa-item::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--wa-accent); opacity:.9; }
-  .wa-item.wa-active{ box-shadow:0 14px 40px rgba(37,99,235,0.18), 0 0 0 1.5px var(--wa-accent); z-index:30; }
-  .wa-item-head{ display:flex; align-items:center; gap:9px; padding:9px 11px 9px 13px; border-bottom:1px solid var(--wa-soft);
-    cursor:move; user-select:none; background:linear-gradient(180deg,#ffffff,#fbfcfe); }
-  .wa-dot{ width:8px; height:8px; border-radius:50%; background:var(--wa-accent); flex:none; box-shadow:0 0 0 3px var(--wa-accent-weak); }
-  .wa-item-name{ font-size:12.5px; font-weight:750; letter-spacing:-.005em; color:#1e293b; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .wa-item-tools{ display:flex; align-items:center; gap:2px; opacity:.55; transition:opacity .12s; }
-  .wa-item:hover .wa-item-tools, .wa-item.wa-active .wa-item-tools{ opacity:1; }
-  .wa-icon{ width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; border-radius:7px;
+  .wa-item{ position:absolute; background:#fff; border:1px solid var(--wa-border); border-radius:12px;
+    box-shadow:0 4px 16px rgba(15,23,42,0.06), 0 1px 3px rgba(15,23,42,0.05); display:flex; flex-direction:column; overflow:hidden; }
+  .wa-item.wa-active{ box-shadow:0 8px 28px rgba(37,99,235,0.16), 0 0 0 1.5px var(--wa-blue); z-index:30; }
+  .wa-item-head{ display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--wa-soft);
+    cursor:move; user-select:none; background:linear-gradient(180deg,#fff,#fcfdff); }
+  .wa-grip{ color:#cbd5e1; font-size:12px; letter-spacing:-2px; }
+  .wa-item-name{ font-size:12.5px; font-weight:700; color:#334155; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wa-item-tools{ display:flex; align-items:center; gap:4px; }
+  .wa-icon{ width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px;
     color:#94a3b8; cursor:pointer; font-size:13px; border:1px solid transparent; }
   .wa-icon:hover{ background:var(--wa-soft); color:#475569; }
   .wa-icon.wa-del:hover{ background:#fef2f2; color:#dc2626; }
-  .wa-item-body{ flex:1; overflow:auto; padding:13px 14px; min-height:0; }
-  .wa-resize{ position:absolute; right:3px; bottom:3px; width:16px; height:16px; cursor:nwse-resize; z-index:5; opacity:.5;
-    background:linear-gradient(135deg,transparent 50%,#b8c0cf 50%,#b8c0cf 60%,transparent 60%,transparent 72%,#b8c0cf 72%,#b8c0cf 82%,transparent 82%); }
-  .wa-item:hover .wa-resize{ opacity:.9; }
-  /* chart board — control bar */
-  .wa-bar{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px 10px; padding:2px 2px 12px; margin-bottom:12px; border-bottom:1px dashed #e8ebf1; }
-  .wa-bar-sep{ align-self:stretch; width:1px; background:#e8ebf1; margin:2px 1px; }
-  .wa-field{ display:flex; flex-direction:column; gap:3px; }
-  .wa-field-lbl{ font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--wa-faint); padding-left:1px; }
-  .wa-sel{ font-size:11.5px; font-weight:600; color:#334155; background:#fff; border:1px solid #dfe4ec; border-radius:8px;
-    padding:5px 7px; outline:none; max-width:150px; cursor:pointer; transition:border-color .12s, box-shadow .12s; }
-  .wa-sel:hover{ border-color:#cbd3e0; }
-  .wa-sel:focus{ border-color:var(--wa-accent); box-shadow:0 0 0 3px var(--wa-accent-weak); }
-  .wa-seg{ display:inline-flex; background:#f1f4f9; border:1px solid #e3e8f0; border-radius:9px; padding:2px; gap:2px; }
-  .wa-seg button{ font-size:11px; font-weight:700; color:#64748b; background:transparent; border:none; padding:5px 10px; cursor:pointer; border-radius:7px; transition:all .12s; }
-  .wa-seg button:hover{ color:#334155; }
-  .wa-seg button.on{ background:#fff; color:var(--wa-accent); box-shadow:0 1px 3px rgba(15,23,42,0.12); }
-  .wa-seg.wa-seg-accent button.on{ background:var(--wa-accent); color:#fff; box-shadow:0 1px 4px rgba(37,99,235,.3); }
-  /* KPI strip */
-  .wa-kpis{ display:flex; align-items:stretch; gap:9px; margin-bottom:12px; }
-  .wa-kpi{ flex:1; min-width:0; background:linear-gradient(180deg,#fbfcfe,#f6f8fc); border:1px solid #eceff5; border-radius:11px; padding:9px 12px; }
-  .wa-kpi-lbl{ font-size:9.5px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--wa-faint); margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .wa-kpi-val{ font-size:17px; font-weight:800; letter-spacing:-.02em; color:#1e293b; font-variant-numeric:tabular-nums; line-height:1.1; }
-  .wa-kpi-val small{ font-size:11px; font-weight:700; color:var(--wa-faint); }
-  .wa-kpi-sub{ font-size:10.5px; font-weight:700; margin-top:2px; display:inline-flex; align-items:center; gap:3px; }
-  .wa-kpi-up{ color:#059669; } .wa-kpi-down{ color:#dc2626; } .wa-kpi-flat{ color:#94a3b8; }
-  .wa-collapse{ margin-left:auto; display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; color:var(--wa-dim);
-    background:#fff; border:1px solid #e3e8f0; border-radius:8px; padding:5px 9px; cursor:pointer; align-self:center; white-space:nowrap; transition:all .12s; }
-  .wa-collapse:hover{ background:var(--wa-soft); color:#334155; }
-  .wa-collapse .wa-chev{ transition:transform .15s; font-size:9px; }
-  .wa-collapse.on .wa-chev{ transform:rotate(-90deg); }
-  .wa-bar.wa-collapsed{ display:none; }
-  .wa-toprow{ display:flex; align-items:center; gap:9px; }
+  .wa-item-body{ flex:1; overflow:auto; padding:12px; min-height:0; }
+  .wa-resize{ position:absolute; right:2px; bottom:2px; width:16px; height:16px; cursor:nwse-resize; z-index:5;
+    background:linear-gradient(135deg,transparent 50%,#cbd5e1 50%,#cbd5e1 62%,transparent 62%,transparent 74%,#cbd5e1 74%,#cbd5e1 86%,transparent 86%); border-bottom-right-radius:10px; }
+  /* chart board selectors */
+  .wa-selrow{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+  .wa-sel{ font-size:11.5px; color:#334155; background:#fff; border:1px solid #d7dce5; border-radius:7px;
+    padding:4px 6px; outline:none; max-width:150px; }
+  .wa-sel:focus{ border-color:var(--wa-blue); }
+  .wa-sel-lbl{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--wa-faint); align-self:center; margin-left:2px; }
+  .wa-seg{ display:inline-flex; border:1px solid #d7dce5; border-radius:7px; overflow:hidden; }
+  .wa-seg button{ font-size:11px; font-weight:600; color:#64748b; background:#fff; border:none; padding:4px 9px; cursor:pointer; }
+  .wa-seg button.on{ background:var(--wa-blue); color:#fff; }
   .wa-chart-wrap{ position:relative; width:100%; }
-  /* heatmap */
-  .wa-hm{ font-size:11px; overflow:auto; border-radius:8px; }
-  .wa-note-area{ width:100%; height:100%; border:none; outline:none; resize:none; font-size:13px; line-height:1.75; color:#334155;
+  .wa-hm{ font-size:11px; overflow:auto; }
+  .wa-note-area{ width:100%; height:100%; border:none; outline:none; resize:none; font-size:13px; line-height:1.7; color:#334155;
     font-family:inherit; background:transparent; }
-  .wa-note-title{ width:100%; border:none; outline:none; font-size:14px; font-weight:800; color:#1e293b; margin-bottom:8px; padding-bottom:8px;
-    border-bottom:1px solid var(--wa-soft); background:transparent; }
+  .wa-note-title{ width:100%; border:none; outline:none; font-size:13.5px; font-weight:800; color:#1e293b; margin-bottom:6px; background:transparent; }
   .wa-text-area{ width:100%; height:100%; border:none; outline:none; resize:none; background:transparent;
-    font-weight:800; color:#0f172a; letter-spacing:-0.02em; font-family:inherit; line-height:1.15; }
-  .wa-emptymsg{ padding:44px 0; text-align:center; color:#94a3b8; font-size:12.5px; }
+    font-weight:800; color:#0f172a; letter-spacing:-0.01em; font-family:inherit; }
+  .wa-emptymsg{ padding:40px 0; text-align:center; color:#94a3b8; font-size:12.5px; }
   </style>
   <script>
   function switchPsiTab(name){
@@ -3384,11 +3346,10 @@ document.addEventListener('DOMContentLoaded', initApp);
     }
 
     var localColors = {};
-    // muted, low-saturation categorical palette (easy on the eyes for weekly reading)
-    var WA_PALETTE = ['#4c82f7','#27a89b','#e0a53a','#8b7fd6','#d16c93','#3ba7c4','#84a94a','#d1706b','#7c8aa0','#dd8a52','#6d78d4','#4bae74'];
     function colorOf(name, i){
       if(localColors[name]) return localColors[name];
-      localColors[name] = WA_PALETTE[Object.keys(localColors).length % WA_PALETTE.length];
+      var pal = (typeof COLORS!=='undefined' && COLORS) || ['#2563eb','#0f766e','#475569','#b45309','#4f46e5','#64748b','#0891b2','#7c3aed'];
+      localColors[name] = pal[Object.keys(localColors).length % pal.length];
       return localColors[name];
     }
 
@@ -3404,8 +3365,8 @@ document.addEventListener('DOMContentLoaded', initApp);
       var b = {
         id:'wb'+(seq++), type:type,
         x: opts.x!=null?opts.x : 24 + (n%3)*24, y: opts.y!=null?opts.y : 24 + (n%3)*24,
-        w: opts.w || (type==='chart'?740:type==='note'?340:520),
-        h: opts.h || (type==='chart'?500:type==='note'?230:96),
+        w: opts.w || (type==='chart'?720:type==='note'?340:520),
+        h: opts.h || (type==='chart'?430:type==='note'?230:96),
         sel: opts.sel || defaultSel(),
         title: opts.title!=null?opts.title : (type==='note'?'分析 / ATTENTION':''),
         text: opts.text!=null?opts.text : (type==='text'?'Section Title':'')
@@ -3424,7 +3385,7 @@ document.addEventListener('DOMContentLoaded', initApp);
       var label = b.type==='chart' ? '图表' : b.type==='note' ? '分析' : '文本';
       el.innerHTML =
         '<div class="wa-item-head" data-drag>'+
-          '<span class="wa-dot"></span>'+
+          '<span class="wa-grip">⠿</span>'+
           '<span class="wa-item-name" data-name>'+label+'</span>'+
           '<span class="wa-item-tools">'+
             '<span class="wa-icon wa-dup" title="复制">⧉</span>'+
@@ -3453,65 +3414,45 @@ document.addEventListener('DOMContentLoaded', initApp);
     }
 
     // ---------- chart board ----------
-    function sel(tag, opts, label, cur){
+    function sel(tag, opts, _ignore, cur){
       var o = opts.map(function(v){
         var s = String(v);
         return '<option value="'+esc(s)+'"'+(s===String(cur)?' selected':'')+'>'+esc(s)+'</option>';
       }).join('');
-      return '<div class="wa-field"><span class="wa-field-lbl">'+esc(label)+'</span>'+
-             '<select class="wa-sel" data-k="'+tag+'">'+o+'</select></div>';
+      return '<select class="wa-sel" data-k="'+tag+'">'+o+'</select>';
     }
-    var METRIC_ACCENT = { SO:'#2563eb', ST:'#0d9488', Stock:'#d97706' };
     function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
     function renderChartBoard(b, body, nameEl){
       var s = b.sel, W = weeksAll();
-      // metric-colored accent for this board
-      var accent = METRIC_ACCENT[s.metric] || '#2563eb';
-      var itemEl = document.getElementById(b.id);
-      if(itemEl){ itemEl.style.setProperty('--wa-accent', accent); itemEl.style.setProperty('--wa-accent-weak', accent+'1f'); }
-
       var weekOpts = W.map(function(w,i){ return {i:i, t:weekDisplay(w)}; });
-      var weekField = function(tag, label, cur){
-        return '<div class="wa-field"><span class="wa-field-lbl">'+label+'</span>'+
-          '<select class="wa-sel" data-k="'+tag+'" style="max-width:80px;">'+ weekOpts.map(function(o){
-          return '<option value="'+o.i+'"'+(o.i===cur?' selected':'')+'>'+esc(o.t)+'</option>'; }).join('') +'</select></div>';
+      var weekSelect = function(tag, cur){
+        return '<select class="wa-sel" data-k="'+tag+'">'+ weekOpts.map(function(o){
+          return '<option value="'+o.i+'"'+(o.i===cur?' selected':'')+'>'+esc(o.t)+'</option>'; }).join('') +'</select>';
       };
-      var metricSeg = '<div class="wa-field"><span class="wa-field-lbl">Metric</span>'+
-          '<div class="wa-seg wa-seg-accent" data-metric>'+
+      var row =
+        '<div class="wa-selrow">'+
+          '<div class="wa-seg" data-metric>'+
             ['SO','ST','Stock'].map(function(m){ return '<button data-m="'+m+'" class="'+(s.metric===m?'on':'')+'">'+metricName(m)+'</button>'; }).join('')+
-          '</div></div>';
-      var chartSeg = '<div class="wa-field"><span class="wa-field-lbl">View</span>'+
+          '</div>'+
+          sel('country', ['All'].concat(distinctCountries()), s, s.country)+
+          sel('retailer', ['All'].concat(retailersFor(s.country)), s, s.retailer)+
+          sel('category', ['All'].concat(optsFor('category', s)), s, s.category)+
+          sel('series', ['All'].concat(optsFor('series', s)), s, s.series)+
+          sel('family', ['All'].concat(optsFor('family', s)), s, s.family)+
+          sel('product', ['All'].concat(optsFor('product', s)), s, s.product)+
+          '<span class="wa-sel-lbl">周</span>'+ weekSelect('wFrom', s.wFrom) +
+          '<span class="wa-sel-lbl">→</span>'+ weekSelect('wTo', s.wTo) +
           '<div class="wa-seg" data-chart>'+
             [['line','曲线'],['heatmap','热力'],['both','两者']].map(function(c){ return '<button data-c="'+c[0]+'" class="'+(s.chart===c[0]?'on':'')+'">'+c[1]+'</button>'; }).join('')+
-          '</div></div>';
-      var data = pull(s);
-      var row =
-        '<div class="wa-bar'+(b.collapsed?' wa-collapsed':'')+'">'+
-          metricSeg +
-          '<div class="wa-bar-sep"></div>'+
-          sel('country', ['All'].concat(distinctCountries()), 'Country', s.country)+
-          sel('retailer', ['All'].concat(retailersFor(s.country)), 'Channel', s.retailer)+
-          '<div class="wa-bar-sep"></div>'+
-          sel('category', ['All'].concat(optsFor('category', s)), 'Category', s.category)+
-          sel('series', ['All'].concat(optsFor('series', s)), 'Series', s.series)+
-          sel('family', ['All'].concat(optsFor('family', s)), 'Family', s.family)+
-          sel('product', ['All'].concat(optsFor('product', s)), 'Product', s.product)+
-          '<div class="wa-bar-sep"></div>'+
-          weekField('wFrom', 'From', s.wFrom) + weekField('wTo', 'To', s.wTo) +
-          '<div class="wa-bar-sep"></div>'+
-          chartSeg +
+          '</div>'+
         '</div>'+
         '<div data-charts></div>';
-      body.innerHTML = kpiStripHTML(data, s, b) + row;
+      body.innerHTML = row;
 
       // title reflects selection (progressive)
       var scope = [s.product,s.family,s.series,s.category].filter(function(x){ return x&&x!=='All'; })[0] || 'All products';
       if(nameEl) nameEl.textContent = metricName(s.metric)+' · '+scope+' · by '+grainLabel(s);
-
-      // collapse toggle
-      var coll = body.querySelector('[data-collapse]');
-      if(coll) coll.addEventListener('click', function(e){ e.stopPropagation(); b.collapsed=!b.collapsed; save(); renderChartBoard(b, body, nameEl); });
 
       // wire selectors
       body.querySelectorAll('.wa-sel').forEach(function(node){
@@ -3538,47 +3479,36 @@ document.addEventListener('DOMContentLoaded', initApp);
 
       // draw
       var host = body.querySelector('[data-charts]');
-      drawCharts(b, host, data);
+      drawCharts(b, host);
     }
 
-    function drawCharts(b, host, data){
+    function drawCharts(b, host){
       if(b._chart){ try{ b._chart.destroy(); }catch(e){} b._chart=null; }
-      var s = b.sel; if(!data) data = pull(s);
+      var s = b.sel, data = pull(s);
       if(!data.groups.length){ host.innerHTML = '<div class="wa-emptymsg">当前选择下没有数据</div>'; return; }
       var html = '';
       var showLine = s.chart==='line'||s.chart==='both';
       var showHm = s.chart==='heatmap'||s.chart==='both';
-      if(showLine) html += '<div class="wa-chart-wrap" style="height:'+(showHm?210:280)+'px;"><canvas id="'+b.id+'_cv"></canvas></div>';
-      if(showHm) html += '<div class="wa-hm" '+(showLine?'style="margin-top:14px;"':'')+' data-hm>'+heatmapHTML(data, s.metric)+'</div>';
+      if(showLine) html += '<div class="wa-chart-wrap" style="height:'+(showHm?200:260)+'px;"><canvas id="'+b.id+'_cv"></canvas></div>';
+      if(showHm) html += '<div class="wa-hm" '+(showLine?'style="margin-top:12px;"':'')+' data-hm>'+heatmapHTML(data, s.metric)+'</div>';
       host.innerHTML = html;
       if(showLine){
-        var cvEl = document.getElementById(b.id+'_cv');
-        var ctx = cvEl.getContext('2d');
+        var ctx = document.getElementById(b.id+'_cv').getContext('2d');
         var labels = data.weeks.map(weekDisplay);
-        var single = data.groups.length===1;
         var ds = data.groups.slice(0,12).map(function(g){
           var c = colorOf(g.name);
-          var fill = false, bg = c+'22';
-          if(single){
-            var grad = ctx.createLinearGradient(0,0,0,220);
-            grad.addColorStop(0, c+'2e'); grad.addColorStop(1, c+'00');
-            bg = grad; fill = true;
-          }
-          return { label:g.name, data:g.values, borderColor:c, backgroundColor:bg,
-                   tension:0.4, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:c, pointHoverBorderColor:'#fff', pointHoverBorderWidth:2,
-                   borderWidth:2.5, fill:fill, spanGaps:true };
+          return { label:g.name, data:g.values, borderColor:c, backgroundColor:c+'22',
+                   tension:0.35, pointRadius:2, pointHoverRadius:5, borderWidth:2, fill:false, spanGaps:true };
         });
         b._chart = new Chart(ctx, {
           type:'line',
           data:{ labels:labels, datasets:ds },
           options:{ responsive:true, maintainAspectRatio:false,
-            layout:{ padding:{ top:6, right:6 } },
             interaction:{ mode:'index', intersect:false },
-            plugins:{ legend:{ display:true, position:'bottom', labels:{ boxWidth:8, boxHeight:8, font:{size:10.5, weight:'600'}, color:'#475569', padding:11, usePointStyle:true, pointStyle:'circle' } },
-                      tooltip:{ enabled:true, backgroundColor:'#0f172a', padding:10, cornerRadius:8, titleFont:{size:11}, bodyFont:{size:11}, boxPadding:4, usePointStyle:true },
-                      datalabels:{ display:false } },
-            scales:{ y:{ beginAtZero:true, border:{ display:false }, grid:{ color:'#eef1f6', drawTicks:false }, ticks:{ precision:0, font:{size:10}, color:'#94a3b8', padding:8 } },
-                     x:{ border:{ display:false }, grid:{ display:false }, ticks:{ font:{size:10}, color:'#94a3b8' } } } }
+            plugins:{ legend:{ display:true, position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:10}, padding:8, usePointStyle:true } },
+                      tooltip:{ enabled:true }, datalabels:{ display:false } },
+            scales:{ y:{ beginAtZero:true, grid:{ color:'#f1f5f9' }, ticks:{ precision:0, font:{size:10} } },
+                     x:{ grid:{ display:false }, ticks:{ font:{size:10} } } } }
         });
       }
     }
@@ -3606,35 +3536,6 @@ document.addEventListener('DOMContentLoaded', initApp);
     }
     var grainLabelHm = 'Group';
     function fmtHm(v){ if(v==null||v===''||isNaN(v)) return '·'; return Number(v).toLocaleString('en-US',{maximumFractionDigits:0}); }
-
-    // KPI mini-strip above the chart (dashboard feel)
-    function kpiStripHTML(data, s, b){
-      var weeks=data.weeks, groups=data.groups, isStock=s.metric==='Stock';
-      var num=function(v){ return Number(v||0).toLocaleString('en-US',{maximumFractionDigits:0}); };
-      // aggregate per week across shown groups
-      var agg = weeks.map(function(_,i){ var t=0,any=false; groups.forEach(function(g){ if(g.values[i]!=null){t+=g.values[i]; any=true;} }); return any?t:null; });
-      var li=-1; for(var i=agg.length-1;i>=0;i--){ if(agg[i]!=null){ li=i; break; } }
-      var latest = li>=0?agg[li]:0;
-      var pi=-1; for(var j=li-1;j>=0;j--){ if(agg[j]!=null){ pi=j; break; } }
-      var prev = pi>=0?agg[pi]:null;
-      var wow = (prev!=null && prev!==0)? (latest-prev)/prev : null;
-      var periodTot = isStock? latest : agg.reduce(function(a,v){return a+(v||0);},0);
-      var top = groups.slice().sort(function(a,b){return b.total-a.total;})[0];
-      var grand = groups.reduce(function(a,g){return a+(g.total||0);},0);
-      var share = (top && grand)? top.total/grand : 0;
-
-      var wowHtml;
-      if(wow==null) wowHtml='<span class="wa-kpi-sub wa-kpi-flat">— WoW</span>';
-      else { var cls=wow>0.001?'wa-kpi-up':(wow<-0.001?'wa-kpi-down':'wa-kpi-flat'); var arr=wow>0.001?'▲':(wow<-0.001?'▼':'▬');
-             wowHtml='<span class="wa-kpi-sub '+cls+'">'+arr+' '+(Math.abs(wow)*100).toFixed(1)+'% WoW</span>'; }
-      var latestLbl = li>=0? ('最新周 · '+weekDisplay(weeks[li])) : '最新周';
-
-      var t1='<div class="wa-kpi"><div class="wa-kpi-lbl">'+esc(latestLbl)+'</div><div class="wa-kpi-val">'+num(latest)+'</div>'+wowHtml+'</div>';
-      var t2='<div class="wa-kpi"><div class="wa-kpi-lbl">'+(isStock?'当前库存':'区间累计')+'</div><div class="wa-kpi-val">'+num(periodTot)+'</div><div class="wa-kpi-sub wa-kpi-flat">'+weeks.length+' 周区间</div></div>';
-      var t3= top? '<div class="wa-kpi"><div class="wa-kpi-lbl">Top · '+esc(top.name)+'</div><div class="wa-kpi-val">'+num(top.total)+' <small>'+Math.round(share*100)+'%</small></div><div class="wa-kpi-sub wa-kpi-flat">共 '+groups.length+' 组</div></div>' : '';
-      var collapse='<button class="wa-collapse'+(b.collapsed?' on':'')+'" data-collapse title="展开/收起筛选"><span class="wa-chev">▾</span>筛选</button>';
-      return '<div class="wa-kpis">'+t1+t2+t3+collapse+'</div>';
-    }
 
     // ---------- note / text boards ----------
     function renderNoteBoard(b, body, nameEl){
