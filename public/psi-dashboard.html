@@ -2916,21 +2916,38 @@ document.addEventListener('DOMContentLoaded', initApp);
       <p style="font-size:12px; color:#9ca3af; margin-top:2px;">Live data from ERP database</p>
     </div>
     <div style="display:flex; align-items:center; gap:16px;">
+      <!-- Module tabs (top-right) -->
       <div style="display:flex; border-radius:8px; overflow:hidden; border:1px solid #e2e8f0;">
-        <button id="btn-retailer" onclick="onViewModeChange('retailer')"
+        <button id="psi-tab-dashboard" onclick="switchPsiTab('dashboard')"
           style="padding:6px 16px; font-size:13px; font-weight:600; border:none; cursor:pointer; background:#2563eb; color:#fff; transition:all 0.2s;">
-          Retailer
+          Dashboard
         </button>
-        <button id="btn-fd" onclick="onViewModeChange('fd')"
+        <button id="psi-tab-weekly" onclick="switchPsiTab('weekly')"
           style="padding:6px 16px; font-size:13px; font-weight:600; border:none; cursor:pointer; background:#f8fafc; color:#64748b; transition:all 0.2s;">
-          FD
+          Weekly Analysis
         </button>
       </div>
-      <div style="text-align:right;">
-        <div id="data-status" style="font-size:12px; color:#16a34a;">● Connected</div>
+      <!-- Dashboard-only controls (hidden on the Weekly Analysis tab) -->
+      <div id="psi-dash-controls" style="display:flex; align-items:center; gap:16px;">
+        <div style="display:flex; border-radius:8px; overflow:hidden; border:1px solid #e2e8f0;">
+          <button id="btn-retailer" onclick="onViewModeChange('retailer')"
+            style="padding:6px 16px; font-size:13px; font-weight:600; border:none; cursor:pointer; background:#2563eb; color:#fff; transition:all 0.2s;">
+            Retailer
+          </button>
+          <button id="btn-fd" onclick="onViewModeChange('fd')"
+            style="padding:6px 16px; font-size:13px; font-weight:600; border:none; cursor:pointer; background:#f8fafc; color:#64748b; transition:all 0.2s;">
+            FD
+          </button>
+        </div>
+        <div style="text-align:right;">
+          <div id="data-status" style="font-size:12px; color:#16a34a;">● Connected</div>
+        </div>
       </div>
     </div>
   </div>
+
+  <!-- ===== View: Dashboard ===== -->
+  <div id="psi-view-dashboard">
 
   <!-- Filter Bar -->
   <div style="background:#fff; border-radius:10px; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,0.04); padding:14px 20px; margin-bottom:16px; display:flex; flex-wrap:wrap; align-items:flex-start; gap:20px;">
@@ -3106,6 +3123,589 @@ document.addEventListener('DOMContentLoaded', initApp);
     </div>
     </div><!-- /cf-inner -->
   </div><!-- /cf-flip -->
+
+  </div><!-- /#psi-view-dashboard -->
+
+  <!-- ===== View: Weekly Analysis ===== -->
+  <div id="psi-view-weekly" style="display:none;">
+    <div class="wa-root">
+      <div class="wa-toolbar">
+        <div class="wa-toolbar-left">
+          <input id="wa-report-title" class="wa-title-input" placeholder="Weekly PSI Report — 未命名" spellcheck="false">
+          <span class="wa-scope-hint" id="wa-scope-hint"></span>
+        </div>
+        <div class="wa-toolbar-right">
+          <button class="wa-btn wa-btn-primary" data-wa-add="chart"><span class="wa-plus">+</span> 图表板块</button>
+          <button class="wa-btn" data-wa-add="note"><span class="wa-plus">+</span> 分析板块</button>
+          <button class="wa-btn" data-wa-add="text"><span class="wa-plus">+</span> 标题 / 文本</button>
+          <span class="wa-sep"></span>
+          <button class="wa-btn wa-btn-ghost" id="wa-fit">整理排布</button>
+          <button class="wa-btn wa-btn-ghost" id="wa-clear">清空</button>
+          <button class="wa-btn wa-btn-dark" id="wa-export">导出 HTML</button>
+        </div>
+      </div>
+      <div class="wa-canvas" id="wa-canvas">
+        <div class="wa-empty" id="wa-empty">
+          <div class="wa-empty-card">
+            <div class="wa-empty-title">从这里开始拼一份周报</div>
+            <div class="wa-empty-desc">点右上角「+ 图表板块」，选 Category → Series → Family → Product 任意一层，<br>即出曲线图 + heatmap；再加「分析板块」写洞察。板块可自由拖动、缩放、叠放。</div>
+            <button class="wa-btn wa-btn-primary" data-wa-add="chart"><span class="wa-plus">+</span> 添加第一个图表板块</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+  /* ===== Weekly Analysis canvas ===== */
+  .wa-root{ --wa-blue:#2563eb; --wa-ink:#0f172a; --wa-dim:#64748b; --wa-faint:#94a3b8; --wa-border:#e2e8f0; --wa-soft:#f1f5f9; }
+  .wa-toolbar{ position:sticky; top:0; z-index:40; display:flex; align-items:center; justify-content:space-between; gap:16px;
+    background:rgba(255,255,255,0.92); backdrop-filter:blur(6px); border:1px solid var(--wa-border); border-radius:12px;
+    padding:10px 14px; box-shadow:0 1px 2px rgba(15,23,42,0.04); margin-bottom:14px; }
+  .wa-toolbar-left{ display:flex; align-items:center; gap:12px; min-width:0; flex:1; }
+  .wa-title-input{ font-size:15px; font-weight:700; color:var(--wa-ink); border:none; outline:none; background:transparent;
+    padding:4px 6px; border-radius:6px; min-width:220px; max-width:360px; }
+  .wa-title-input:focus{ background:var(--wa-soft); }
+  .wa-scope-hint{ font-size:11px; color:var(--wa-faint); white-space:nowrap; }
+  .wa-toolbar-right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .wa-sep{ width:1px; height:20px; background:var(--wa-border); margin:0 2px; }
+  .wa-btn{ display:inline-flex; align-items:center; gap:5px; font-size:12.5px; font-weight:600; color:#334155;
+    background:#fff; border:1px solid #d7dce5; border-radius:8px; padding:6px 11px; cursor:pointer; line-height:1;
+    transition:all .12s ease; white-space:nowrap; }
+  .wa-btn:hover{ border-color:#c2cad6; background:#fafbfc; }
+  .wa-btn-primary{ background:var(--wa-blue); border-color:var(--wa-blue); color:#fff; }
+  .wa-btn-primary:hover{ background:#1d4fd7; border-color:#1d4fd7; }
+  .wa-btn-dark{ background:var(--wa-ink); border-color:var(--wa-ink); color:#fff; }
+  .wa-btn-dark:hover{ background:#1e293b; }
+  .wa-btn-ghost{ background:transparent; border-color:transparent; color:var(--wa-dim); }
+  .wa-btn-ghost:hover{ background:var(--wa-soft); color:#334155; }
+  .wa-plus{ font-size:15px; font-weight:700; line-height:0; margin-top:-1px; }
+  .wa-canvas{ position:relative; width:100%; min-height:760px;
+    background-color:#fbfcfe;
+    background-image:radial-gradient(circle, #e6eaf1 1px, transparent 1px);
+    background-size:22px 22px; border:1px solid var(--wa-border); border-radius:14px; overflow:hidden; }
+  .wa-empty{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .wa-empty-card{ text-align:center; max-width:520px; }
+  .wa-empty-title{ font-size:18px; font-weight:800; color:#1e293b; margin-bottom:8px; }
+  .wa-empty-desc{ font-size:13px; color:var(--wa-dim); line-height:1.7; margin-bottom:18px; }
+  /* item */
+  .wa-item{ position:absolute; background:#fff; border:1px solid var(--wa-border); border-radius:12px;
+    box-shadow:0 4px 16px rgba(15,23,42,0.06), 0 1px 3px rgba(15,23,42,0.05); display:flex; flex-direction:column; overflow:hidden; }
+  .wa-item.wa-active{ box-shadow:0 8px 28px rgba(37,99,235,0.16), 0 0 0 1.5px var(--wa-blue); z-index:30; }
+  .wa-item-head{ display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--wa-soft);
+    cursor:move; user-select:none; background:linear-gradient(180deg,#fff,#fcfdff); }
+  .wa-grip{ color:#cbd5e1; font-size:12px; letter-spacing:-2px; }
+  .wa-item-name{ font-size:12.5px; font-weight:700; color:#334155; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wa-item-tools{ display:flex; align-items:center; gap:4px; }
+  .wa-icon{ width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px;
+    color:#94a3b8; cursor:pointer; font-size:13px; border:1px solid transparent; }
+  .wa-icon:hover{ background:var(--wa-soft); color:#475569; }
+  .wa-icon.wa-del:hover{ background:#fef2f2; color:#dc2626; }
+  .wa-item-body{ flex:1; overflow:auto; padding:12px; min-height:0; }
+  .wa-resize{ position:absolute; right:2px; bottom:2px; width:16px; height:16px; cursor:nwse-resize; z-index:5;
+    background:linear-gradient(135deg,transparent 50%,#cbd5e1 50%,#cbd5e1 62%,transparent 62%,transparent 74%,#cbd5e1 74%,#cbd5e1 86%,transparent 86%); border-bottom-right-radius:10px; }
+  /* chart board selectors */
+  .wa-selrow{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+  .wa-sel{ font-size:11.5px; color:#334155; background:#fff; border:1px solid #d7dce5; border-radius:7px;
+    padding:4px 6px; outline:none; max-width:150px; }
+  .wa-sel:focus{ border-color:var(--wa-blue); }
+  .wa-sel-lbl{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--wa-faint); align-self:center; margin-left:2px; }
+  .wa-seg{ display:inline-flex; border:1px solid #d7dce5; border-radius:7px; overflow:hidden; }
+  .wa-seg button{ font-size:11px; font-weight:600; color:#64748b; background:#fff; border:none; padding:4px 9px; cursor:pointer; }
+  .wa-seg button.on{ background:var(--wa-blue); color:#fff; }
+  .wa-chart-wrap{ position:relative; width:100%; }
+  .wa-hm{ font-size:11px; overflow:auto; }
+  .wa-note-area{ width:100%; height:100%; border:none; outline:none; resize:none; font-size:13px; line-height:1.7; color:#334155;
+    font-family:inherit; background:transparent; }
+  .wa-note-title{ width:100%; border:none; outline:none; font-size:13.5px; font-weight:800; color:#1e293b; margin-bottom:6px; background:transparent; }
+  .wa-text-area{ width:100%; height:100%; border:none; outline:none; resize:none; background:transparent;
+    font-weight:800; color:#0f172a; letter-spacing:-0.01em; font-family:inherit; }
+  .wa-emptymsg{ padding:40px 0; text-align:center; color:#94a3b8; font-size:12.5px; }
+  </style>
+  <script>
+  function switchPsiTab(name){
+    var dash=document.getElementById('psi-view-dashboard'), weekly=document.getElementById('psi-view-weekly'),
+        ctrls=document.getElementById('psi-dash-controls'),
+        tD=document.getElementById('psi-tab-dashboard'), tW=document.getElementById('psi-tab-weekly');
+    var isDash = name==='dashboard';
+    dash.style.display = isDash ? '' : 'none';
+    weekly.style.display = isDash ? 'none' : '';
+    if(ctrls) ctrls.style.display = isDash ? 'flex' : 'none';
+    tD.style.background = isDash ? '#2563eb' : '#f8fafc'; tD.style.color = isDash ? '#fff' : '#64748b';
+    tW.style.background = isDash ? '#f8fafc' : '#2563eb'; tW.style.color = isDash ? '#64748b' : '#fff';
+    if (!isDash && window.WeeklyAnalysis) window.WeeklyAnalysis.init();
+  }
+  </script>
+
+  <script>
+  /* ============================================================
+     Weekly Analysis — free-canvas report builder
+     Reuses loaded globals: DB, WEEKS_ALL, PRODUCTS_META, weekDisplay, heatColor, formatMetricValue, COLORS
+     Self-contained: independent of dashboard `state`. Read-only over the same data.
+     ============================================================ */
+  (function(){
+    var LS_KEY = 'psi_weekly_boards_v2';
+    var inited = false, boards = [], seq = 1, activeId = null;
+    var reportTitle = '';
+
+    function $(id){ return document.getElementById(id); }
+    function canvas(){ return $('wa-canvas'); }
+    function metricName(m){ return m==='SO' ? 'Sell-Out' : m==='ST' ? 'Sell-Through' : 'Stock'; }
+
+    // ---------- data helpers (permission-safe: derived from already-filtered DB.weeklyPSI) ----------
+    function metaOf(name){ return (typeof PRODUCTS_META!=='undefined' && PRODUCTS_META[name]) || {}; }
+    function rowsCache(){ return (typeof DB!=='undefined' && DB && DB.weeklyPSI) ? DB.weeklyPSI : []; }
+    function weeksAll(){ return (typeof WEEKS_ALL!=='undefined' && WEEKS_ALL) ? WEEKS_ALL : []; }
+
+    function distinctCountries(){
+      var s = {}; rowsCache().forEach(function(r){ if(r.Country) s[r.Country]=1; });
+      return Object.keys(s).sort();
+    }
+    function retailersFor(country){
+      var s = {};
+      rowsCache().forEach(function(r){
+        if(country!=='All' && r.Country!==country) return;
+        if(r.Retailer) s[r.Retailer]=1;
+      });
+      return Object.keys(s).sort();
+    }
+    // option lists cascade by parent selection, limited to what exists for the chosen metric/country/retailer
+    function optsFor(level, sel){
+      var s = {};
+      rowsCache().forEach(function(r){
+        if(r.Metric!==sel.metric) return;
+        if(sel.country!=='All' && r.Country!==sel.country) return;
+        if(sel.retailer!=='All' && r.Retailer!==sel.retailer) return;
+        var m = metaOf(r['Product Name']);
+        if(level!=='category' && sel.category!=='All' && (m.category||'Other')!==sel.category) return;
+        if(level!=='category' && level!=='series' && sel.series!=='All' && (m.series||'Other')!==sel.series) return;
+        if(level==='product' && sel.family!=='All' && (m.family||'Other')!==sel.family) return;
+        var val = level==='category' ? (m.category||'Other')
+                : level==='series' ? (m.series||'Other')
+                : level==='family' ? (m.family||'Other')
+                : r['Product Name'];
+        if(val) s[val]=1;
+      });
+      return Object.keys(s).sort();
+    }
+
+    // grouping grain: the level just below the deepest specified filter
+    function grainKey(name, sel){
+      var m = metaOf(name);
+      if(sel.product!=='All') return name;
+      if(sel.family!=='All')  return name;
+      if(sel.series!=='All')  return m.family || 'Other';
+      if(sel.category!=='All')return m.series || 'Other';
+      return m.series || 'Other';
+    }
+    function grainLabel(sel){
+      if(sel.product!=='All') return 'Product';
+      if(sel.family!=='All')  return 'Product';
+      if(sel.series!=='All')  return 'Family';
+      if(sel.category!=='All')return 'Series';
+      return 'Series';
+    }
+
+    function pull(sel){
+      var W = weeksAll();
+      var wF = Math.min(sel.wFrom, W.length-1), wT = Math.min(sel.wTo, W.length-1);
+      if(wF>wT){ var t=wF; wF=wT; wT=t; }
+      var weeks = W.slice(wF, wT+1);
+      var rows = rowsCache().filter(function(r){
+        if(r.Metric!==sel.metric) return false;
+        if(sel.country!=='All' && r.Country!==sel.country) return false;
+        if(sel.retailer!=='All' && r.Retailer!==sel.retailer) return false;
+        var m = metaOf(r['Product Name']);
+        if(sel.category!=='All' && (m.category||'Other')!==sel.category) return false;
+        if(sel.series!=='All' && (m.series||'Other')!==sel.series) return false;
+        if(sel.family!=='All' && (m.family||'Other')!==sel.family) return false;
+        if(sel.product!=='All' && r['Product Name']!==sel.product) return false;
+        return true;
+      });
+      var acc = {};
+      rows.forEach(function(r){
+        var key = grainKey(r['Product Name'], sel);
+        if(!acc[key]) acc[key] = {};
+        weeks.forEach(function(w){
+          var v = r[w];
+          if(v!=='' && v!=null && v!==undefined && !isNaN(Number(v)))
+            acc[key][w] = (acc[key][w]||0) + Number(v);
+        });
+      });
+      var isStock = sel.metric==='Stock';
+      var groups = Object.keys(acc).map(function(k){
+        var vals = weeks.map(function(w){ return acc[k][w]!==undefined ? acc[k][w] : null; });
+        var total;
+        if(isStock){ total=0; for(var i=vals.length-1;i>=0;i--){ if(vals[i]!=null){ total=vals[i]; break; } } }
+        else total = vals.reduce(function(a,b){ return a+(b||0); },0);
+        return { name:k, values:vals, total:total };
+      }).filter(function(g){ return g.values.some(function(v){ return (v||0)>0; }); })
+        .sort(function(a,b){ return b.total-a.total || a.name.localeCompare(b.name); });
+      var max = 0; groups.forEach(function(g){ g.values.forEach(function(v){ if((v||0)>max) max=v; }); });
+      return { weeks:weeks, groups:groups, max:max };
+    }
+
+    var localColors = {};
+    function colorOf(name, i){
+      if(localColors[name]) return localColors[name];
+      var pal = (typeof COLORS!=='undefined' && COLORS) || ['#2563eb','#0f766e','#475569','#b45309','#4f46e5','#64748b','#0891b2','#7c3aed'];
+      localColors[name] = pal[Object.keys(localColors).length % pal.length];
+      return localColors[name];
+    }
+
+    // ---------- board factory ----------
+    function defaultSel(){
+      var W = weeksAll();
+      return { metric:'SO', country:'All', retailer:'All', category:'All', series:'All', family:'All', product:'All',
+               chart:'both', wFrom:Math.max(0, W.length-8), wTo:Math.max(0, W.length-1) };
+    }
+    function addBoard(type, opts){
+      opts = opts || {};
+      var n = boards.length;
+      var b = {
+        id:'wb'+(seq++), type:type,
+        x: opts.x!=null?opts.x : 24 + (n%3)*24, y: opts.y!=null?opts.y : 24 + (n%3)*24,
+        w: opts.w || (type==='chart'?720:type==='note'?340:520),
+        h: opts.h || (type==='chart'?430:type==='note'?230:96),
+        sel: opts.sel || defaultSel(),
+        title: opts.title!=null?opts.title : (type==='note'?'分析 / ATTENTION':''),
+        text: opts.text!=null?opts.text : (type==='text'?'Section Title':'')
+      };
+      boards.push(b); buildItem(b); refreshEmpty(); save();
+      setActive(b.id);
+      // stagger canvas growth
+      growCanvas();
+      return b;
+    }
+
+    function buildItem(b){
+      var el = document.createElement('div');
+      el.className = 'wa-item'; el.id = b.id;
+      el.style.left=b.x+'px'; el.style.top=b.y+'px'; el.style.width=b.w+'px'; el.style.height=b.h+'px';
+      var label = b.type==='chart' ? '图表' : b.type==='note' ? '分析' : '文本';
+      el.innerHTML =
+        '<div class="wa-item-head" data-drag>'+
+          '<span class="wa-grip">⠿</span>'+
+          '<span class="wa-item-name" data-name>'+label+'</span>'+
+          '<span class="wa-item-tools">'+
+            '<span class="wa-icon wa-dup" title="复制">⧉</span>'+
+            '<span class="wa-icon wa-del" title="删除">✕</span>'+
+          '</span>'+
+        '</div>'+
+        '<div class="wa-item-body" data-body></div>'+
+        '<div class="wa-resize" data-resize></div>';
+      canvas().appendChild(el);
+      // wire chrome
+      el.addEventListener('mousedown', function(){ setActive(b.id); });
+      el.querySelector('.wa-del').addEventListener('click', function(e){ e.stopPropagation(); removeBoard(b.id); });
+      el.querySelector('.wa-dup').addEventListener('click', function(e){ e.stopPropagation(); duplicate(b); });
+      wireDrag(el, b);
+      wireResize(el, b);
+      renderBody(b);
+    }
+
+    function renderBody(b){
+      var body = document.querySelector('#'+b.id+' [data-body]');
+      var nameEl = document.querySelector('#'+b.id+' [data-name]');
+      if(!body) return;
+      if(b.type==='chart') return renderChartBoard(b, body, nameEl);
+      if(b.type==='note') return renderNoteBoard(b, body, nameEl);
+      return renderTextBoard(b, body, nameEl);
+    }
+
+    // ---------- chart board ----------
+    function sel(tag, opts, _ignore, cur){
+      var o = opts.map(function(v){
+        var s = String(v);
+        return '<option value="'+esc(s)+'"'+(s===String(cur)?' selected':'')+'>'+esc(s)+'</option>';
+      }).join('');
+      return '<select class="wa-sel" data-k="'+tag+'">'+o+'</select>';
+    }
+    function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    function renderChartBoard(b, body, nameEl){
+      var s = b.sel, W = weeksAll();
+      var weekOpts = W.map(function(w,i){ return {i:i, t:weekDisplay(w)}; });
+      var weekSelect = function(tag, cur){
+        return '<select class="wa-sel" data-k="'+tag+'">'+ weekOpts.map(function(o){
+          return '<option value="'+o.i+'"'+(o.i===cur?' selected':'')+'>'+esc(o.t)+'</option>'; }).join('') +'</select>';
+      };
+      var row =
+        '<div class="wa-selrow">'+
+          '<div class="wa-seg" data-metric>'+
+            ['SO','ST','Stock'].map(function(m){ return '<button data-m="'+m+'" class="'+(s.metric===m?'on':'')+'">'+metricName(m)+'</button>'; }).join('')+
+          '</div>'+
+          sel('country', ['All'].concat(distinctCountries()), s, s.country)+
+          sel('retailer', ['All'].concat(retailersFor(s.country)), s, s.retailer)+
+          sel('category', ['All'].concat(optsFor('category', s)), s, s.category)+
+          sel('series', ['All'].concat(optsFor('series', s)), s, s.series)+
+          sel('family', ['All'].concat(optsFor('family', s)), s, s.family)+
+          sel('product', ['All'].concat(optsFor('product', s)), s, s.product)+
+          '<span class="wa-sel-lbl">周</span>'+ weekSelect('wFrom', s.wFrom) +
+          '<span class="wa-sel-lbl">→</span>'+ weekSelect('wTo', s.wTo) +
+          '<div class="wa-seg" data-chart>'+
+            [['line','曲线'],['heatmap','热力'],['both','两者']].map(function(c){ return '<button data-c="'+c[0]+'" class="'+(s.chart===c[0]?'on':'')+'">'+c[1]+'</button>'; }).join('')+
+          '</div>'+
+        '</div>'+
+        '<div data-charts></div>';
+      body.innerHTML = row;
+
+      // title reflects selection (progressive)
+      var scope = [s.product,s.family,s.series,s.category].filter(function(x){ return x&&x!=='All'; })[0] || 'All products';
+      if(nameEl) nameEl.textContent = metricName(s.metric)+' · '+scope+' · by '+grainLabel(s);
+
+      // wire selectors
+      body.querySelectorAll('.wa-sel').forEach(function(node){
+        node.addEventListener('change', function(){
+          var k = node.getAttribute('data-k');
+          var v = node.value;
+          if(k==='wFrom'||k==='wTo') v = parseInt(v,10);
+          s[k]=v;
+          // reset deeper levels when a higher level changes
+          if(k==='country'){ s.retailer='All'; s.category='All'; s.series='All'; s.family='All'; s.product='All'; }
+          if(k==='retailer'){ s.category='All'; s.series='All'; s.family='All'; s.product='All'; }
+          if(k==='category'){ s.series='All'; s.family='All'; s.product='All'; }
+          if(k==='series'){ s.family='All'; s.product='All'; }
+          if(k==='family'){ s.product='All'; }
+          save(); renderChartBoard(b, body, nameEl);
+        });
+      });
+      body.querySelectorAll('[data-metric] button').forEach(function(btn){
+        btn.addEventListener('click', function(){ s.metric=btn.getAttribute('data-m'); save(); renderChartBoard(b, body, nameEl); });
+      });
+      body.querySelectorAll('[data-chart] button').forEach(function(btn){
+        btn.addEventListener('click', function(){ s.chart=btn.getAttribute('data-c'); save(); renderChartBoard(b, body, nameEl); });
+      });
+
+      // draw
+      var host = body.querySelector('[data-charts]');
+      drawCharts(b, host);
+    }
+
+    function drawCharts(b, host){
+      if(b._chart){ try{ b._chart.destroy(); }catch(e){} b._chart=null; }
+      var s = b.sel, data = pull(s);
+      if(!data.groups.length){ host.innerHTML = '<div class="wa-emptymsg">当前选择下没有数据</div>'; return; }
+      var html = '';
+      var showLine = s.chart==='line'||s.chart==='both';
+      var showHm = s.chart==='heatmap'||s.chart==='both';
+      if(showLine) html += '<div class="wa-chart-wrap" style="height:'+(showHm?200:260)+'px;"><canvas id="'+b.id+'_cv"></canvas></div>';
+      if(showHm) html += '<div class="wa-hm" '+(showLine?'style="margin-top:12px;"':'')+' data-hm>'+heatmapHTML(data, s.metric)+'</div>';
+      host.innerHTML = html;
+      if(showLine){
+        var ctx = document.getElementById(b.id+'_cv').getContext('2d');
+        var labels = data.weeks.map(weekDisplay);
+        var ds = data.groups.slice(0,12).map(function(g){
+          var c = colorOf(g.name);
+          return { label:g.name, data:g.values, borderColor:c, backgroundColor:c+'22',
+                   tension:0.35, pointRadius:2, pointHoverRadius:5, borderWidth:2, fill:false, spanGaps:true };
+        });
+        b._chart = new Chart(ctx, {
+          type:'line',
+          data:{ labels:labels, datasets:ds },
+          options:{ responsive:true, maintainAspectRatio:false,
+            interaction:{ mode:'index', intersect:false },
+            plugins:{ legend:{ display:true, position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:10}, padding:8, usePointStyle:true } },
+                      tooltip:{ enabled:true }, datalabels:{ display:false } },
+            scales:{ y:{ beginAtZero:true, grid:{ color:'#f1f5f9' }, ticks:{ precision:0, font:{size:10} } },
+                     x:{ grid:{ display:false }, ticks:{ font:{size:10} } } } }
+        });
+      }
+    }
+
+    function heatmapHTML(data, metric){
+      var weeks = data.weeks, rows = data.groups, max = data.max;
+      var cols = 'minmax(130px,190px) repeat('+weeks.length+',minmax(46px,1fr)) 60px';
+      var head = 'padding:5px 6px;font-weight:700;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.03em;';
+      var rowhead = 'padding:5px 7px;font-weight:600;color:#334155;font-size:11px;background:#fff;position:sticky;left:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      var cell = 'padding:5px 4px;text-align:center;border-radius:4px;font-variant-numeric:tabular-nums;';
+      var h = '<div style="display:grid;grid-template-columns:'+cols+';gap:2px;min-width:'+(190+weeks.length*46+60)+'px;">';
+      h += '<div style="'+head+'">'+grainLabelHm+'</div>';
+      weeks.forEach(function(w){ h += '<div style="'+head+'text-align:center;">'+esc(weekDisplay(w))+'</div>'; });
+      h += '<div style="'+head+'text-align:center;">Total</div>';
+      rows.forEach(function(r){
+        h += '<div style="'+rowhead+'" title="'+esc(r.name)+'">'+esc(r.name)+'</div>';
+        r.values.forEach(function(v){
+          var bg = heatColor(v||0, max); var col = ((v||0)/(max||1)>0.62)?'#fff':'#0f172a';
+          h += '<div style="'+cell+'background:'+bg+';color:'+col+';">'+fmtHm(v)+'</div>';
+        });
+        h += '<div style="'+cell+'background:#f1f5f9;color:#334155;font-weight:700;">'+fmtHm(r.total)+'</div>';
+      });
+      h += '</div>';
+      return h;
+    }
+    var grainLabelHm = 'Group';
+    function fmtHm(v){ if(v==null||v===''||isNaN(v)) return '·'; return Number(v).toLocaleString('en-US',{maximumFractionDigits:0}); }
+
+    // ---------- note / text boards ----------
+    function renderNoteBoard(b, body, nameEl){
+      if(nameEl) nameEl.textContent = b.title || '分析';
+      body.style.display='flex'; body.style.flexDirection='column';
+      body.innerHTML =
+        '<input class="wa-note-title" data-nt placeholder="标题（如 ATTENTION / Trend）" value="'+esc(b.title||'')+'">'+
+        '<textarea class="wa-note-area" data-na placeholder="在这里手写洞察 — 趋势、库存告警、补货 / EOL 建议…">'+esc(b.text||'')+'</textarea>';
+      var ti = body.querySelector('[data-nt]'), ta = body.querySelector('[data-na]');
+      ti.addEventListener('input', function(){ b.title=ti.value; if(nameEl) nameEl.textContent=b.title||'分析'; save(); });
+      ta.addEventListener('input', function(){ b.text=ta.value; save(); });
+    }
+    function renderTextBoard(b, body, nameEl){
+      if(nameEl) nameEl.textContent = '文本';
+      var sizePx = Math.max(16, Math.min(34, Math.round(b.h*0.4)));
+      body.innerHTML = '<textarea class="wa-text-area" data-tx placeholder="Section title" style="font-size:'+sizePx+'px;">'+esc(b.text||'')+'</textarea>';
+      var tx = body.querySelector('[data-tx]');
+      tx.addEventListener('input', function(){ b.text=tx.value; save(); });
+    }
+
+    // ---------- drag / resize ----------
+    function wireDrag(el, b){
+      var head = el.querySelector('[data-drag]');
+      head.addEventListener('mousedown', function(e){
+        if(e.target.closest('.wa-item-tools')) return;
+        e.preventDefault(); setActive(b.id);
+        var sx=e.clientX, sy=e.clientY, ox=b.x, oy=b.y;
+        function mv(ev){ b.x=Math.max(0, ox+(ev.clientX-sx)); b.y=Math.max(0, oy+(ev.clientY-sy));
+          el.style.left=b.x+'px'; el.style.top=b.y+'px'; }
+        function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); save(); growCanvas(); }
+        document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+      });
+    }
+    function wireResize(el, b){
+      var handle = el.querySelector('[data-resize]');
+      handle.addEventListener('mousedown', function(e){
+        e.preventDefault(); e.stopPropagation(); setActive(b.id);
+        var sx=e.clientX, sy=e.clientY, ow=b.w, oh=b.h;
+        function mv(ev){ b.w=Math.max(240, ow+(ev.clientX-sx)); b.h=Math.max(120, oh+(ev.clientY-sy));
+          el.style.width=b.w+'px'; el.style.height=b.h+'px'; if(b._chart) b._chart.resize(); }
+        function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up);
+          save(); growCanvas(); if(b.type==='text') renderBody(b); }
+        document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+      });
+    }
+    function setActive(id){
+      activeId=id;
+      canvas().querySelectorAll('.wa-item').forEach(function(n){ n.classList.toggle('wa-active', n.id===id); });
+    }
+    function growCanvas(){
+      var maxB=760; boards.forEach(function(b){ maxB=Math.max(maxB, b.y+b.h+40); });
+      canvas().style.minHeight=maxB+'px';
+    }
+
+    // ---------- board ops ----------
+    function removeBoard(id){
+      var b = boards.filter(function(x){ return x.id===id; })[0];
+      if(b && b._chart){ try{ b._chart.destroy(); }catch(e){} }
+      boards = boards.filter(function(x){ return x.id!==id; });
+      var el=$(id); if(el) el.remove();
+      refreshEmpty(); save();
+    }
+    function duplicate(b){
+      addBoard(b.type, { x:b.x+24, y:b.y+24, w:b.w, h:b.h,
+        sel: b.sel?JSON.parse(JSON.stringify(b.sel)):undefined, title:b.title, text:b.text });
+    }
+    function fit(){
+      // tidy vertical stack
+      var pad=24, x=24, y=24;
+      boards.forEach(function(b){ b.x=x; b.y=y; var el=$(b.id); if(el){ el.style.left=x+'px'; el.style.top=y+'px'; }
+        y += b.h + pad; if(b._chart) b._chart.resize(); });
+      growCanvas(); save();
+    }
+    function clearAll(){
+      if(boards.length && !confirm('清空当前周报的所有板块？')) return;
+      boards.slice().forEach(function(b){ removeBoard(b.id); });
+    }
+    function refreshEmpty(){ var e=$('wa-empty'); if(e) e.style.display = boards.length ? 'none' : 'flex'; }
+
+    // ---------- persistence ----------
+    function save(){
+      try{
+        var lite = boards.map(function(b){ return { id:b.id, type:b.type, x:b.x, y:b.y, w:b.w, h:b.h, sel:b.sel, title:b.title, text:b.text }; });
+        localStorage.setItem(LS_KEY, JSON.stringify({ seq:seq, title:reportTitle, boards:lite }));
+      }catch(e){}
+    }
+    function restore(){
+      var raw; try{ raw = localStorage.getItem(LS_KEY); }catch(e){ return false; }
+      if(!raw) return false;
+      try{
+        var data = JSON.parse(raw);
+        seq = data.seq || 1; reportTitle = data.title || '';
+        var ti=$('wa-report-title'); if(ti && reportTitle) ti.value = reportTitle;
+        (data.boards||[]).forEach(function(lb){ boards.push(lb); buildItem(lb); });
+        growCanvas();
+        return boards.length>0;
+      }catch(e){ return false; }
+    }
+
+    // ---------- export ----------
+    function exportHTML(){
+      var maxB=760; boards.forEach(function(b){ maxB=Math.max(maxB, b.y+b.h+40); }); var maxW=1000;
+      boards.forEach(function(b){ maxW=Math.max(maxW, b.x+b.w+40); });
+      var parts = boards.map(function(b){ return exportItem(b); }).join('\n');
+      var title = (reportTitle || 'Weekly PSI Report');
+      var doc =
+'<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title>'+
+'<style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;background:#f6f7f9;color:#0f172a;}'+
+'.hd{padding:22px 28px;}.hd h1{font-size:20px;margin:0 0 2px;}.hd .sub{font-size:12px;color:#94a3b8;}'+
+'.stage{position:relative;margin:0 28px 28px;width:'+maxW+'px;}'+
+'.it{position:absolute;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 2px 8px rgba(15,23,42,0.06);overflow:hidden;}'+
+'.it .ih{padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12.5px;font-weight:700;color:#334155;}'+
+'.it .ib{padding:12px;}.it img{max-width:100%;display:block;}'+
+'.nt{font-size:13.5px;font-weight:800;color:#1e293b;margin-bottom:6px;}'+
+'.na{font-size:13px;line-height:1.7;color:#334155;white-space:pre-wrap;}'+
+'.tx{font-weight:800;color:#0f172a;}'+
+'</style></head><body>'+
+'<div class="hd"><h1>'+esc(title)+'</h1><div class="sub">INIU EMEA · PSI Weekly Analysis · exported '+new Date().toISOString().slice(0,10)+'</div></div>'+
+'<div class="stage" style="height:'+maxB+'px;">'+parts+'</div></body></html>';
+      var blob = new Blob([doc], { type:'text/html' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (title.replace(/[^\w一-龥-]+/g,'_') || 'weekly_report') + '.html';
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    }
+    function exportItem(b){
+      var pos = 'left:'+b.x+'px;top:'+b.y+'px;width:'+b.w+'px;height:'+b.h+'px;';
+      if(b.type==='text'){
+        var sizePx = Math.max(16, Math.min(34, Math.round(b.h*0.4)));
+        return '<div class="it" style="'+pos+'border:none;box-shadow:none;background:transparent;"><div class="ib tx" style="font-size:'+sizePx+'px;height:100%;display:flex;align-items:center;">'+esc(b.text||'')+'</div></div>';
+      }
+      if(b.type==='note'){
+        return '<div class="it" style="'+pos+'"><div class="ib"><div class="nt">'+esc(b.title||'')+'</div><div class="na">'+esc(b.text||'')+'</div></div></div>';
+      }
+      // chart: header + line img + heatmap html
+      var nameEl = document.querySelector('#'+b.id+' [data-name]');
+      var hdr = nameEl ? nameEl.textContent : 'Chart';
+      var inner = '';
+      var cv = document.getElementById(b.id+'_cv');
+      if(cv){ try{ inner += '<img src="'+cv.toDataURL('image/png')+'">'; }catch(e){} }
+      var hm = document.querySelector('#'+b.id+' [data-hm]');
+      if(hm){ inner += '<div style="margin-top:10px;overflow:auto;">'+hm.innerHTML+'</div>'; }
+      if(!inner) inner = '<div style="color:#94a3b8;font-size:12px;">（无数据）</div>';
+      return '<div class="it" style="'+pos+'"><div class="ih">'+esc(hdr)+'</div><div class="ib" style="height:calc(100% - 34px);overflow:auto;">'+inner+'</div></div>';
+    }
+
+    // ---------- init ----------
+    function init(){
+      if(inited){ boards.forEach(function(b){ if(b._chart){ try{ b._chart.resize(); }catch(e){} } }); return; }
+      inited = true;
+      // toolbar wiring
+      document.querySelectorAll('#psi-view-weekly [data-wa-add]').forEach(function(btn){
+        btn.addEventListener('click', function(){ addBoard(btn.getAttribute('data-wa-add')); });
+      });
+      var exp=$('wa-export'); if(exp) exp.addEventListener('click', exportHTML);
+      var fitb=$('wa-fit'); if(fitb) fitb.addEventListener('click', fit);
+      var clr=$('wa-clear'); if(clr) clr.addEventListener('click', clearAll);
+      var ti=$('wa-report-title'); if(ti) ti.addEventListener('input', function(){ reportTitle=ti.value; save(); });
+      // scope hint (permission-aware)
+      var hint=$('wa-scope-hint');
+      if(hint){ var cs=distinctCountries(); hint.textContent = cs.length? ('数据范围：'+cs.join(' · ')) : ''; }
+      // click empty canvas → deselect
+      canvas().addEventListener('mousedown', function(e){ if(e.target===canvas()) setActive(null); });
+      restore(); refreshEmpty();
+    }
+
+    window.WeeklyAnalysis = { init:init };
+  })();
+  </script>
 
 </div>
 
