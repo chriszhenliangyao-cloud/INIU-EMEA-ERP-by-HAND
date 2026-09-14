@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { fmtNum } from '@/lib/utils'
 import { RunControls } from './run-controls'
-import { buildWorkbook, downloadWorkbook, type XCell, type XRow, type XSheet } from '@/lib/spreadsheet'
+import { type XCell, type XRow, type XSheet } from '@/lib/spreadsheet'
+import { buildWorkbookXlsx, downloadXlsx } from '@/lib/xlsx'
 
 type Run = {
   id: number
@@ -381,7 +382,7 @@ export function ForecastSummaryView({
       widths: [80, 175, ...tableCountries.flatMap(() => months.map(() => 46)), ...months.map(() => 46), 62, 55, 55, 62],
     }
 
-    downloadWorkbook(buildWorkbook([overview, ...countrySheets]), `${selectedRun.code}-FCST`)
+    downloadXlsx(buildWorkbookXlsx([overview, ...countrySheets]), `${selectedRun.code}-FCST.xlsx`)
   }
 
   // ============== 导出 Stock CSV（仓库级明细，给客户的下载版本）==============
