@@ -61,6 +61,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
             <>
               <div className="text-[11px] font-semibold text-gray-400 px-3 py-2 mt-4">Admin only</div>
               <NavLink href="/admin/po-shipment">🚚 Shipment Workflow</NavLink>
+              <NavLink href="/admin/fulfillment">📋 履约看板 · 单据/交期/开票</NavLink>
               <NavLink href="/admin/sales">👤 Sales Reps</NavLink>
               <NavLink href="/admin/ka">🗺️ KA Channel Map</NavLink>
               <NavLink href="/admin/sku/map">🧬 SKU Product Map</NavLink>
