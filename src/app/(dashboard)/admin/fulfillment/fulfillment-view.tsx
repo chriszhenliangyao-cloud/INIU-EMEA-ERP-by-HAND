@@ -1,5 +1,5 @@
-// @ts-nocheck
 /* eslint-disable */
+// @ts-nocheck
 'use client'
 
 import { useEffect, useRef } from 'react'
@@ -896,16 +896,23 @@ function poInvStage(p){
   if(done<bs.length) return 'part';
   return 'done';
 }
-function renderFin(){ renderFinChips(); renderFinList(); renderFinDoc(); }
+// 开票板只看"在途"的单:未发 / 部分 / 已发未送达;整单已送达或已取消的从开票板隐藏
+function finActive(p){ const s=poStage(p); return s!=='delivered' && s!=='cancelled'; }
+function renderFin(){
+  if(!DATA.pos[finSel] || !finActive(DATA.pos[finSel])){ const i=DATA.pos.findIndex(finActive); if(i>=0) finSel=i; }
+  renderFinChips(); renderFinList(); renderFinDoc();
+}
 function renderFinChips(){
   const defs=[['all','全部'],['open','待开票'],['part','部分开票'],['done','已开票'],['unship','未发货']];
-  const counts={all:DATA.pos.length};
-  ['open','part','done','unship'].forEach(s=>counts[s]=DATA.pos.filter(p=>poInvStage(p)===s).length);
+  const base=DATA.pos.filter(finActive);
+  const counts={all:base.length};
+  ['open','part','done','unship'].forEach(s=>counts[s]=base.filter(p=>poInvStage(p)===s).length);
   document.getElementById('fin-chips').innerHTML=defs.map(([k,lab])=>
     `<span class="chip ${finFilter===k?'on':''}" data-finchip="${k}">${lab} ${counts[k]??0}</span>`).join('');
 }
 function finFilterPos(){
   return DATA.pos.map((p,i)=>({p,i})).filter(({p})=>{
+    if(!finActive(p)) return false;
     if(finFilter!=='all' && poInvStage(p)!==finFilter) return false;
     if(finQ && !(p.po.toLowerCase().includes(finQ)||p.ka.toLowerCase().includes(finQ)
        || p.lines.some(l=>l.sku.toLowerCase().includes(finQ)||(l.product||'').toLowerCase().includes(finQ)))) return false;
