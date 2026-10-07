@@ -6,9 +6,10 @@ import { createClient } from '@/lib/supabase/client'
 import { fmtNum } from '@/lib/utils'
 import { fmtMoney, stageOf, toEUR, convertMoney, type Batch, type OpsRow, type Stage } from '../../po/_ops'
 import { PoDocsModal } from './po-docs-modal'
+import { ImportPoModal, type SkuAlias } from './import-po-modal'
 import { buildXlsx, downloadXlsx, type XlsxCell, type XlsxMerge, type XlsxStyle } from '@/lib/xlsx'
 
-export type SkuOpt = { id: number; code: string; name: string }
+export type SkuOpt = { id: number; code: string; name: string; ean?: string | null }
 export type CountryOpt = { id: number; code: string; name: string; flag: string; currency?: string | null }
 export type KaOpt = { id: number; name: string; country_id: number; fd?: string | null }
 // FD 出货价查表：`${sku_id}|${country_id}|${fd}` → 单价
@@ -44,8 +45,8 @@ const isoMonday = (iso: string): string => {
   return d.toISOString().slice(0, 10)
 }
 
-export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, countries, kas, freight, fxToEur, fdPrice = {} }: {
-  rows: OpsRow[]; batches: Batch[]; docCounts: Record<string, number>; plnToEur: number; skus: SkuOpt[]; countries: CountryOpt[]; kas: KaOpt[]
+export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAlias = [], countries, kas, freight, fxToEur, fdPrice = {} }: {
+  rows: OpsRow[]; batches: Batch[]; docCounts: Record<string, number>; plnToEur: number; skus: SkuOpt[]; skuAlias?: SkuAlias[]; countries: CountryOpt[]; kas: KaOpt[]
   freight: Record<string, { fee: number | null; currency: string | null }>
   fxToEur: Record<string, number>
   fdPrice?: FdPriceMap
@@ -61,6 +62,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
   const [kaFilter, setKaFilter] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set())  // 展开的组 / 行
   const [addOpen, setAddOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)   // 📄 Add PO（上传 PDF 自动解析）
   const [exportOpen, setExportOpen] = useState(false)
   const [poDetailsOpen, setPoDetailsOpen] = useState(false)
   const [docsPo, setDocsPo] = useState<string | null>(null)
@@ -309,6 +311,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
                 {poSearch && <button onClick={() => setPoSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm leading-none">×</button>}
               </div>
               {active === 'new' && <button onClick={() => setAddOpen(true)} className="btn b-indigo" style={{ padding: '7px 14px' }}>＋ Add PO manually</button>}
+              {active === 'new' && <button onClick={() => setImportOpen(true)} className="btn b-indigo" style={{ padding: '7px 14px' }} title="上传 PO 的 PDF，按 KA 模板自动解析 SKU / 数量 / 单价">📄 Add PO</button>}
             </div>
           </div>
 
@@ -335,6 +338,8 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, count
 
       {addOpen && <AddPoModal today={today} skus={skus} countries={countries} kas={kas} fdPrice={fdPrice} onClose={() => setAddOpen(false)}
         onDone={() => { setAddOpen(false); router.refresh() }} supabase={supabase} />}
+      {importOpen && <ImportPoModal today={today} skus={skus} skuAlias={skuAlias} countries={countries} kas={kas} supabase={supabase} onClose={() => setImportOpen(false)}
+        onDone={() => { setImportOpen(false); router.refresh() }} />}
       {exportOpen && <ExportModal rows={rows} batchesByPo={batchesByPo} today={today} onClose={() => setExportOpen(false)}
         onEdit={(g) => { setExportOpen(false); setLtGroups(g) }} />}
       {ltGroups && <LeadtimeEditorModal groups={ltGroups} batchesByPo={batchesByPo} today={today} supabase={supabase} onClose={() => setLtGroups(null)} />}

@@ -53,7 +53,7 @@ export default async function AdminPoShipmentPage() {
       .order('ship_date', { ascending: true, nullsFirst: true }).order('id'),
     // 每个 PO 的文档数（供 📎 角标）；文件本体在 Storage，此处只数元数据行
     supabase.from('po_document').select('po_number'),
-    supabase.from('sku').select('id, code, name').eq('is_active', true).order('code'),
+    supabase.from('sku').select('id, code, name, ean').eq('is_active', true).order('code'),
     supabase.from('country').select('id, code, name_en, flag_emoji, currency').eq('is_active', true).order('sort_order'),
     supabase.from('ka').select('id, name, country_id, fd').eq('is_active', true).order('name'),
     supabase.from('po_freight').select('po_number, delivery_fee, currency'),   // 实际运费（按 PO）
@@ -62,6 +62,10 @@ export default async function AdminPoShipmentPage() {
   const { data: fdPriceRows } = await supabase.from('sku_fd_price').select('sku_id, country_id, fd, fd_buying_price').range(0, 99999)
   const fdPrice: Record<string, number> = {}
   ;(fdPriceRows ?? []).forEach((r: any) => { if (r.fd_buying_price != null) fdPrice[`${r.sku_id}|${r.country_id}|${r.fd}`] = Number(r.fd_buying_price) })
+
+  // 货号别名（Add PO 解析时按 EAN / alias / 货号精确匹配；匹配链同 scripts/weekly-po-import.js）
+  const { data: aliasRows } = await supabase.from('sku_alias').select('alias_norm, sku_id').range(0, 99999)
+  const skuAlias = (aliasRows ?? []).map((a: any) => ({ alias_norm: String(a.alias_norm), sku_id: Number(a.sku_id) }))
 
   if (error) {
     return (
@@ -101,7 +105,7 @@ export default async function AdminPoShipmentPage() {
   const docCounts: Record<string, number> = {}
   ;(docList ?? []).forEach((d: any) => { if (d.po_number) docCounts[d.po_number] = (docCounts[d.po_number] ?? 0) + 1 })
 
-  const skus: SkuOpt[] = (skuList ?? []).map((s: any) => ({ id: s.id, code: s.code, name: s.name }))
+  const skus: SkuOpt[] = (skuList ?? []).map((s: any) => ({ id: s.id, code: s.code, name: s.name, ean: s.ean ?? null }))
   const countries: CountryOpt[] = (countryList ?? []).map((c: any) => ({ id: c.id, code: c.code, name: c.name_en, flag: c.flag_emoji, currency: c.currency }))
   const kas: KaOpt[] = (kaList ?? []).map((k: any) => ({ id: k.id, name: k.name, country_id: k.country_id, fd: k.fd }))
   // 实际运费：po_number → { fee, currency }
@@ -111,7 +115,7 @@ export default async function AdminPoShipmentPage() {
   // 各币种 → EUR 的换算因子（EUR=1），供运费币种切换用
   const fxToEur: Record<string, number> = { EUR: 1, PLN: plnToEur, CNY: cnyToEur }
 
-  return <PoShipmentView rows={rows} batches={batches} docCounts={docCounts} plnToEur={plnToEur} skus={skus} countries={countries} kas={kas} freight={freight} fxToEur={fxToEur} fdPrice={fdPrice} />
+  return <PoShipmentView rows={rows} batches={batches} docCounts={docCounts} plnToEur={plnToEur} skus={skus} skuAlias={skuAlias} countries={countries} kas={kas} freight={freight} fxToEur={fxToEur} fdPrice={fdPrice} />
 }
 
 export const metadata = { title: 'Shipment Workflow · INIU ERP' }
