@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic'
  */
 export default async function FulfillmentPage() {
   const me = await getCurrentUser()
-  if (!me.isAdmin) redirect('/po')
+  if (!me.isAdmin && !me.isFinance) redirect('/po')   // 财务也能进,但只看到开票页(见 financeOnly)
 
   const supabase = createClient()
   const [{ data: pos, error }, { data: shipList }, { data: leadList }, { data: invList }] = await Promise.all([
@@ -89,7 +89,7 @@ export default async function FulfillmentPage() {
   // 有发货批次或较新的 PO 排前;整体按 po_date 倒序(与 Shipment Workflow 一致)
   const list = [...byPo.values()]
 
-  return <FulfillmentView pos={list} invoicedIds={invoicedIds} today={new Date().toISOString().slice(0, 10)} />
+  return <FulfillmentView pos={list} invoicedIds={invoicedIds} financeOnly={!me.isAdmin} today={new Date().toISOString().slice(0, 10)} />
 }
 
 export const metadata = { title: '履约看板 · INIU ERP' }

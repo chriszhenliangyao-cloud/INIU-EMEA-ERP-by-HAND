@@ -1133,16 +1133,22 @@ document.getElementById('view-fin').addEventListener('click',async e=>{
 DATA = FB.data;
 (FB.invoicedIds||[]).forEach(id=>{ invoiced[id]=true; });
 render();
+// 财务账号:只留「开票批次」一个标签并直接进入(不渲染发货操作入口;数据库侧财务也没有发货类写权限)
+if(FB.financeOnly){
+  const tabs=[...root.querySelectorAll('.navtab')];
+  tabs.forEach(t=>{ if(t.dataset.nav!=='fin') t.style.display='none'; });
+  const fin=tabs.find(t=>t.dataset.nav==='fin'); if(fin) fin.click();
+}
 
 }
 
-export function FulfillmentView({ pos, invoicedIds, today }: { pos: FPo[]; invoicedIds: number[]; today: string }) {
+export function FulfillmentView({ pos, invoicedIds, today, financeOnly = false }: { pos: FPo[]; invoicedIds: number[]; today: string; financeOnly?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const root = ref.current; if (!root) return
     const supabase = createClient()
     root.innerHTML = SHELL
-    try { runApp(root, { today, data: { pos }, invoicedIds }, makeDB(supabase)) } catch (e) { console.error("fulfillment init", e) }
+    try { runApp(root, { today, data: { pos }, invoicedIds, financeOnly }, makeDB(supabase)) } catch (e) { console.error("fulfillment init", e) }
     return () => { root.innerHTML = "" }
   }, [])
   return (<><style dangerouslySetInnerHTML={{ __html: CSS }} /><div id="fb-root" ref={ref} className="logcol" /></>)

@@ -20,8 +20,9 @@ export type CurrentUser = {
   userId: string
   email: string
   displayName: string
-  role: 'admin' | 'sales'
+  role: 'admin' | 'sales' | 'finance'
   isAdmin: boolean
+  isFinance: boolean      // 财务:只能看 PO/批次并操作「开票」,其余只读或无权限(数据库 is_finance() 同口径)
   isSuperAdmin: boolean   // 只有超级 admin 能改别人的 role / super_admin 标识
   isActive: boolean
   // 该用户能访问的国家 ID 列表（admin 总是返回所有国家）
@@ -49,10 +50,11 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
   }
 
   // 默认值（处理新用户尚未配置的情况）
-  const role = (rep?.role ?? 'sales') as 'admin' | 'sales'
+  const role = (rep?.role ?? 'sales') as 'admin' | 'sales' | 'finance'
   const isAdmin = role === 'admin'
   const isSuperAdmin = Boolean(rep?.is_super_admin)
   const isActive = rep?.is_active ?? true
+  const isFinance = role === 'finance' && Boolean(rep?.is_active)
 
   // 取该用户能访问的国家
   let countryIds: number[] = []
@@ -79,6 +81,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
     displayName: rep?.display_name ?? user.email?.split('@')[0] ?? 'Unknown',
     role,
     isAdmin,
+    isFinance,
     isSuperAdmin,
     isActive,
     countryIds,

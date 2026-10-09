@@ -467,7 +467,7 @@ function SalesRepFormDrawer({
             ) : (
               <div className="flex items-center gap-3">
                 <span className="text-sm text-gray-700">Current role: <strong>{initial?.role}</strong></span>
-                {viewerIsSuperAdmin && initial && !initial.is_super_admin && (
+                {viewerIsSuperAdmin && initial && !initial.is_super_admin && (initial.role as string) !== 'finance' && (   // 财务账号由 DB 单独开通,这里不提供「改成 admin」的入口
                   <button
                     type="button"
                     onClick={() => onRoleChange?.(initial.role === 'admin' ? 'sales' : 'admin')}

@@ -17,6 +17,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         displayName: me.displayName,
         email: me.email,
         isAdmin: me.isAdmin,
+        isFinance: me.isFinance,
         countryIds: me.countryIds,
       }}
       buildId={buildId}

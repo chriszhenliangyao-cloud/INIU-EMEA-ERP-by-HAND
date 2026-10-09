@@ -1,6 +1,6 @@
 'use client'
 
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { LogoutButton } from '@/components/logout-button'
 import { roleLabelFor } from '@/lib/user-flair'
 import { NavLink } from './nav-link'
@@ -10,6 +10,7 @@ type Props = {
     displayName: string
     email: string
     isAdmin: boolean
+    isFinance: boolean
     countryIds: number[]
   }
   buildId: string
@@ -24,7 +25,14 @@ type Props = {
  */
 export function DashboardShell({ me, buildId, children }: Props) {
   const pathname = usePathname()
+  const router = useRouter()
   const isPsiRoute = pathname === '/psi'
+
+  // 财务账号只开放「履约看板 · 开票」一页:去别的页面一律带回来(数据层另有 RLS 兜底,这里只是不让她看到空壳页面)
+  const FINANCE_HOME = '/admin/fulfillment'
+  useEffect(() => {
+    if (me.isFinance && pathname !== FINANCE_HOME) router.replace(FINANCE_HOME)
+  }, [me.isFinance, pathname, router])
 
   // 侧栏可收起成图标窄栏；状态记在本机浏览器里，下次打开保持。首屏先按展开渲染，挂载后再读取，避免水合不一致。
   const [collapsed, setCollapsed] = useState(false)
@@ -51,9 +59,11 @@ export function DashboardShell({ me, buildId, children }: Props) {
     </button>
   )
 
-  const avatarColor = me.isAdmin ? '#7c3aed' : '#3b82f6'
-  const roleLabel = roleLabelFor(me.email, me.isAdmin)
-  const roleHint = me.isAdmin
+  const avatarColor = me.isAdmin ? '#7c3aed' : me.isFinance ? '#059669' : '#3b82f6'
+  const roleLabel = me.isFinance ? '🧾 Finance' : roleLabelFor(me.email, me.isAdmin)
+  const roleHint = me.isFinance
+    ? 'Invoicing only'
+    : me.isAdmin
     ? 'All countries'
     : me.countryIds.length > 0
       ? `${me.countryIds.length} ${me.countryIds.length === 1 ? 'country' : 'countries'}`
@@ -80,6 +90,10 @@ export function DashboardShell({ me, buildId, children }: Props) {
         </div>
 
         <nav className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden ${collapsed ? 'p-2' : 'p-3'}`}>
+          {me.isFinance ? (
+            <NavLink collapsed={collapsed} href="/admin/fulfillment">🧾 开票 · 财务</NavLink>
+          ) : (
+          <>
           {!collapsed && <div className="text-[11px] font-semibold text-gray-400 px-3 py-2">Sales</div>}
           {/* Shipments 与 PO 高度重合，暂时隐藏入口（页面 /po 仍保留，可随时恢复） */}
           <NavLink collapsed={collapsed} href="/po">🧾 PO (Orders)</NavLink>
@@ -104,6 +118,8 @@ export function DashboardShell({ me, buildId, children }: Props) {
               <NavLink collapsed={collapsed} href="/admin/forecast-log">📋 Forecast Activity</NavLink>
               {/* TODO: Country 管理 */}
             </>
+          )}
+        </>
           )}
         </nav>
 
@@ -136,7 +152,7 @@ export function DashboardShell({ me, buildId, children }: Props) {
 
         {/* 其他路由的 children：仅在非 /psi 时显示 */}
         <div style={{ display: isPsiRoute ? 'none' : 'block' }} className="h-full">
-          {children}
+          {me.isFinance && pathname !== FINANCE_HOME ? null : children}
         </div>
       </main>
     </div>
