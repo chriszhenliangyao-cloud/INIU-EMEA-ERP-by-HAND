@@ -79,6 +79,11 @@ export default function FinanceLoginPage() {
         <p className="text-xs text-center text-gray-400 mt-6">
           Finance accounts only · 忘记密码请联系管理员重置
         </p>
+        <p className="text-xs text-center mt-2">
+          <a href="/auth/login" className="text-gray-400 hover:text-gray-600 underline">
+            ← Sign in with Google (company accounts)
+          </a>
+        </p>
       </form>
     </div>
   )

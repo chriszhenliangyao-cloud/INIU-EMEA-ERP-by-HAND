@@ -39,6 +39,11 @@ export default function LoginPage() {
         <p className="text-xs text-center text-gray-400 mt-6">
           @iniushop.com accounts only
         </p>
+        <p className="text-xs text-center mt-2">
+          <a href="/auth/finance" className="text-gray-400 hover:text-gray-600 underline">
+            Finance account? Sign in here
+          </a>
+        </p>
       </div>
     </div>
   )
