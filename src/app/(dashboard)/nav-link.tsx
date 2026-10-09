@@ -12,11 +12,13 @@ import { useEffect, useTransition } from 'react'
  *
  * 同时 useEffect 里 prefetch，保留 <Link> 的预取加速（router.push 本身不预取）。
  */
-export function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
+export function NavLink({ href, children, collapsed = false }: { href: string; children: React.ReactNode; collapsed?: boolean }) {
   const router = useRouter()
   const pathname = usePathname()
   const [pending, startTransition] = useTransition()
   const active = pathname === href
+  const label = typeof children === 'string' ? children : ''
+  const icon = label.split(' ')[0]   // 菜单文字都以 emoji 开头，收起时只留它
 
   useEffect(() => {
     router.prefetch(href)
@@ -30,16 +32,27 @@ export function NavLink({ href, children }: { href: string; children: React.Reac
         if (pathname === href) return
         startTransition(() => router.push(href))
       }}
-      className={`flex items-center justify-between px-3 py-2 rounded-[9px] text-sm transition-colors duration-150 ${
+      title={collapsed && label ? label : undefined}
+      className={`flex items-center ${collapsed ? 'justify-center px-0' : 'justify-between px-3'} py-2 rounded-[9px] text-sm transition-colors duration-150 ${
         active ? 'bg-[#0071e3]/[0.10] text-[#0071e3] font-medium' : 'text-gray-600 hover:bg-black/[0.04] hover:text-gray-900'
       }`}
     >
-      <span className="truncate">{children}</span>
-      {pending && (
-        <span
-          aria-label="loading"
-          className="ml-2 shrink-0 w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"
-        />
+      {collapsed && icon ? (
+        pending ? (
+          <span aria-label="loading" className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+        ) : (
+          <span className="text-base leading-none">{icon}</span>
+        )
+      ) : (
+        <>
+          <span className="truncate">{children}</span>
+          {pending && (
+            <span
+              aria-label="loading"
+              className="ml-2 shrink-0 w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"
+            />
+          )}
+        </>
       )}
     </a>
   )

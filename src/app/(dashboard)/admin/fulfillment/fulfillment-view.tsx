@@ -256,6 +256,10 @@ const CSS = `
   #fb-root .pbreak i{width:10px;height:10px;border-radius:3px;flex:none}
   #fb-root .pbreak b{color:#0f172a;font-variant-numeric:tabular-nums;font-weight:700}
   #fb-root .unship-note{font-size:11.5px;color:#94a3b8;padding:9px 4px 2px;line-height:1.7}
+  #fb-root .s-leg{background:repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0 4px,#f1f5f9 4px,#f1f5f9 8px)}
+  #fb-root .finlegacy{display:flex;gap:6px;align-items:flex-start;font-size:11.5px;color:#64748b;margin:-4px 2px 10px;line-height:1.45;cursor:pointer}
+  #fb-root .finlegacy input{margin-top:2px}
+  #fb-root .legnote td{padding:10px 16px;font-size:11.5px;color:#94a3b8;background:#fbfcfe;border-top:1px dashed #e2e8f0}
   #fb-root #fin-doc tr.rowopen td{background:#fffdf6}
   #fb-root #fin-doc tr.rowopen td:nth-child(2){box-shadow:inset 3px 0 0 #d97706}
   #fb-root #fin-doc td.dim{color:var(--faint)}
@@ -324,6 +328,7 @@ const SHELL = `<div id="fb-app"><div class="appnav">
     <aside class="polist">
       <input id="fin-search" class="search" placeholder="搜索 PO # / KA / SKU / 产品…">
       <div class="chips" id="fin-chips"></div>
+      <label class="finlegacy"><input type="checkbox" id="fin-legacy"><span>显示历史批次(发货日早于 <span id="fin-from"></span>,Excel 导入、视为线下已开)</span></label>
       <div id="fin-polist"></div>
     </aside>
     <main class="docwrap"><div id="fin-doc"></div></main>
@@ -880,6 +885,11 @@ document.getElementById('sk-q').addEventListener('input',e=>{ SF.q=e.target.valu
 const invoiced={};                         // batch.id -> true(该发货批次已开票)
 let finSel=0, finFilter='all', finQ='';
 const finCollapsed=new Set();              // 折叠的批次组 gid
+// 开票台账的起算日:发货日早于它的批次是 Excel 周报导入的历史(送达日也是导入时带的),发票在线下表里,视为已处理、默认不跟踪。
+// 之后在 ERP 里真实录入的发货批次,不论整单是否已送达,没开票就一直留在这里,财务才知道要开哪些。改这一个日期即可调整口径。
+const FIN_TRACK_FROM='2026-09-10';
+let finLegacy=false;                       // 勾选后显示历史批次
+const isLegacyBatch=b=>!finLegacy && (b.ship||b.deliv||'')<FIN_TRACK_FROM;
 const FINSTAGE={
   open:  {label:'待开票',  c:'#d97706', bg:'#fdf4e7'},
   part:  {label:'部分开票', c:'#2563eb', bg:'#eff4ff'},
@@ -887,7 +897,9 @@ const FINSTAGE={
   unship:{label:'未发货',  c:'#64748b', bg:'#f1f5f9'},
 };
 // 只有"已发货批次"才可开票:一个 po_shipment 记录 = 一个可开票单元
-function poBatches(p){ return p.lines.filter(l=>l.po_status!=='cancelled').flatMap(l=>l.batches.map(b=>({l,b}))); }
+function allBatches(p){ return p.lines.filter(l=>l.po_status!=='cancelled').flatMap(l=>l.batches.map(b=>({l,b}))); }
+function poBatches(p){ return allBatches(p).filter(x=>!isLegacyBatch(x.b)); }          // 被跟踪的批次
+function legacyBatches(p){ return allBatches(p).filter(x=>isLegacyBatch(x.b)); }       // 历史批次(不跟踪)
 function poInvStage(p){
   const bs=poBatches(p);
   if(!bs.length) return 'unship';
@@ -896,8 +908,8 @@ function poInvStage(p){
   if(done<bs.length) return 'part';
   return 'done';
 }
-// 开票板只看"在途"的单:未发 / 部分 / 已发未送达;整单已送达或已取消的从开票板隐藏
-function finActive(p){ const s=poStage(p); return s!=='delivered' && s!=='cancelled'; }
+// 开票板显示:未送达的单(未发 / 部分 / 在途),以及已送达但仍有被跟踪批次的单(新批次没开票就必须看得到);已取消的不显示。
+function finActive(p){ const s=poStage(p); if(s==='cancelled') return false; if(s!=='delivered') return true; return poBatches(p).length>0; }
 function renderFin(){
   if(!DATA.pos[finSel] || !finActive(DATA.pos[finSel])){ const i=DATA.pos.findIndex(finActive); if(i>=0) finSel=i; }
   renderFinChips(); renderFinList(); renderFinDoc();
@@ -932,8 +944,9 @@ function renderFinList(){
     const pct=shVal? Math.round(invVal/shVal*100):0;
     const hit=(finQ && !(p.po.toLowerCase().includes(finQ)||p.ka.toLowerCase().includes(finQ)))
       ? p.lines.filter(l=>l.sku.toLowerCase().includes(finQ)||(l.product||'').toLowerCase().includes(finQ)).map(l=>l.sku):[];
-    const meta2 = bs.length ? `已开 ${doneN}/${bs.length} 批 · ${money(invVal,p.currency)} / ${money(shVal,p.currency)} 可开`
-                            : '尚未发货 · 暂无可开票批次';
+    const nLeg=legacyBatches(p).length;
+    const meta2 = bs.length ? `已开 ${doneN}/${bs.length} 批 · ${money(invVal,p.currency)} / ${money(shVal,p.currency)} 可开${nLeg?` · 另有 ${nLeg} 个历史批次`:''}`
+                            : (nLeg ? `已发 ${nLeg} 个历史批次(不跟踪) · 暂无新的可开票批次` : '尚未发货 · 暂无可开票批次');
     return `<div class="pocard ${i===finSel?'active':''}" data-finpo="${i}">
       <div class="pocard-top"><span class="pocard-po">${esc(p.po)}</span>
         <span class="pill" style="color:${stc};background:${FINSTAGE[st].bg}">${FINSTAGE[st].label}</span></div>
@@ -953,7 +966,8 @@ function renderFinDoc(){
   const totVal=p.lines.reduce((s,l)=>s+l.qty*l.price,0);
   const shVal=bs.reduce((s,x)=>s+x.b.qty*x.l.price,0);
   const invVal=bs.filter(x=>invoiced[x.b.id]).reduce((s,x)=>s+x.b.qty*x.l.price,0);
-  const pendVal=Math.max(0,shVal-invVal), unshipVal=Math.max(0,totVal-shVal);
+  const leg=legacyBatches(p), legVal=leg.reduce((s,x)=>s+x.b.qty*x.l.price,0), legQty=leg.reduce((s,x)=>s+x.b.qty,0);
+  const pendVal=Math.max(0,shVal-invVal), unshipVal=Math.max(0,totVal-shVal-legVal);
   const totQty=p.lines.reduce((s,l)=>s+l.qty,0);
   const shQty=bs.reduce((s,x)=>s+x.b.qty,0);
   const invQty=bs.filter(x=>invoiced[x.b.id]).reduce((s,x)=>s+x.b.qty,0);
@@ -979,7 +993,7 @@ function renderFinDoc(){
 
   // 按发货日期分组;未发余量、已取消各一组;整个 PO 全展示
   const grpMap={};
-  p.lines.forEach(l=>{ if(l.po_status==='cancelled') return; l.batches.forEach(b=>{ (grpMap[b.ship||'—']??=[]).push({l,b}); }); });
+  p.lines.forEach(l=>{ if(l.po_status==='cancelled') return; l.batches.forEach(b=>{ if(isLegacyBatch(b)) return; (grpMap[b.ship||'—']??=[]).push({l,b}); }); });
   const unshipRows=p.lines.filter(l=>l.po_status!=='cancelled' && remaining(l)>0);
   const cancelRows=p.lines.filter(l=>l.po_status==='cancelled');
   let body='';
@@ -1005,6 +1019,9 @@ function renderFinDoc(){
       ${mem.map(x=>memberRow(x.l,x.b)).join('')}
     </tbody>`;
   });
+  if(leg.length){
+    body+=`<tbody><tr class="legnote"><td colspan="10">📁 另有 <b>${leg.length}</b> 个历史批次(${fmtNum(legQty)} 件 · ${money(legVal,cur)}):发货日早于 ${FIN_TRACK_FROM},Excel 导入的历史记录,视为线下已开,不在此跟踪。需要时勾选左侧「显示历史批次」。</td></tr></tbody>`;
+  }
   if(unshipRows.length){
     const gid='unship', collapsed=finCollapsed.has(gid);
     const qty=unshipRows.reduce((s,l)=>s+remaining(l),0), amt=unshipRows.reduce((s,l)=>s+remaining(l)*l.price,0);
@@ -1039,8 +1056,8 @@ function renderFinDoc(){
       <div><div class="k">币种 / 总额</div><div class="v">${cur} · ${money(totVal,cur)}</div></div>
     </div>
     <div class="po-prog" style="margin:2px 0 0">
-      <div class="pbar">${invVal>0?`<i class="s-inv" style="width:${pc(invVal)}%"></i>`:''}${pendVal>0?`<i class="s-pend" style="width:${pc(pendVal)}%"></i>`:''}${unshipVal>0?`<i class="s-un" style="width:${pc(unshipVal)}%"></i>`:''}</div>
-      <div class="pbreak"><span><i class="s-inv"></i>已开票 <b>${money(invVal,cur)}</b></span><span><i class="s-pend"></i>待开票 · 已发货 <b>${money(pendVal,cur)}</b></span><span><i class="s-un"></i>未发货 · 暂不可开 <b>${money(unshipVal,cur)}</b></span></div>
+      <div class="pbar">${invVal>0?`<i class="s-inv" style="width:${pc(invVal)}%"></i>`:''}${pendVal>0?`<i class="s-pend" style="width:${pc(pendVal)}%"></i>`:''}${legVal>0?`<i class="s-leg" style="width:${pc(legVal)}%"></i>`:''}${unshipVal>0?`<i class="s-un" style="width:${pc(unshipVal)}%"></i>`:''}</div>
+      <div class="pbreak"><span><i class="s-inv"></i>已开票 <b>${money(invVal,cur)}</b></span><span><i class="s-pend"></i>待开票 · 已发货 <b>${money(pendVal,cur)}</b></span>${legVal>0?`<span><i class="s-leg"></i>历史批次 · 不跟踪 <b>${money(legVal,cur)}</b></span>`:''}<span><i class="s-un"></i>未发货 · 暂不可开 <b>${money(unshipVal,cur)}</b></span></div>
     </div>
     <div class="doc-tools">
       <label style="font-size:11px;color:var(--dim);font-weight:700">发票日期</label>
@@ -1066,6 +1083,8 @@ function renderFinDoc(){
   </div>`;
 }
 document.getElementById('fin-search').addEventListener('input',e=>{ finQ=e.target.value.trim().toLowerCase(); renderFinList(); });
+document.getElementById('fin-from').textContent=FIN_TRACK_FROM;
+document.getElementById('fin-legacy').addEventListener('change',e=>{ finLegacy=e.target.checked; renderFin(); });
 document.getElementById('view-fin').addEventListener('click',async e=>{
   const card=e.target.closest('[data-finpo]'); if(card){ finSel=+card.dataset.finpo; renderFin(); return; }
   const chip=e.target.closest('[data-finchip]'); if(chip){ finFilter=chip.dataset.finchip; renderFin(); return; }
