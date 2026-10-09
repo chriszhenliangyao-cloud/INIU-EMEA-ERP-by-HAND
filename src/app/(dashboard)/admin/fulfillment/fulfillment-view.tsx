@@ -884,7 +884,7 @@ document.getElementById('sk-q').addEventListener('input',e=>{ SF.q=e.target.valu
 
 // ── 开票 · 财务(单据视图,与发货履约贯通;开票单位 = 已发货批次;同批次折叠)──
 const invoiced={};                         // batch.id -> true(该发货批次已开票)
-let finSel=0, finFilter='all', finQ='';
+let finSel=0, finFilter='open', finQ='', finNeedSel=true;   // 默认看「待开票」;四个状态互斥且分完所有 PO,所以不设「全部」
 const finCollapsed=new Set();              // 折叠的批次组 gid
 // 开票台账的起算日:发货日早于它的批次是 Excel 周报导入的历史(送达日也是导入时带的),发票在线下表里,视为已处理、默认不跟踪。
 // 之后在 ERP 里真实录入的发货批次,不论整单是否已送达,没开票就一直留在这里,财务才知道要开哪些。改这一个日期即可调整口径。
@@ -914,22 +914,29 @@ function poInvStage(p){
 }
 // 开票板显示:未送达的单(未发 / 部分 / 在途),以及已送达但仍有被跟踪批次的单(新批次没开票就必须看得到);已取消的不显示。
 function finActive(p){ const s=poStage(p); if(s==='cancelled') return false; if(s!=='delivered') return true; return poBatches(p).length>0 || finLegacy; }
+// 切换状态 / 搜索 / 首次进入时,让右侧单据跟着落到当前列表的第一张;开票后该 PO 换了状态,单据保持不动,方便看结果。
+function finEnsureSel(){
+  const rows=finFilterPos();
+  if(!rows.length){ finSel=-1; return; }
+  if(!rows.some(r=>r.i===finSel)) finSel=rows[0].i;
+}
 function renderFin(){
-  if(!DATA.pos[finSel] || !finActive(DATA.pos[finSel])){ const i=DATA.pos.findIndex(finActive); if(i>=0) finSel=i; }
+  if(finNeedSel){ finEnsureSel(); finNeedSel=false; }
   renderFinChips(); renderFinList(); renderFinDoc();
 }
 function renderFinChips(){
-  const defs=[['all','全部'],['open','待开票'],['part','部分开票'],['done','已开票'],['unship','未发货']];
+  const defs=[['open','待开票'],['part','部分开票'],['done','已开票'],['unship','未发货']];
   const base=DATA.pos.filter(finActive);
-  const counts={all:base.length};
-  ['open','part','done','unship'].forEach(s=>counts[s]=base.filter(p=>poInvStage(p)===s).length);
+  const counts={};
+  defs.forEach(([k])=>counts[k]=base.filter(p=>poInvStage(p)===k).length);
+  // 搜索时跨状态查找,此时不高亮任何状态
   document.getElementById('fin-chips').innerHTML=defs.map(([k,lab])=>
-    `<span class="chip ${finFilter===k?'on':''}" data-finchip="${k}">${lab} ${counts[k]??0}</span>`).join('');
+    `<span class="chip ${!finQ&&finFilter===k?'on':''}" data-finchip="${k}">${lab} ${counts[k]??0}</span>`).join('');
 }
 function finFilterPos(){
   return DATA.pos.map((p,i)=>({p,i})).filter(({p})=>{
     if(!finActive(p)) return false;
-    if(finFilter!=='all' && poInvStage(p)!==finFilter) return false;
+    if(!finQ && poInvStage(p)!==finFilter) return false;      // 搜索时不受状态限制,免得搜不到别的状态下的 PO
     if(finQ && !(p.po.toLowerCase().includes(finQ)||p.ka.toLowerCase().includes(finQ)
        || p.lines.some(l=>l.sku.toLowerCase().includes(finQ)||(l.product||'').toLowerCase().includes(finQ)))) return false;
     return true;
@@ -1098,12 +1105,12 @@ function renderFinDoc(){
     </div>
   </div>`;
 }
-document.getElementById('fin-search').addEventListener('input',e=>{ finQ=e.target.value.trim().toLowerCase(); renderFinList(); });
+document.getElementById('fin-search').addEventListener('input',e=>{ finQ=e.target.value.trim().toLowerCase(); finNeedSel=true; renderFin(); });
 document.getElementById('fin-from').textContent=FIN_TRACK_FROM;
-document.getElementById('fin-legacy').addEventListener('change',e=>{ finLegacy=e.target.checked; renderFin(); });
+document.getElementById('fin-legacy').addEventListener('change',e=>{ finLegacy=e.target.checked; finNeedSel=true; renderFin(); });
 document.getElementById('view-fin').addEventListener('click',async e=>{
   const card=e.target.closest('[data-finpo]'); if(card){ finSel=+card.dataset.finpo; renderFin(); return; }
-  const chip=e.target.closest('[data-finchip]'); if(chip){ finFilter=chip.dataset.finchip; renderFin(); return; }
+  const chip=e.target.closest('[data-finchip]'); if(chip){ finFilter=chip.dataset.finchip; finNeedSel=true; renderFin(); return; }
   const p=DATA.pos[finSel]; if(!p) return;
   const grp=e.target.closest('[data-fingrp]');
   if(grp){ const date=grp.dataset.fingrp, a=grp.dataset.act;
