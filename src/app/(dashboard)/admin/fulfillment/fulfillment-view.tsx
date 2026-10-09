@@ -256,6 +256,7 @@ const CSS = `
   #fb-root .pbreak i{width:10px;height:10px;border-radius:3px;flex:none}
   #fb-root .pbreak b{color:#0f172a;font-variant-numeric:tabular-nums;font-weight:700}
   #fb-root .unship-note{font-size:11.5px;color:#94a3b8;padding:9px 4px 2px;line-height:1.7}
+  #fb-root #fin-doc tr.rowhist td{background:#fafbfd;color:#94a3b8}
   #fb-root .s-leg{background:repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0 4px,#f1f5f9 4px,#f1f5f9 8px)}
   #fb-root .finlegacy{display:flex;gap:6px;align-items:flex-start;font-size:11.5px;color:#64748b;margin:-4px 2px 10px;line-height:1.45;cursor:pointer}
   #fb-root .finlegacy input{margin-top:2px}
@@ -888,28 +889,31 @@ const finCollapsed=new Set();              // 折叠的批次组 gid
 // 开票台账的起算日:发货日早于它的批次是 Excel 周报导入的历史(送达日也是导入时带的),发票在线下表里,视为已处理、默认不跟踪。
 // 之后在 ERP 里真实录入的发货批次,不论整单是否已送达,没开票就一直留在这里,财务才知道要开哪些。改这一个日期即可调整口径。
 const FIN_TRACK_FROM='2026-09-10';
-let finLegacy=false;                       // 勾选后显示历史批次
-const isLegacyBatch=b=>!finLegacy && (b.ship||b.deliv||'')<FIN_TRACK_FROM;
+let finLegacy=false;                       // 勾选后只是「显示」历史批次;它们始终按已开票算,不会变成待开票
+const isHistoryBatch=b=>(b.ship||b.deliv||'')<FIN_TRACK_FROM;   // 发货日早于起算日 = 历史,默认已开票(线下)
 const FINSTAGE={
   open:  {label:'待开票',  c:'#d97706', bg:'#fdf4e7'},
   part:  {label:'部分开票', c:'#2563eb', bg:'#eff4ff'},
   done:  {label:'已开票',  c:'#059669', bg:'#e9f9f1'},
   unship:{label:'未发货',  c:'#64748b', bg:'#f1f5f9'},
+  hist:  {label:'历史·线下已开', c:'#64748b', bg:'#eef2f7'},
 };
 // 只有"已发货批次"才可开票:一个 po_shipment 记录 = 一个可开票单元
 function allBatches(p){ return p.lines.filter(l=>l.po_status!=='cancelled').flatMap(l=>l.batches.map(b=>({l,b}))); }
-function poBatches(p){ return allBatches(p).filter(x=>!isLegacyBatch(x.b)); }          // 被跟踪的批次
-function legacyBatches(p){ return allBatches(p).filter(x=>isLegacyBatch(x.b)); }       // 历史批次(不跟踪)
+function poBatches(p){ return allBatches(p).filter(x=>!isHistoryBatch(x.b)); }         // 被跟踪的批次(可开票)
+function legacyBatches(p){ return allBatches(p).filter(x=>isHistoryBatch(x.b)); }      // 历史批次(默认已开票,不在此操作)
+function unshippedQty(p){ return p.lines.filter(l=>l.po_status!=='cancelled').reduce((s,l)=>s+Math.max(0,remaining(l)),0); }
 function poInvStage(p){
-  const bs=poBatches(p);
-  if(!bs.length) return 'unship';
-  const done=bs.filter(x=>invoiced[x.b.id]).length;
-  if(done===0) return 'open';
-  if(done<bs.length) return 'part';
+  const all=allBatches(p);
+  if(!all.length) return 'unship';
+  const bs=poBatches(p), hist=all.length-bs.length;
+  const invN=bs.filter(x=>invoiced[x.b.id]).length+hist;     // 历史批次默认已开
+  if(invN===0) return 'open';                                // 一张都没开
+  if(invN<all.length || unshippedQty(p)>0) return 'part';    // 还有批次没开,或还有数量没发 → 部分开票
   return 'done';
 }
 // 开票板显示:未送达的单(未发 / 部分 / 在途),以及已送达但仍有被跟踪批次的单(新批次没开票就必须看得到);已取消的不显示。
-function finActive(p){ const s=poStage(p); if(s==='cancelled') return false; if(s!=='delivered') return true; return poBatches(p).length>0; }
+function finActive(p){ const s=poStage(p); if(s==='cancelled') return false; if(s!=='delivered') return true; return poBatches(p).length>0 || finLegacy; }
 function renderFin(){
   if(!DATA.pos[finSel] || !finActive(DATA.pos[finSel])){ const i=DATA.pos.findIndex(finActive); if(i>=0) finSel=i; }
   renderFinChips(); renderFinList(); renderFinDoc();
@@ -941,12 +945,14 @@ function renderFinList(){
     const doneN=bs.filter(x=>invoiced[x.b.id]).length;
     const shVal=bs.reduce((s,x)=>s+x.b.qty*x.l.price,0);
     const invVal=bs.filter(x=>invoiced[x.b.id]).reduce((s,x)=>s+x.b.qty*x.l.price,0);
-    const pct=shVal? Math.round(invVal/shVal*100):0;
+    const histVal=legacyBatches(p).reduce((s,x)=>s+x.b.qty*x.l.price,0), totAll=p.lines.reduce((s,l)=>s+l.qty*l.price,0);
+    const pct=totAll? Math.min(100,Math.round((invVal+histVal)/totAll*100)):0;      // 已开(含历史) / 整单金额
     const hit=(finQ && !(p.po.toLowerCase().includes(finQ)||p.ka.toLowerCase().includes(finQ)))
       ? p.lines.filter(l=>l.sku.toLowerCase().includes(finQ)||(l.product||'').toLowerCase().includes(finQ)).map(l=>l.sku):[];
     const nLeg=legacyBatches(p).length;
-    const meta2 = bs.length ? `已开 ${doneN}/${bs.length} 批 · ${money(invVal,p.currency)} / ${money(shVal,p.currency)} 可开${nLeg?` · 另有 ${nLeg} 个历史批次`:''}`
-                            : (nLeg ? `已发 ${nLeg} 个历史批次(不跟踪) · 暂无新的可开票批次` : '尚未发货 · 暂无可开票批次');
+    const remQty=unshippedQty(p), remTxt=remQty?` · 未发 ${fmtNum(remQty)} 件`:'';
+    const meta2 = bs.length ? `已开 ${doneN}/${bs.length} 批 · ${money(invVal,p.currency)} / ${money(shVal,p.currency)} 可开${nLeg?` · 另有 ${nLeg} 个历史批次(默认已开)`:''}${remTxt}`
+                            : (nLeg ? `已发 ${nLeg} 个历史批次(默认已开) · 暂无新的可开票批次${remTxt}` : '尚未发货 · 暂无可开票批次');
     return `<div class="pocard ${i===finSel?'active':''}" data-finpo="${i}">
       <div class="pocard-top"><span class="pocard-po">${esc(p.po)}</span>
         <span class="pill" style="color:${stc};background:${FINSTAGE[st].bg}">${FINSTAGE[st].label}</span></div>
@@ -975,6 +981,15 @@ function renderFinDoc(){
   const pc=v=> totVal? v/totVal*100:0;
 
   const memberRow=(l,b)=>{
+    if(isHistoryBatch(b)){
+      const m=FINSTAGE.hist;
+      return `<tr class="line rowhist"><td></td>
+        <td><div class="sku">${esc(l.sku)}</div></td><td><div class="prod">${esc(l.product)}</div></td>
+        <td class="bcell">${b.deliv?'<span class="bdv done">已送达</span>':'<span class="bdv tr">在途</span>'}</td>
+        <td class="r">${fmtNum(b.qty)}</td><td class="r">${money(l.price,cur)}</td><td class="r">${money(b.qty*l.price,cur)}</td>
+        <td class="fulfil"><span class="pill" style="color:${m.c};background:${m.bg}"><span class="dot" style="background:${m.c}"></span>${m.label}</span></td>
+        <td class="r dim">${b.deliv||'—'}</td><td><div class="ops"><span style="color:var(--faint);font-size:11px">—</span></div></td></tr>`;
+    }
     const on=!!invoiced[b.id]; const meta=on?FINSTAGE.done:FINSTAGE.open;
     const ops=on?`<button class="btn ghost mini" data-finb="${b.id}" data-act="uninv">撤销发票</button>`
                 :`<button class="btn pri mini" data-finb="${b.id}" data-act="inv">开发票</button>`;
@@ -993,19 +1008,20 @@ function renderFinDoc(){
 
   // 按发货日期分组;未发余量、已取消各一组;整个 PO 全展示
   const grpMap={};
-  p.lines.forEach(l=>{ if(l.po_status==='cancelled') return; l.batches.forEach(b=>{ if(isLegacyBatch(b)) return; (grpMap[b.ship||'—']??=[]).push({l,b}); }); });
+  p.lines.forEach(l=>{ if(l.po_status==='cancelled') return; l.batches.forEach(b=>{ if(isHistoryBatch(b) && !finLegacy) return; (grpMap[b.ship||'—']??=[]).push({l,b}); }); });
   const unshipRows=p.lines.filter(l=>l.po_status!=='cancelled' && remaining(l)>0);
   const cancelRows=p.lines.filter(l=>l.po_status==='cancelled');
   let body='';
   Object.keys(grpMap).sort().forEach(date=>{
     const mem=grpMap[date], gid='b#'+date;
     const qty=mem.reduce((s,x)=>s+x.b.qty,0), amt=mem.reduce((s,x)=>s+x.b.qty*x.l.price,0);
-    const invN=mem.filter(x=>invoiced[x.b.id]).length, tot=mem.length;
-    const gstate=invN===0?'open':invN<tot?'part':'done', gm=FINSTAGE[gstate];
+    const hist=mem.every(x=>isHistoryBatch(x.b));
+    const invN=hist?mem.length:mem.filter(x=>invoiced[x.b.id]).length, tot=mem.length;
+    const gstate=hist?'hist':invN===0?'open':invN<tot?'part':'done', gm=FINSTAGE[gstate];
     const allDeliv=mem.every(x=>x.b.deliv), someDeliv=mem.some(x=>x.b.deliv);
     const dv=allDeliv?'done':someDeliv?'part':'transit', dvLab={done:'已送达',part:'部分送达',transit:'在途'}[dv];
     const collapsed=finCollapsed.has(gid);
-    const gbtn=gstate==='done'
+    const gbtn=hist?'':gstate==='done'
       ? `<button class="btn ghost mini" data-fingrp="${date}" data-act="uninv">撤销整批</button>`
       : `<button class="btn pri mini" data-fingrp="${date}" data-act="inv">开整批(剩 ${tot-invN})</button>`;
     body+=`<tbody class="grp ${collapsed?'collapsed':''}">
@@ -1013,14 +1029,14 @@ function renderFinDoc(){
         <span class="caret">▾</span><span class="gt">📦 发货批次 · ${date}</span>
         <span class="bdv ${dv==='transit'?'tr':'done'}">${dvLab}</span>
         <span class="gmeta">${tot} SKU · ${fmtNum(qty)} 件 · ${money(amt,cur)}</span>
-        <span class="pill" style="color:${gm.c};background:${gm.bg}">已开 ${invN}/${tot}</span>
+        <span class="pill" style="color:${gm.c};background:${gm.bg}">${hist?FINSTAGE.hist.label:`已开 ${invN}/${tot}`}</span>
         <span style="flex:1"></span>${gbtn}
       </div></td></tr>
       ${mem.map(x=>memberRow(x.l,x.b)).join('')}
     </tbody>`;
   });
-  if(leg.length){
-    body+=`<tbody><tr class="legnote"><td colspan="10">📁 另有 <b>${leg.length}</b> 个历史批次(${fmtNum(legQty)} 件 · ${money(legVal,cur)}):发货日早于 ${FIN_TRACK_FROM},Excel 导入的历史记录,视为线下已开,不在此跟踪。需要时勾选左侧「显示历史批次」。</td></tr></tbody>`;
+  if(leg.length && !finLegacy){
+    body+=`<tbody><tr class="legnote"><td colspan="10">📁 另有 <b>${leg.length}</b> 个历史批次(${fmtNum(legQty)} 件 · ${money(legVal,cur)}):发货日早于 ${FIN_TRACK_FROM},Excel 导入的历史记录,默认已开票,不在此操作。需要时勾选左侧「显示历史批次」。</td></tr></tbody>`;
   }
   if(unshipRows.length){
     const gid='unship', collapsed=finCollapsed.has(gid);
@@ -1046,7 +1062,7 @@ function renderFinDoc(){
   el.innerHTML=`<div class="doc">
     <div class="doc-head">
       <div><div class="doc-title">INVOICE WORKSHEET · 开票工作单</div><div class="doc-po">${esc(p.po)}</div>
-        <span class="pill" style="color:${stc};background:${FINSTAGE[st].bg};margin-top:8px"><span class="dot" style="background:${stc}"></span>整单 ${FINSTAGE[st].label} · ${nInv}/${nBatch} 批已开</span></div>
+        <span class="pill" style="color:${stc};background:${FINSTAGE[st].bg};margin-top:8px"><span class="dot" style="background:${stc}"></span>整单 ${FINSTAGE[st].label} · ${nInv}/${nBatch} 批已开${leg.length?` · 另有 ${leg.length} 个历史批次(默认已开)`:''}${unshippedQty(p)?` · 未发 ${fmtNum(unshippedQty(p))} 件`:''}</span></div>
       <div class="doc-logo"><b>INIU</b><span>EMEA Finance</span></div>
     </div>
     <div class="meta">
