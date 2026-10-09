@@ -903,14 +903,12 @@ function allBatches(p){ return p.lines.filter(l=>l.po_status!=='cancelled').flat
 function poBatches(p){ return allBatches(p).filter(x=>!isHistoryBatch(x.b)); }         // 被跟踪的批次(可开票)
 function legacyBatches(p){ return allBatches(p).filter(x=>isHistoryBatch(x.b)); }      // 历史批次(默认已开票,不在此操作)
 function unshippedQty(p){ return p.lines.filter(l=>l.po_status!=='cancelled').reduce((s,l)=>s+Math.max(0,remaining(l)),0); }
+// 四个状态互斥、按优先级判断:有批次等着开票 → 待开票(财务的待办清单,同一张 PO 里别的批次开没开都不影响);
+// 没有待开批次时,整单还有没发的数量 → 部分开票(等发货);全部发完且全部开完 → 已开票。历史批次(9-10 前)默认已开。
 function poInvStage(p){
-  const all=allBatches(p);
-  if(!all.length) return 'unship';
-  const bs=poBatches(p), hist=all.length-bs.length;
-  const invN=bs.filter(x=>invoiced[x.b.id]).length+hist;     // 历史批次默认已开
-  if(invN===0) return 'open';                                // 一张都没开
-  if(invN<all.length || unshippedQty(p)>0) return 'part';    // 还有批次没开,或还有数量没发 → 部分开票
-  return 'done';
+  if(!allBatches(p).length) return 'unship';
+  if(poBatches(p).some(x=>!invoiced[x.b.id])) return 'open';
+  return unshippedQty(p)>0 ? 'part' : 'done';
 }
 // 开票板显示:未送达的单(未发 / 部分 / 在途),以及已送达但仍有被跟踪批次的单(新批次没开票就必须看得到);已取消的不显示。
 function finActive(p){ const s=poStage(p); if(s==='cancelled') return false; if(s!=='delivered') return true; return poBatches(p).length>0 || finLegacy; }
@@ -926,12 +924,13 @@ function renderFin(){
 }
 function renderFinChips(){
   const defs=[['open','待开票'],['part','部分开票'],['done','已开票'],['unship','未发货']];
+  const tips={open:'有已发货的批次还没开票(财务待办)',part:'已发货的批次都开完了,但整单还有没发的数量,等发货',done:'全部发完,并且全部开票',unship:'还没有任何发货'};
   const base=DATA.pos.filter(finActive);
   const counts={};
   defs.forEach(([k])=>counts[k]=base.filter(p=>poInvStage(p)===k).length);
   // 搜索时跨状态查找,此时不高亮任何状态
   document.getElementById('fin-chips').innerHTML=defs.map(([k,lab])=>
-    `<span class="chip ${!finQ&&finFilter===k?'on':''}" data-finchip="${k}">${lab} ${counts[k]??0}</span>`).join('');
+    `<span class="chip ${!finQ&&finFilter===k?'on':''}" data-finchip="${k}" title="${tips[k]}">${lab} ${counts[k]??0}</span>`).join('');
 }
 function finFilterPos(){
   return DATA.pos.map((p,i)=>({p,i})).filter(({p})=>{
