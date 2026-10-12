@@ -23,7 +23,7 @@ export default async function FulfillmentPage() {
   if (!me.isAdmin && !me.isFinance) redirect('/po')   // 财务也能进,但只看到开票页(见 financeOnly)
 
   const supabase = createClient()
-  const [{ data: pos, error }, { data: shipList }, { data: leadList }, { data: invList }] = await Promise.all([
+  const [{ data: pos, error }, { data: shipList }, { data: leadList }, { data: invList }, { data: origList }] = await Promise.all([
     supabase.from('channel_po').select(`
       id, po_number, po_date, qty_ordered, fd_buying_price, currency, po_status,
       sku:sku_id ( code, name ),
@@ -34,6 +34,8 @@ export default async function FulfillmentPage() {
       .order('ship_date', { ascending: true, nullsFirst: true }).order('id'),
     supabase.from('po_leadtime').select('po_line_id, slot, value').in('slot', ['b0_eta', 'b0_delay', 'b0_cancel']),
     supabase.from('po_invoice').select('shipment_id'),
+    // 有「PO 原件」的 PO(财务开票时点 PO 号打开原件;只读这一类文档,见 RLS po_document_read_finance_original)
+    supabase.from('po_document').select('id, po_number, doc_type, file_name, storage_path, created_at').in('doc_type', ['po_original', 'invoice']).order('created_at', { ascending: true }),
   ])
 
   if (error) {
@@ -57,6 +59,13 @@ export default async function FulfillmentPage() {
     else if (r.slot === 'b0_cancel' && r.value) cancelByLine.set(r.po_line_id, r.value)
   })
   const invoicedIds = (invList ?? []).map((r: any) => Number(r.shipment_id))
+  const hasOriginal = new Set((origList ?? []).filter((r: any) => r.doc_type === 'po_original').map((r: any) => String(r.po_number)))
+  const invoicesByPo = new Map<string, { id: number; file_name: string; storage_path: string; created_at: string }[]>()
+  ;(origList ?? []).filter((r: any) => r.doc_type === 'invoice').forEach((r: any) => {
+    const arr = invoicesByPo.get(String(r.po_number)) ?? []
+    arr.push({ id: r.id, file_name: r.file_name, storage_path: r.storage_path, created_at: r.created_at })
+    invoicesByPo.set(String(r.po_number), arr)
+  })
 
   // channel_po 行 → 按 po_number 分组为 demo 结构(一张 PO)
   const byPo = new Map<string, FPo>()
@@ -67,7 +76,7 @@ export default async function FulfillmentPage() {
       po = {
         po: key, po_date: r.po_date,
         country: r.country?.code ?? '', flag: r.country?.flag_emoji ?? '',
-        ka: r.ka?.name ?? '—', currency: r.currency ?? 'EUR', lines: [],
+        ka: r.ka?.name ?? '—', currency: r.currency ?? 'EUR', has_original: hasOriginal.has(key), invoices: invoicesByPo.get(key) ?? [], lines: [],
       }
       byPo.set(key, po)
     }

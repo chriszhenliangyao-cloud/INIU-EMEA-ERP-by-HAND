@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 export type FLine = { id: number; sku: string; product: string; qty: number; price: number; po_status: string | null; eta: string | null; delays: any[]; delayActive: boolean; cancel_reason?: string | null; batches: { id: number; qty: number; ship: string | null; deliv: string | null }[] }
-export type FPo = { po: string; po_date: string; country: string; flag: string; ka: string; currency: string; lines: FLine[] }
+export type FPo = { po: string; po_date: string; country: string; flag: string; ka: string; currency: string; has_original?: boolean; invoices?: { id: number; file_name: string; storage_path: string; created_at: string }[]; lines: FLine[] }
 
 const CSS = `
   #fb-root{
@@ -47,6 +47,16 @@ const CSS = `
   #fb-root .doc-head{padding:20px 24px 16px;border-bottom:2px solid var(--ink);display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
   #fb-root .doc-title{font-size:12px;font-weight:800;letter-spacing:.12em;color:var(--dim)}
   #fb-root .doc-po{font-size:26px;font-weight:800;font-family:var(--mono);letter-spacing:-.5px;margin-top:2px}
+  #fb-root .po-link{color:#2563eb;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:5px;cursor:pointer}
+  #fb-root .po-link:hover{color:#1d4ed8;text-decoration-style:solid}
+  #fb-root .inv-files{margin:0 0 4px;padding:12px 26px;border-top:1px solid #eef1f6;background:#fff}
+  #fb-root .inv-head{display:flex;align-items:center;gap:10px;font-size:12.5px}
+  #fb-root .inv-head .inv-n{color:#64748b;font-size:11.5px}
+  #fb-root .inv-file{display:flex;gap:12px;align-items:center;font-size:12.5px;padding:5px 0;border-bottom:1px dashed #f1f5f9}
+  #fb-root .inv-file:last-child{border-bottom:none}
+  #fb-root .inv-file .inv-d{color:#94a3b8;font-size:11px;margin-left:auto}
+  #fb-root .inv-empty{color:#94a3b8;font-size:12px;padding:8px 0 2px}
+  #fb-root .po-link .po-clip{font-size:.55em;margin-left:8px;text-decoration:none;display:inline-block;opacity:.8}
   #fb-root .doc-logo{text-align:right}
   #fb-root .doc-logo b{font-size:18px;font-weight:900;letter-spacing:1px}
   #fb-root .doc-logo span{display:block;font-size:10.5px;color:var(--faint);letter-spacing:.05em}
@@ -355,11 +365,64 @@ function makeDB(supabase){
     async eta(poId, value){ const { error } = value ? await up(poId, 'b0_eta', value) : await del(poId, 'b0_eta'); warn(error, '交期写库失败') },
     async etaBulk(ids, value){ if (!ids.length) return; const rows = ids.map(id => ({ po_line_id: id, slot: 'b0_eta', value })); const { error } = await supabase.from('po_leadtime').upsert(rows, { onConflict: 'po_line_id,slot' }); warn(error, '批量交期写库失败') },
     async delay(poId, payload, wasCancelled){ const { error } = await up(poId, 'b0_delay', JSON.stringify(payload)); warn(error, '延期写库失败'); if (wasCancelled){ await supabase.from('channel_po').update({ po_status: null }).eq('id', poId); await del(poId, 'b0_cancel') } },
+    async openOriginal(po){
+      const w = window.open('about:blank', '_blank')
+      const fail = (m) => { if (w) w.close(); alert(m) }
+      const { data, error } = await supabase.from('po_document').select('storage_path, file_name').eq('po_number', po).eq('doc_type', 'po_original').order('created_at', { ascending: false }).limit(1)
+      if (error || !data || !data.length) return fail('没有找到 PO ' + po + ' 的原件' + (error ? ':' + error.message : ''))
+      const { data: s, error: e2 } = await supabase.storage.from('po-docs').createSignedUrl(data[0].storage_path, 3600)
+      if (e2 || !s) return fail('打开原件失败:' + (e2 ? e2.message : ''))
+      if (w) { w.opener = null; w.location.href = s.signedUrl } else window.open(s.signedUrl, '_blank', 'noopener')
+    },
+    async openFile(path){
+      const w = window.open('about:blank', '_blank')
+      const { data: s, error } = await supabase.storage.from('po-docs').createSignedUrl(path, 3600)
+      if (error || !s) { if (w) w.close(); alert('打开文件失败:' + (error ? error.message : '')); return }
+      if (w) { w.opener = null; w.location.href = s.signedUrl } else window.open(s.signedUrl, '_blank', 'noopener')
+    },
+    // 与 Shipment Workflow 里 PoDocsModal 的 invoice 区同一张表(po_document)、同一个桶(po-docs)、同一路径规则:
+    // {sanitize(po)}/invoice/{ts}-{sanitize(name)} —— 所以传完后管理员在每张 PO 的 📎 → Invoice 里直接能看到。
+    async uploadInvoice(po, file){
+      const sanitize = (s) => s.replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'file'
+      if (file.size > 50 * 1024 * 1024) { alert('文件超过 50MB:' + file.name); return null }
+      const path = `${sanitize(po)}/invoice/${Date.now()}-${sanitize(file.name)}`
+      const { error: upErr } = await supabase.storage.from('po-docs').upload(path, file, { upsert: false, contentType: file.type || undefined })
+      if (upErr) { alert('上传失败:' + upErr.message); return null }
+      const { data, error: dbErr } = await supabase.from('po_document')
+        .insert({ po_number: po, doc_type: 'invoice', file_name: file.name, storage_path: path, mime: file.type || null, size_bytes: file.size })
+        .select('id, file_name, storage_path, created_at').single()
+      if (dbErr) { alert('保存记录失败:' + dbErr.message); return null }
+      return data
+    },
     async invoice(shipmentId, on){ if (on){ const { error } = await supabase.from('po_invoice').upsert({ shipment_id: shipmentId }, { onConflict: 'shipment_id' }); warn(error, '开票写库失败') } else { const { error } = await supabase.from('po_invoice').delete().eq('shipment_id', shipmentId); warn(error, '撤销开票写库失败') } },
   }
 }
 
 function runApp(root, FB, DB){
+  // PO 号:有上传原件的做成链接,点击在新标签页打开原件(私有存储,用 1 小时有效的签名链接);没有原件就是普通文字
+  const poTitle = (p) => p.has_original
+    ? `<a class="po-link" data-openpo="${esc(p.po).replace(/"/g,'&quot;')}" title="打开 PO 原件">${esc(p.po)}<span class="po-clip">📎</span></a>`
+    : esc(p.po)
+  root.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('[data-openpo]')
+    if (a) { e.preventDefault(); DB.openOriginal(a.getAttribute('data-openpo')); return }
+    const f = e.target.closest && e.target.closest('[data-openfile]')
+    if (f) { e.preventDefault(); DB.openFile(f.getAttribute('data-openfile')); return }
+    const u = e.target.closest && e.target.closest('[data-uploadinv]')
+    if (u) {
+      const po = u.getAttribute('data-uploadinv')
+      const inp = document.createElement('input')
+      inp.type = 'file'; inp.multiple = true; inp.accept = '.pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv'
+      inp.onchange = async () => {
+        const files = [...(inp.files || [])]; if (!files.length) return
+        const p = DATA.pos.find(x => x.po === po); if (!p) return
+        let ok = 0
+        for (const file of files) { const row = await DB.uploadInvoice(po, file); if (row) { (p.invoices ??= []).push(row); ok++ } }
+        if (ok) { toast(`已上传 ${ok} 份发票 → ${po} 的 Invoice 文件夹`); renderFinDoc() }
+      }
+      inp.click()
+    }
+  })
   root.className = "logcol";
   const APP = root.querySelector("#fb-app");
 
@@ -679,7 +742,7 @@ function renderDoc(){
 
   document.getElementById('doc').innerHTML = `<div class="doc">
     <div class="doc-head">
-      <div><div class="doc-title">PURCHASE ORDER · 采购订单</div><div class="doc-po">${esc(p.po)}</div>
+      <div><div class="doc-title">PURCHASE ORDER · 采购订单</div><div class="doc-po">${poTitle(p)}</div>
         <span class="pill" style="color:${stc};background:${cssv(STAGE[st].bg)};margin-top:8px"><span class="dot" style="background:${stc}"></span>整单 ${STAGE[st].label}</span></div>
       <div class="doc-logo"><b>INIU</b><span>EMEA Supply</span></div>
     </div>
@@ -1067,7 +1130,7 @@ function renderFinDoc(){
 
   el.innerHTML=`<div class="doc">
     <div class="doc-head">
-      <div><div class="doc-title">INVOICE WORKSHEET · 开票工作单</div><div class="doc-po">${esc(p.po)}</div>
+      <div><div class="doc-title">INVOICE WORKSHEET · 开票工作单</div><div class="doc-po">${poTitle(p)}</div>
         <span class="pill" style="color:${stc};background:${FINSTAGE[st].bg};margin-top:8px"><span class="dot" style="background:${stc}"></span>整单 ${FINSTAGE[st].label} · ${nInv}/${nBatch} 批已开${leg.length?` · 另有 ${leg.length} 个历史批次(默认已开)`:''}${unshippedQty(p)?` · 未发 ${fmtNum(unshippedQty(p))} 件`:''}</span></div>
       <div class="doc-logo"><b>INIU</b><span>EMEA Finance</span></div>
     </div>
@@ -1089,6 +1152,12 @@ function renderFinDoc(){
       <span class="grow"></span>
       <button class="btn ghost danger" data-finpoact="uninvall">撤销整单开票</button>
     </div>
+    ${(()=>{ const fs=p.invoices||[];
+      return `<div class="inv-files">
+        <div class="inv-head"><b>发票文件</b><span class="inv-n">${fs.length} 份 · 上传后同步到该 PO 的 Invoice 文件夹</span><span class="grow"></span>
+          <button class="btn pri mini" data-uploadinv="${esc(p.po).replace(/"/g,'&quot;')}">⬆ 上传发票</button></div>
+        ${fs.length? fs.slice().reverse().map(f=>`<div class="inv-file"><a class="po-link" data-openfile="${esc(f.storage_path).replace(/"/g,'&quot;')}" title="打开发票">📄 ${esc(f.file_name)}</a><span class="inv-d">${esc((f.created_at||'').slice(0,10))}</span></div>`).join('') : '<div class="inv-empty">尚未上传发票</div>'}
+      </div>`; })()}
     <div style="overflow:auto"><table>
       <thead><tr>
         <th style="width:26px"></th><th>SKU</th><th>产品</th><th>发货批次</th><th class="r">数量</th><th class="r">单价</th><th class="r">金额</th>
