@@ -165,6 +165,20 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
     const { error } = await supabase.from('channel_po').update({ po_status: 'cancelled' }).in('id', ids)
     after(error, key)
   }
+  // 单行取消：可选取消数量。取消量 = 整行 → 只打 Cancelled 标签；小于整行 → 拆出一条已取消的行，剩余继续跟
+  const cancelLine = async (l: OpsRow, key: string) => {
+    const max = l.qty - (l.delivered_qty ?? 0)
+    if (max <= 0) { alert('这一行已全部发出，没有可取消的数量。'); return }
+    const input = prompt(`取消 ${l.sku_code} — 取消数量（可取消 ${max}，默认全部）：`, String(max))
+    if (input == null) return
+    const n = input.trim() === '' ? max : Math.floor(Number(input))
+    if (!Number.isFinite(n) || n <= 0 || n > max) { alert(`请输入 1 到 ${max} 之间的数量。`); return }
+    if (n === l.qty) { cancelPo([l.id], key); return }
+    if (!confirm(`取消 ${l.sku_code} 的 ${n} 件？\n该行拆成：取消 ${n} 件（Cancelled，仍计入总额）+ 剩余 ${l.qty - n} 件继续履约。`)) return
+    setBusy(key)
+    const { error } = await supabase.rpc('cancel_po_qty', { p_line_id: l.id, p_qty: n })
+    after(error, key)
+  }
   // 发货 = 新增一条批次（绝不覆盖既有批次的日期）
   const addBatches = async (b: { po_id: number; qty: number; ship_date: string }[], key: string) => {
     setBusy(key)
@@ -318,7 +332,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
           <div className="rounded-[10px] overflow-hidden mt-2.5" style={{ borderLeft: `3px solid ${m.a}` }}>
             <div className="overflow-x-auto max-h-[600px] overflow-y-auto border border-gray-100 border-l-0 rounded-r-[10px]">
               {grouped && <GroupedTable stage={active} meta={m} rows={list} open={open} toggle={toggle} busy={busy} dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today}
-                onConfirm={confirmPo} onCancel={cancelPo} onShip={markShipped} onPartial={markPartial} onBulkShip={setBulkShipGrp} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
+                onConfirm={confirmPo} onCancel={cancelPo} onCancelLine={cancelLine} onShip={markShipped} onPartial={markPartial} onBulkShip={setBulkShipGrp} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'partial' && <PartialGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
                 dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipGroup={markShipped} onShipRemaining={shipRemaining} onPartialRemaining={partialRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
@@ -510,10 +524,10 @@ function groupByPo(rows: OpsRow[]): Grp[] {
   return out.sort((a, z) => z.po_date.localeCompare(a.po_date))
 }
 
-function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, today, onConfirm, onCancel, onShip, onPartial, onBulkShip, poSearch, docCounts, onDocs, kaProps }: {
+function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, today, onConfirm, onCancel, onCancelLine, onShip, onPartial, onBulkShip, poSearch, docCounts, onDocs, kaProps }: {
   stage: Stage; meta: StageMeta; rows: OpsRow[]; open: Set<string>; toggle: (k: string) => void; busy: string | null
   dateOf: (k: string) => string; setDate: (k: string, v: string) => void; today: string
-  onConfirm: (ids: number[], key: string) => void; onCancel: (ids: number[], key: string) => void
+  onConfirm: (ids: number[], key: string) => void; onCancel: (ids: number[], key: string) => void; onCancelLine: (l: OpsRow, key: string) => void
   onShip: (lines: OpsRow[], key: string) => void; onPartial: (l: OpsRow, key: string) => void; onBulkShip: (g: Grp) => void; poSearch: string
   docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps
 }) {
@@ -594,14 +608,14 @@ function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, 
                                   {isNew ? (
                                     <>
                                       <button onClick={() => onConfirm([l.id], lk)} disabled={busy === lk} className="btn b-green">✅ Confirm</button>
-                                      <button onClick={() => onCancel([l.id], lk)} disabled={busy === lk} className="btn b-red">✗</button>
+                                      <button onClick={() => onCancelLine(l, lk)} disabled={busy === lk} title="取消（可选数量）" className="btn b-red">✗</button>
                                     </>
                                   ) : (
                                     <>
                                       <input type="date" value={dateOf(lk)} max={today} onChange={e => setDate(lk, e.target.value)} className="lg-date" />
                                       <button onClick={() => onShip([l], lk)} disabled={busy === lk} className="btn b-green">Ship</button>
                                       <button onClick={() => onPartial(l, lk)} disabled={busy === lk} className="btn b-blue">Partial</button>
-                                      <button onClick={() => onCancel([l.id], lk)} disabled={busy === lk} className="btn b-red">✗</button>
+                                      <button onClick={() => onCancelLine(l, lk)} disabled={busy === lk} title="取消（可选数量）" className="btn b-red">✗</button>
                                     </>
                                   )}
                                 </div>
