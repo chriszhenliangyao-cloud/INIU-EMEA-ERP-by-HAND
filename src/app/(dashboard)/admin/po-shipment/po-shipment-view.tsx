@@ -402,7 +402,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
                 dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipGroup={markShipped} onShipRemaining={shipRemaining} onPartialRemaining={partialRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
                 onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} onDeliverGroup={deliverGroup} excByLine={excByLine} onLoss={(grp, pre) => setLossGrp({ grp, pre })} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
-              {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} onReason={editReason} excItems={excItems} onExcReason={editExcReason} onExcRemove={removeException} onExcPatch={patchException} today={today} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
+              {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} open={open} toggle={toggle} onReopen={reopen} onReason={editReason} excItems={excItems} onExcReason={editExcReason} onExcRemove={removeException} onExcPatch={patchException} today={today} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} freight={freight} onSaveFreight={saveFreight} busy={busy} fxToEur={fxToEur} kaProps={kaProps} />}
             </div>
           </div>
@@ -630,19 +630,16 @@ function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, 
                 <td className="px-3 py-2 text-right font-semibold tabular-nums">{fmtNum(g.qty)}</td>
                 <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{g.po_date}</td>
                 {!isNew && <td className="px-3 py-2 text-center"><span className={`inline-block px-2 py-0.5 rounded text-[11px] tabular-nums ${ageTone(age)}`}>{age}d</span></td>}
-                <td className="px-3 py-2.5">
-                  <div className="flex flex-col gap-1.5 w-[184px]">
+                <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                  {/* 主行只放一行紧凑操作（与 Shipped/Partial 一致）；Cancel 整张 PO 收进展开的抽屉 */}
+                  <div className="flex items-center gap-1.5 justify-center">
                     {isNew ? (
-                      <>
-                        <button onClick={() => onConfirm(ids, gk)} disabled={busy === gk} className="btn b-green w-full">{busy === gk ? '…' : `✅ Confirm 整张 PO (${ids.length})`}</button>
-                        <button onClick={() => onCancel(ids, gk)} disabled={busy === gk} className="btn b-red w-full">✗ Cancel 整张 PO</button>
-                      </>
+                      <button onClick={() => onConfirm(ids, gk)} disabled={busy === gk} className="btn b-green whitespace-nowrap">{busy === gk ? '…' : `✅ Confirm 整张 PO (${ids.length})`}</button>
                     ) : (
                       <>
-                        <input type="date" value={dateOf(gk)} max={today} onChange={e => setDate(gk, e.target.value)} className="lg-date w-full" />
-                        <button onClick={() => onShip(g.lines, gk)} disabled={busy === gk} className="btn b-green w-full">{busy === gk ? '…' : `🚚 整张 PO 发货 (${ids.length})`}</button>
-                        <button onClick={() => onBulkShip(g)} disabled={busy === gk} className="btn b-blue w-full" title="打开发货明细，勾选要发的 SKU 并填数量，一次提交">◑ 选择发货…</button>
-                        <button onClick={() => onCancel(ids, gk)} disabled={busy === gk} className="btn b-red w-full">✗ Cancel 整张 PO</button>
+                        <input type="date" value={dateOf(gk)} max={today} onChange={e => setDate(gk, e.target.value)} className="lg-date" />
+                        <button onClick={() => onShip(g.lines, gk)} disabled={busy === gk} className="btn b-green whitespace-nowrap">{busy === gk ? '…' : `🚚 整张发货 (${ids.length})`}</button>
+                        <button onClick={() => onBulkShip(g)} disabled={busy === gk} className="btn b-blue whitespace-nowrap" title="打开发货明细，勾选要发的 SKU 并填数量，一次提交">◑ 选择发货</button>
                       </>
                     )}
                   </div>
@@ -652,7 +649,10 @@ function GroupedTable({ stage, meta, rows, open, toggle, busy, dateOf, setDate, 
                 <tr className="bg-slate-50/60">
                   <td></td>
                   <td colSpan={isNew ? 7 : 8} className="px-3 py-2.5">
-                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{g.lines.length} 个 SKU · 也可单行操作</div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{g.lines.length} 个 SKU · 也可单行操作</div>
+                      <button onClick={() => onCancel(ids, gk)} disabled={busy === gk} className="btn b-red whitespace-nowrap">✗ Cancel 整张 PO</button>
+                    </div>
                     <table className="w-full text-[12px]">
                       <thead><tr className="text-left text-[10.5px] text-gray-500 border-b border-gray-200">
                         <th className="py-1 pr-3 font-semibold">SKU</th><th className="py-1 pr-3 font-semibold">Product</th>
@@ -894,111 +894,153 @@ function LineNotes({ line, busy, onSave }: { line: OpsRow; busy: string | null; 
   )
 }
 
-function CancelledTable({ meta, rows, busy, onReopen, onReason, excItems, onExcReason, onExcRemove, onExcPatch, today, poSearch, docCounts, onDocs, kaProps }: { meta: StageMeta; rows: OpsRow[]; busy: string | null; onReopen: (id: number, key: string) => void; onReason: (l: OpsRow, key: string) => void; excItems: { e: PoException; l: OpsRow }[]; onExcReason: (e: PoException, key: string) => void; onExcRemove: (e: PoException, key: string) => void; onExcPatch: (e: PoException, patch: Partial<Pick<PoException, 'resend_ship_date' | 'resend_delivery_date'>>, key: string) => void; today: string; poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps }) {
+function CancelledTable({ meta, rows, busy, open, toggle, onReopen, onReason, excItems, onExcReason, onExcRemove, onExcPatch, today, poSearch, docCounts, onDocs, kaProps }: {
+  meta: StageMeta; rows: OpsRow[]; busy: string | null; open: Set<string>; toggle: (k: string) => void
+  onReopen: (id: number, key: string) => void; onReason: (l: OpsRow, key: string) => void
+  excItems: { e: PoException; l: OpsRow }[]
+  onExcReason: (e: PoException, key: string) => void; onExcRemove: (e: PoException, key: string) => void
+  onExcPatch: (e: PoException, patch: Partial<Pick<PoException, 'resend_ship_date' | 'resend_delivery_date'>>, key: string) => void
+  today: string; poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps
+}) {
   const [resendDate, setResendDate] = useState<Record<number, string>>({})
-  // 同一 PO 的「取消行」和「丢货异常行」合并到一起：按 PO 分组（组间按 PO 日期倒序），组内取消在前、异常在后；PO/国家/KA 只在组首行显示
-  type CBase = { kind: 'c'; l: OpsRow } | { kind: 'e'; e: PoException; l: OpsRow }
-  type CItem = CBase & { first: boolean }
-  const items = useMemo(() => {
-    const groups = new Map<string, { date: string; po: string; list: CBase[] }>()
-    const put = (l: OpsRow, it: CBase) => {
-      const k = l.po_number ? `po:${l.po_number}` : `id:${l.id}`
-      const g = groups.get(k) ?? { date: l.po_date ?? '', po: l.po_number ?? '', list: [] }
-      g.list.push(it); groups.set(k, g)
+  // 按 PO 归并（与其它车道一致的抽屉）：取消行 + 丢货异常行都挂在所属 PO 下
+  type CGrp = { key: string; po_number: string | null; country_code: string; country_flag: string; ka_name: string | null; po_date: string
+    cancels: OpsRow[]; excs: { e: PoException; l: OpsRow }[] }
+  const groups = useMemo(() => {
+    const m = new Map<string, CGrp>()
+    const get = (l: OpsRow) => {
+      const key = l.po_number ? `po:${l.po_number}` : `id:${l.id}`
+      let g = m.get(key)
+      if (!g) { g = { key, po_number: l.po_number, country_code: l.country_code, country_flag: l.country_flag, ka_name: l.ka_name, po_date: l.po_date ?? '', cancels: [], excs: [] }; m.set(key, g) }
+      return g
     }
-    rows.forEach(l => put(l, { kind: 'c', l }))
-    excItems.forEach(({ e, l }) => put(l, { kind: 'e', e, l }))
-    const out: CItem[] = []
-    Array.from(groups.values())
-      .sort((a, z) => z.date.localeCompare(a.date) || a.po.localeCompare(z.po))
-      .forEach(g => {
-        const ordered = [...g.list.filter(x => x.kind === 'c'), ...g.list.filter(x => x.kind === 'e')]
-        ordered.forEach((x, idx) => out.push({ ...x, first: idx === 0 } as CItem))
-      })
-    return out
+    rows.forEach(l => get(l).cancels.push(l))
+    excItems.forEach(x => get(x.l).excs.push(x))
+    return Array.from(m.values()).sort((a, z) => z.po_date.localeCompare(a.po_date) || (a.po_number ?? '').localeCompare(z.po_number ?? ''))
   }, [rows, excItems])
+
   return (
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
-          <Th>PO #</Th><Th>Country</Th><KaTh {...kaProps} /><Th>SKU</Th><Th>Product</Th><Th right>Qty</Th>
-          <Th right>Unit Price</Th><Th right>Turnover</Th><Th>PO Date</Th><Th>取消原因</Th><Th>Notes</Th><Th center>Action</Th>
+          <Th> </Th><Th>PO #</Th><Th>Country</Th><KaTh {...kaProps} /><Th center>SKUs</Th><Th right>取消 / 丢货 (件)</Th><Th>PO Date</Th><Th>状态</Th>
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
-        {items.map(it => {
-          if (it.kind === 'c') {
-          const { l, first } = it
-          const lk = `line:${l.id}`
+        {groups.map(g => {
+          const ok = `cx:${g.key}`
+          const o = open.has(ok)
+          const cancelQty = g.cancels.reduce((s, l) => s + l.qty, 0)
+          const lostQty = g.excs.reduce((s, x) => s + x.e.qty, 0)
+          const pending = g.excs.filter(x => !x.e.resend_ship_date).length
+          const transit = g.excs.filter(x => x.e.resend_ship_date && !x.e.resend_delivery_date).length
+          const skuCount = new Set([...g.cancels.map(l => l.sku_code), ...g.excs.map(x => x.l.sku_code)]).size
           return (
-            <tr key={`c${l.id}`} className={`hover:bg-gray-50/60 ${first ? 'border-t-2 border-gray-200' : ''}`}>
-              <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{first ? <>{l.po_number ?? '–'}<DocsBadge po={l.po_number} count={docCounts[l.po_number ?? ''] ?? 0} onDocs={onDocs} /></> : <span className="text-gray-200 font-normal">└</span>}</td>
-              <td className="px-3 py-2 whitespace-nowrap">{first && <span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{l.country_flag} {l.country_code}</span>}</td>
-              <td className="px-3 py-2">{first && <span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{l.ka_name ?? '-'}</span>}</td>
-              <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{l.sku_code}</td>
-              <td className="px-3 py-2 text-gray-600">{l.sku_name || '-'}</td>
-              <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtNum(l.qty)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-gray-500 whitespace-nowrap">{fmtMoney(l.fd_buying_price, l.currency)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-gray-700 whitespace-nowrap">{fmtMoney(l.turnover, l.currency)}</td>
-              <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{l.po_date}</td>
-              <td className="px-3 py-2 text-[12px] max-w-[260px]">
-                <button onClick={() => onReason(l, lk)} disabled={busy === lk} title="点击编辑取消原因"
-                  className={`text-left hover:underline ${l.cancel_reason ? 'text-gray-700' : 'text-gray-300'}`}>{l.cancel_reason || '＋ 填写原因'}</button>
-              </td>
-              <td className="px-3 py-2 text-[11px] text-gray-400">{l.notes || '—'}</td>
-              <td className="px-3 py-2 text-center">
-                <button onClick={() => onReopen(l.id, lk)} disabled={busy === lk} className="btn b-grey">↩ Reopen</button>
-              </td>
-            </tr>
-          )
-          }
-          const { e, l, first } = it
-          const ek = `exc:${e.id}`
-          return (
-            <tr key={ek} className={`hover:bg-gray-50/60 bg-amber-50/30 ${first ? 'border-t-2 border-gray-200' : ''}`}>
-              <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{first ? <>{l.po_number ?? '–'}<DocsBadge po={l.po_number} count={docCounts[l.po_number ?? ''] ?? 0} onDocs={onDocs} /></> : <span className="text-gray-200 font-normal">└</span>}</td>
-              <td className="px-3 py-2 whitespace-nowrap">{first && <span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{l.country_flag} {l.country_code}</span>}</td>
-              <td className="px-3 py-2">{first && <span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{l.ka_name ?? '-'}</span>}</td>
-              <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{l.sku_code}</td>
-              <td className="px-3 py-2 text-gray-600">{l.sku_name || '-'}</td>
-              <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtNum(e.qty)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-gray-500 whitespace-nowrap">{fmtMoney(l.fd_buying_price, l.currency)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-gray-700 whitespace-nowrap">{l.fd_buying_price != null ? fmtMoney(l.fd_buying_price * e.qty, l.currency) : '—'}</td>
-              <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{e.occurred_on}</td>
-              <td className="px-3 py-2 text-[12px] max-w-[260px]">
-                <button onClick={() => onExcReason(e, ek)} disabled={busy === ek} title="点击编辑原因"
-                  className={`text-left hover:underline ${e.reason ? 'text-gray-700' : 'text-gray-300'}`}>{e.reason || '＋ 填写原因'}</button>
-              </td>
-              <td className="px-3 py-2 text-[11px]">
-                <span className="inline-block px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">⚠ 异常 · 丢货</span>
-                <div className="mt-1 text-gray-500">
-                  {e.resend_delivery_date ? <>补发已送达 <span className="font-mono">{e.resend_delivery_date}</span>（发 <span className="font-mono">{e.resend_ship_date}</span>）</>
-                    : e.resend_ship_date ? <>补发在途 · 发出 <span className="font-mono">{e.resend_ship_date}</span></>
-                    : <span className="text-rose-600">待补发</span>}
-                </div>
-              </td>
-              <td className="px-3 py-2 text-center">
-                <div className="flex items-center gap-1.5 justify-center flex-wrap">
-                  {!e.resend_delivery_date && (
-                    <>
-                      <input type="date" value={resendDate[e.id] ?? today} max={today} min={e.resend_ship_date ?? undefined}
-                        onChange={ev => setResendDate(p => ({ ...p, [e.id]: ev.target.value }))} className="lg-date" />
-                      {!e.resend_ship_date
-                        ? <button onClick={() => onExcPatch(e, { resend_ship_date: resendDate[e.id] ?? today }, ek)} disabled={busy === ek} className="btn b-green whitespace-nowrap">🚚 补发发货</button>
-                        : <button onClick={() => onExcPatch(e, { resend_delivery_date: resendDate[e.id] ?? today }, ek)} disabled={busy === ek} className="btn b-green whitespace-nowrap">📬 补发送达</button>}
-                    </>
-                  )}
-                  {e.resend_delivery_date
-                    ? <button onClick={() => onExcPatch(e, { resend_delivery_date: null }, ek)} disabled={busy === ek} className="btn b-grey" title="撤回送达日">↩ 撤回送达</button>
-                    : e.resend_ship_date
-                      ? <button onClick={() => onExcPatch(e, { resend_ship_date: null }, ek)} disabled={busy === ek} className="btn b-grey" title="撤回补发发货日">↩ 撤回发货</button>
-                      : <button onClick={() => onExcRemove(e, ek)} disabled={busy === ek} className="btn b-grey" title="删除这条丢货记录">↩ 撤销</button>}
-                </div>
-              </td>
-            </tr>
+            <Fragment key={g.key}>
+              <tr className="hover:bg-gray-50/60 cursor-pointer" onClick={() => toggle(ok)}>
+                <td className="pl-3 pr-1 py-2 w-6"><span className="inline-block text-gray-400 transition-transform" style={{ transform: o ? 'rotate(90deg)' : 'none' }}>▶</span></td>
+                <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                  <span className="cursor-pointer" onClick={() => toggle(ok)}>{g.po_number ?? <span className="text-gray-300">（无 PO #）</span>}</span>
+                  <DocsBadge po={g.po_number} count={docCounts[g.po_number ?? ''] ?? 0} onDocs={onDocs} />
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{g.country_flag} {g.country_code}</span></td>
+                <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{g.ka_name ?? '-'}</span></td>
+                <td className="px-3 py-2 text-center text-gray-500 tabular-nums">{skuCount}</td>
+                <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                  {cancelQty > 0 && <span className="font-semibold text-gray-800">{fmtNum(cancelQty)}</span>}
+                  {cancelQty > 0 && lostQty > 0 && <span className="text-gray-300"> / </span>}
+                  {lostQty > 0 && <span className="font-semibold text-amber-700">⚠ {fmtNum(lostQty)}</span>}
+                </td>
+                <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{g.po_date}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-[11px]">
+                  {g.cancels.length > 0 && <span className="inline-block mr-1 px-2 py-0.5 rounded bg-rose-50 text-rose-700">✗ 取消 {g.cancels.length}</span>}
+                  {g.excs.length > 0 && <span className="inline-block mr-1 px-2 py-0.5 rounded bg-amber-100 text-amber-800">⚠ 丢货 {g.excs.length}</span>}
+                  {pending > 0 && <span className="inline-block mr-1 px-2 py-0.5 rounded bg-rose-100 text-rose-700">待补发 {pending}</span>}
+                  {transit > 0 && <span className="inline-block px-2 py-0.5 rounded bg-sky-50 text-sky-700">补发在途 {transit}</span>}
+                </td>
+              </tr>
+              {o && (
+                <tr className="bg-slate-50/60">
+                  <td></td>
+                  <td colSpan={7} className="px-3 py-2.5">
+                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{g.cancels.length + g.excs.length} 条记录 · 取消 / 丢货补发</div>
+                    <table className="w-full text-[12px]">
+                      <thead><tr className="text-left text-[10.5px] text-gray-500 border-b border-gray-200">
+                        <th className="py-1 pr-3 font-semibold">类型</th><th className="py-1 pr-3 font-semibold">SKU</th><th className="py-1 pr-3 font-semibold">Product</th>
+                        <th className="py-1 pr-3 font-semibold text-right">Qty</th><th className="py-1 pr-3 font-semibold text-right">Unit Price</th>
+                        <th className="py-1 pr-3 font-semibold text-right">Turnover</th><th className="py-1 pr-3 font-semibold">原因</th>
+                        <th className="py-1 pr-3 font-semibold">进度 / Notes</th><th className="py-1 font-semibold text-center">Action</th>
+                      </tr></thead>
+                      <tbody>
+                        {g.cancels.map(l => {
+                          const lk = `line:${l.id}`
+                          return (
+                            <tr key={`c${l.id}`} className="border-b border-gray-100 last:border-0 align-top">
+                              <td className="py-1.5 pr-3 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-[11px] bg-rose-50 text-rose-700">✗ 取消</span></td>
+                              <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-700 whitespace-nowrap">{l.sku_code}</td>
+                              <td className="py-1.5 pr-3 text-gray-600">{l.sku_name || '-'}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums font-medium">{fmtNum(l.qty)}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums text-gray-500 whitespace-nowrap">{fmtMoney(l.fd_buying_price, l.currency)}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums text-gray-700 whitespace-nowrap">{fmtMoney(l.turnover, l.currency)}</td>
+                              <td className="py-1.5 pr-3 max-w-[260px]">
+                                <button onClick={() => onReason(l, lk)} disabled={busy === lk} title="点击编辑取消原因"
+                                  className={`text-left hover:underline ${l.cancel_reason ? 'text-gray-700' : 'text-gray-300'}`}>{l.cancel_reason || '＋ 填写原因'}</button>
+                              </td>
+                              <td className="py-1.5 pr-3 text-[11px] text-gray-400">{l.notes || '—'}</td>
+                              <td className="py-1.5 text-center"><button onClick={() => onReopen(l.id, lk)} disabled={busy === lk} className="btn b-grey">↩ Reopen</button></td>
+                            </tr>
+                          )
+                        })}
+                        {g.excs.map(({ e, l }) => {
+                          const ek = `exc:${e.id}`
+                          return (
+                            <tr key={ek} className="border-b border-gray-100 last:border-0 align-top bg-amber-50/30">
+                              <td className="py-1.5 pr-3 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-[11px] bg-amber-100 text-amber-800 font-medium">⚠ 丢货</span></td>
+                              <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-700 whitespace-nowrap">{l.sku_code}</td>
+                              <td className="py-1.5 pr-3 text-gray-600">{l.sku_name || '-'}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums font-medium">{fmtNum(e.qty)}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums text-gray-500 whitespace-nowrap">{fmtMoney(l.fd_buying_price, l.currency)}</td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums text-gray-700 whitespace-nowrap">{l.fd_buying_price != null ? fmtMoney(l.fd_buying_price * e.qty, l.currency) : '—'}</td>
+                              <td className="py-1.5 pr-3 max-w-[260px]">
+                                <button onClick={() => onExcReason(e, ek)} disabled={busy === ek} title="点击编辑原因"
+                                  className={`text-left hover:underline ${e.reason ? 'text-gray-700' : 'text-gray-300'}`}>{e.reason || '＋ 填写原因'}</button>
+                                <div className="text-[10px] text-gray-400 font-mono">丢货记录 {e.occurred_on}</div>
+                              </td>
+                              <td className="py-1.5 pr-3 text-[11px] text-gray-500">
+                                {e.resend_delivery_date ? <>补发已送达 <span className="font-mono">{e.resend_delivery_date}</span>（发 <span className="font-mono">{e.resend_ship_date}</span>）</>
+                                  : e.resend_ship_date ? <>补发在途 · 发出 <span className="font-mono">{e.resend_ship_date}</span></>
+                                  : <span className="text-rose-600">待补发</span>}
+                              </td>
+                              <td className="py-1.5">
+                                <div className="flex items-center gap-1.5 justify-center flex-wrap">
+                                  {!e.resend_delivery_date && (
+                                    <>
+                                      <input type="date" value={resendDate[e.id] ?? today} max={today} min={e.resend_ship_date ?? undefined}
+                                        onChange={ev => setResendDate(p => ({ ...p, [e.id]: ev.target.value }))} className="lg-date" />
+                                      {!e.resend_ship_date
+                                        ? <button onClick={() => onExcPatch(e, { resend_ship_date: resendDate[e.id] ?? today }, ek)} disabled={busy === ek} className="btn b-green whitespace-nowrap">🚚 补发发货</button>
+                                        : <button onClick={() => onExcPatch(e, { resend_delivery_date: resendDate[e.id] ?? today }, ek)} disabled={busy === ek} className="btn b-green whitespace-nowrap">📬 补发送达</button>}
+                                    </>
+                                  )}
+                                  {e.resend_delivery_date
+                                    ? <button onClick={() => onExcPatch(e, { resend_delivery_date: null }, ek)} disabled={busy === ek} className="btn b-grey" title="撤回送达日">↩ 撤回送达</button>
+                                    : e.resend_ship_date
+                                      ? <button onClick={() => onExcPatch(e, { resend_ship_date: null }, ek)} disabled={busy === ek} className="btn b-grey" title="撤回补发发货日">↩ 撤回发货</button>
+                                      : <button onClick={() => onExcRemove(e, ek)} disabled={busy === ek} className="btn b-grey" title="删除这条丢货记录">↩ 撤销</button>}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           )
         })}
-        {!items.length && <tr><td colSpan={12} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
+        {!groups.length && <tr><td colSpan={8} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
       </tbody>
     </table>
   )
