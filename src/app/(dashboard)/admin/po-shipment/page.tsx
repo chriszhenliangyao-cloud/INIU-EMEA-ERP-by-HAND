@@ -75,6 +75,11 @@ export default async function AdminPoShipmentPage() {
     )
   }
 
+  // 取消原因：po_leadtime slot b0_cancel（与履约看板同一份）
+  const { data: cancelList } = await supabase.from('po_leadtime').select('po_line_id, value').eq('slot', 'b0_cancel')
+  const cancelReason = new Map<number, string>()
+  ;(cancelList ?? []).forEach((c: any) => { if (c.value) cancelReason.set(c.po_line_id, c.value) })
+
   const rows: OpsRow[] = (pos ?? []).map((r: any) => ({
     id: r.id,
     po_date: r.po_date,
@@ -94,6 +99,7 @@ export default async function AdminPoShipmentPage() {
     country_code: r.country?.code ?? '',
     country_flag: r.country?.flag_emoji ?? '',
     ka_name: r.ka?.name ?? null,
+    cancel_reason: cancelReason.get(r.id) ?? null,
   }))
 
   const batches: Batch[] = (shipList ?? []).map((b: any) => ({

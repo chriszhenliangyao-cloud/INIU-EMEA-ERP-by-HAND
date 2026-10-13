@@ -159,10 +159,27 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
     const { error } = await supabase.from('channel_po').update({ po_status: null }).in('id', ids)
     after(error, key)
   }
+  // 取消原因：存 po_leadtime.b0_cancel（与履约看板同一份）；空=清除
+  const saveReason = async (ids: number[], reason: string | null) => {
+    const text = (reason ?? '').trim()
+    if (!text) return supabase.from('po_leadtime').delete().in('po_line_id', ids).eq('slot', 'b0_cancel')
+    return supabase.from('po_leadtime').upsert(ids.map(id => ({ po_line_id: id, slot: 'b0_cancel', value: text })), { onConflict: 'po_line_id,slot' })
+  }
   const cancelPo = async (ids: number[], key: string) => {
     if (!confirm(`取消 ${ids.length} 行 PO？\n仍计入总额，只是打上 Cancelled 状态标签。`)) return
+    const reason = prompt('取消原因（可留空）：', '')
+    if (reason == null) return
     setBusy(key)
     const { error } = await supabase.from('channel_po').update({ po_status: 'cancelled' }).in('id', ids)
+    if (error) { after(error, key); return }
+    const { error: e2 } = await saveReason(ids, reason)
+    after(e2, key)
+  }
+  const editReason = async (l: OpsRow, key: string) => {
+    const reason = prompt(`${l.po_number} · ${l.sku_code} — 取消原因：`, l.cancel_reason ?? '')
+    if (reason == null) return
+    setBusy(key)
+    const { error } = await saveReason([l.id], reason)
     after(error, key)
   }
   // 单行取消：可选取消数量。取消量 = 整行 → 只打 Cancelled 标签；小于整行 → 拆出一条已取消的行，剩余继续跟
@@ -175,9 +192,13 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
     if (!Number.isFinite(n) || n <= 0 || n > max) { alert(`请输入 1 到 ${max} 之间的数量。`); return }
     if (n === l.qty) { cancelPo([l.id], key); return }
     if (!confirm(`取消 ${l.sku_code} 的 ${n} 件？\n该行拆成：取消 ${n} 件（Cancelled，仍计入总额）+ 剩余 ${l.qty - n} 件继续履约。`)) return
+    const reason = prompt('取消原因（可留空）：', '')
+    if (reason == null) return
     setBusy(key)
-    const { error } = await supabase.rpc('cancel_po_qty', { p_line_id: l.id, p_qty: n })
-    after(error, key)
+    const { data: newId, error } = await supabase.rpc('cancel_po_qty', { p_line_id: l.id, p_qty: n })
+    if (error) { after(error, key); return }
+    const { error: e2 } = await saveReason([Number(newId)], reason)
+    after(e2, key)
   }
   // 发货 = 新增一条批次（绝不覆盖既有批次的日期）
   const addBatches = async (b: { po_id: number; qty: number; ship_date: string }[], key: string) => {
@@ -230,6 +251,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
     const { error: e1 } = await supabase.from('po_shipment').delete().eq('po_id', id)
     if (e1) { setBusy(null); alert(`操作失败: ${e1.message}`); return }
     const { error: e2 } = await supabase.from('channel_po').update({ po_status: null }).eq('id', id)
+    if (!e2) await supabase.from('po_leadtime').delete().eq('po_line_id', id).eq('slot', 'b0_cancel')
     after(e2, key)
   }
   const patchBatch = async (batchId: number, patch: Record<string, any>, key: string) => {
@@ -337,7 +359,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
                 dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipGroup={markShipped} onShipRemaining={shipRemaining} onPartialRemaining={partialRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
                 onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} onDeliverGroup={deliverGroup} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
-              {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
+              {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} onReason={editReason} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} freight={freight} onSaveFreight={saveFreight} busy={busy} fxToEur={fxToEur} kaProps={kaProps} />}
             </div>
           </div>
@@ -826,13 +848,13 @@ function LineNotes({ line, busy, onSave }: { line: OpsRow; busy: string | null; 
   )
 }
 
-function CancelledTable({ meta, rows, busy, onReopen, poSearch, docCounts, onDocs, kaProps }: { meta: StageMeta; rows: OpsRow[]; busy: string | null; onReopen: (id: number, key: string) => void; poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps }) {
+function CancelledTable({ meta, rows, busy, onReopen, onReason, poSearch, docCounts, onDocs, kaProps }: { meta: StageMeta; rows: OpsRow[]; busy: string | null; onReopen: (id: number, key: string) => void; onReason: (l: OpsRow, key: string) => void; poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps }) {
   return (
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
           <Th>PO #</Th><Th>Country</Th><KaTh {...kaProps} /><Th>SKU</Th><Th>Product</Th><Th right>Qty</Th>
-          <Th right>Unit Price</Th><Th right>Turnover</Th><Th>PO Date</Th><Th>Notes</Th><Th center>Action</Th>
+          <Th right>Unit Price</Th><Th right>Turnover</Th><Th>PO Date</Th><Th>取消原因</Th><Th>Notes</Th><Th center>Action</Th>
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
@@ -849,6 +871,10 @@ function CancelledTable({ meta, rows, busy, onReopen, poSearch, docCounts, onDoc
               <td className="px-3 py-2 text-right tabular-nums text-gray-500 whitespace-nowrap">{fmtMoney(l.fd_buying_price, l.currency)}</td>
               <td className="px-3 py-2 text-right tabular-nums text-gray-700 whitespace-nowrap">{fmtMoney(l.turnover, l.currency)}</td>
               <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{l.po_date}</td>
+              <td className="px-3 py-2 text-[12px] max-w-[260px]">
+                <button onClick={() => onReason(l, lk)} disabled={busy === lk} title="点击编辑取消原因"
+                  className={`text-left hover:underline ${l.cancel_reason ? 'text-gray-700' : 'text-gray-300'}`}>{l.cancel_reason || '＋ 填写原因'}</button>
+              </td>
               <td className="px-3 py-2 text-[11px] text-gray-400">{l.notes || '—'}</td>
               <td className="px-3 py-2 text-center">
                 <button onClick={() => onReopen(l.id, lk)} disabled={busy === lk} className="btn b-grey">↩ Reopen</button>
@@ -856,7 +882,7 @@ function CancelledTable({ meta, rows, busy, onReopen, poSearch, docCounts, onDoc
             </tr>
           )
         })}
-        {!rows.length && <tr><td colSpan={11} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
+        {!rows.length && <tr><td colSpan={12} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
       </tbody>
     </table>
   )

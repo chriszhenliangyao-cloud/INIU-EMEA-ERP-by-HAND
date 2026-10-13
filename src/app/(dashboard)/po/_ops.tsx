@@ -33,6 +33,7 @@ export type OpsRow = {
   ship_date: string | null; delivery_date: string | null; po_status: string | null
   sku_code: string; sku_name: string; ean: string | null
   country_code: string; country_flag: string; ka_name: string | null
+  cancel_reason?: string | null
   qty: number; delivered_qty: number | null
   fd_buying_price: number | null; turnover: number | null; currency: string | null
 }
