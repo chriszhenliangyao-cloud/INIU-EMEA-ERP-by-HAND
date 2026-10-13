@@ -14,6 +14,8 @@ export type CountryOpt = { id: number; code: string; name: string; flag: string;
 export type KaOpt = { id: number; name: string; country_id: number; fd?: string | null }
 // FD 出货价查表：`${sku_id}|${country_id}|${fd}` → 单价
 export type FdPriceMap = Record<string, number>
+// 异常记录（目前只有丢货）：与 Cancelled 同车道展示，不改 PO 数量/金额
+export type PoException = { id: number; po_line_id: number; kind: string; qty: number; occurred_on: string; reason: string | null; resend_ship_date: string | null; resend_delivery_date: string | null }
 
 type StageMeta = { key: Stage; icon: string; label: string; a: string; bg: string; bd: string; tx: string; desc: string }
 const STAGES: Record<Stage, StageMeta> = {
@@ -22,7 +24,7 @@ const STAGES: Record<Stage, StageMeta> = {
   shipped:   { key: 'shipped',   icon: '✈️', label: 'Shipped',   a: '#10b981', bg: '#ecfdf5', bd: '#a7f3d0', tx: '#047857', desc: '已全部发出、在途。展开逐批录入送达日；全部批次都送达即自动归入 Delivered。' },
   delivered: { key: 'delivered', icon: '📬', label: 'Delivered', a: '#64748b', bg: '#f8fafc', bd: '#e2e8f0', tx: '#475569', desc: '发满且全部批次都已送达 = 自动完成。展开可追溯每张 PO 下每个 SKU 的每一批发运。' },
   partial:   { key: 'partial',   icon: '◑',  label: 'Partial',   a: '#0ea5e9', bg: '#f0f9ff', bd: '#bae6fd', tx: '#0369a1', desc: '部分已发，Remaining 为仍待发的未结量（open）。展开可给已发批次录送达日；可多次 Ship remaining 分批发货，发完自动归 Shipped。' },
-  cancelled: { key: 'cancelled', icon: '✗',  label: 'Cancelled', a: '#f43f5e', bg: '#fff1f2', bd: '#fecdd3', tx: '#be123c', desc: '已取消（仍计入总额，只是状态标签）。误操作可 Reopen 退回待发。' },
+  cancelled: { key: 'cancelled', icon: '✗',  label: 'Cancelled / Exception', a: '#f43f5e', bg: '#fff1f2', bd: '#fecdd3', tx: '#be123c', desc: '已取消 / 异常（仍计入总额，只是状态标签）。取消的行可 Reopen 退回待发；Shipped 里记录的丢货异常也列在这里，可撤销。' },
 }
 
 // To Ship 账龄：距 PO 日多少天。>14 黄，>30 红。
@@ -45,11 +47,12 @@ const isoMonday = (iso: string): string => {
   return d.toISOString().slice(0, 10)
 }
 
-export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAlias = [], countries, kas, freight, fxToEur, fdPrice = {} }: {
+export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAlias = [], countries, kas, freight, fxToEur, fdPrice = {}, exceptions = [] }: {
   rows: OpsRow[]; batches: Batch[]; docCounts: Record<string, number>; plnToEur: number; skus: SkuOpt[]; skuAlias?: SkuAlias[]; countries: CountryOpt[]; kas: KaOpt[]
   freight: Record<string, { fee: number | null; currency: string | null }>
   fxToEur: Record<string, number>
   fdPrice?: FdPriceMap
+  exceptions?: PoException[]
 }) {
   const supabase = useRef(createClient()).current
   const router = useRouter()
@@ -135,8 +138,8 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
 
   // KA 筛选（表头下拉，跨车道保留）。选项 = 当前车道里出现的 KA
   const kaOptions = useMemo(
-    () => Array.from(new Set(buckets[active].map(r => r.ka_name).filter(Boolean) as string[])).sort(),
-    [buckets, active])
+    () => Array.from(new Set([...buckets[active], ...(active === 'cancelled' ? exceptions.map(e => rowById.get(e.po_line_id)).filter(Boolean) as OpsRow[] : [])].map(r => r.ka_name).filter(Boolean) as string[])).sort(),
+    [buckets, active, exceptions, rowById])
   const list = useMemo(() => {
     const base = buckets[active]
     const q = poSearch.trim().toLowerCase()
@@ -144,6 +147,11 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
       (!q || (r.po_number ?? '').toLowerCase().includes(q)) &&
       (!kaFilter || r.ka_name === kaFilter))
   }, [buckets, active, poSearch, kaFilter])
+  const excItems = useMemo(() => {
+    const q = poSearch.trim().toLowerCase()
+    return exceptions.map(e => ({ e, l: rowById.get(e.po_line_id)! })).filter(x => x.l &&
+      (!q || (x.l.po_number ?? '').toLowerCase().includes(q)) && (!kaFilter || x.l.ka_name === kaFilter))
+  }, [exceptions, rowById, poSearch, kaFilter])
   const kaProps = { value: kaFilter, onChange: setKaFilter, options: kaOptions }
 
   const toggle = (k: string) => setOpen(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
@@ -180,6 +188,41 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
     if (reason == null) return
     setBusy(key)
     const { error } = await saveReason([l.id], reason)
+    after(error, key)
+  }
+  // 丢货记录（Shipped 行）：数量 ≤ 该行已发 − 已记丢货；写 po_exception，不动 PO 数量/金额
+  const excByLine = useMemo(() => {
+    const m = new Map<number, PoException[]>()
+    exceptions.forEach(e => { const a = m.get(e.po_line_id); a ? a.push(e) : m.set(e.po_line_id, [e]) })
+    return m
+  }, [exceptions])
+  const [lossGrp, setLossGrp] = useState<{ grp: Grp; pre: number | null } | null>(null)   // 「丢货补发」弹窗：PO 组 + 预选的行
+  const submitLoss = async (items: { po_line_id: number; qty: number }[], reason: string, date: string, key: string) => {
+    if (!items.length) { alert('请至少勾选一个 SKU 并填写数量。'); return }
+    setBusy(key)
+    const { error } = await supabase.from('po_exception').insert(
+      items.map(it => ({ po_line_id: it.po_line_id, kind: 'lost', qty: it.qty, occurred_on: date, reason: reason.trim() || null })))
+    if (error) { after(error, key); return }
+    setLossGrp(null)
+    after(null, key)
+  }
+  const editExcReason = async (e: PoException, key: string) => {
+    const reason = prompt('异常原因：', e.reason ?? '')
+    if (reason == null) return
+    setBusy(key)
+    const { error } = await supabase.from('po_exception').update({ reason: reason.trim() || null }).eq('id', e.id)
+    after(error, key)
+  }
+  // 补发进度：补发发货日 → 补发送达日；可逐步回退，最后才是删除记录
+  const patchException = async (e: PoException, patch: Partial<Pick<PoException, 'resend_ship_date' | 'resend_delivery_date'>>, key: string) => {
+    setBusy(key)
+    const { error } = await supabase.from('po_exception').update(patch).eq('id', e.id)
+    after(error, key)
+  }
+  const removeException = async (e: PoException, key: string) => {
+    if (!confirm(`撤销这条丢货记录（${e.qty} 件）？`)) return
+    setBusy(key)
+    const { error } = await supabase.from('po_exception').delete().eq('id', e.id)
     after(error, key)
   }
   // 单行取消：可选取消数量。取消量 = 整行 → 只打 Cancelled 标签；小于整行 → 拆出一条已取消的行，剩余继续跟
@@ -320,7 +363,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
           <RailNode meta={STAGES.toship} count={buckets.toship.length} active={active === 'toship'} onClick={() => setActive('toship')} />
           <div className="branchwrap">
             <RailBranch meta={STAGES.partial}   count={buckets.partial.length}   active={active === 'partial'}   onClick={() => setActive('partial')} />
-            <RailBranch meta={STAGES.cancelled} count={buckets.cancelled.length} active={active === 'cancelled'} onClick={() => setActive('cancelled')} />
+            <RailBranch meta={STAGES.cancelled} count={buckets.cancelled.length + exceptions.length} active={active === 'cancelled'} onClick={() => setActive('cancelled')} />
           </div>
           <div className="conn">▼</div>
           <RailNode meta={STAGES.shipped}   count={buckets.shipped.length}   active={active === 'shipped'}   onClick={() => setActive('shipped')} />
@@ -358,8 +401,8 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
               {active === 'partial' && <PartialGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy}
                 dateOf={dateOf} setDate={(k, v) => setDates(p => ({ ...p, [k]: v }))} today={today} onShipGroup={markShipped} onShipRemaining={shipRemaining} onPartialRemaining={partialRemaining} onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'shipped' && <ShippedGroupedTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} busy={busy} today={today}
-                onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} onDeliverGroup={deliverGroup} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
-              {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} onReason={editReason} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
+                onReopen={reopen} onPatchBatch={patchBatch} onSaveNotes={saveLineNotes} onDeliverGroup={deliverGroup} excByLine={excByLine} onLoss={(grp, pre) => setLossGrp({ grp, pre })} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
+              {active === 'cancelled' && <CancelledTable meta={m} rows={list} busy={busy} onReopen={reopen} onReason={editReason} excItems={excItems} onExcReason={editExcReason} onExcRemove={removeException} onExcPatch={patchException} today={today} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} kaProps={kaProps} />}
               {active === 'delivered' && <DeliveredTable meta={m} rows={list} batchesByPo={batchesByPo} open={open} toggle={toggle} poSearch={poSearch} docCounts={docCounts} onDocs={setDocsPo} freight={freight} onSaveFreight={saveFreight} busy={busy} fxToEur={fxToEur} kaProps={kaProps} />}
             </div>
           </div>
@@ -368,6 +411,9 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
 
       <WeeklyLedger weeks={shownWeeks} active={activeWeek} onPick={setLedgerWeek}
         weeksBack={weeksBack} setWeeksBack={setWeeksBack} total={ledger.length} />
+
+      {lossGrp && <LossModal grp={lossGrp.grp} pre={lossGrp.pre} today={today} busy={busy} batchesByPo={batchesByPo} excByLine={excByLine}
+        onClose={() => setLossGrp(null)} onSubmit={submitLoss} />}
 
       {bulkShipGrp && <BulkShipModal grp={bulkShipGrp} today={today} busy={busy}
         onClose={() => setBulkShipGrp(null)} onSubmit={submitBulkShip} />}
@@ -848,7 +894,8 @@ function LineNotes({ line, busy, onSave }: { line: OpsRow; busy: string | null; 
   )
 }
 
-function CancelledTable({ meta, rows, busy, onReopen, onReason, poSearch, docCounts, onDocs, kaProps }: { meta: StageMeta; rows: OpsRow[]; busy: string | null; onReopen: (id: number, key: string) => void; onReason: (l: OpsRow, key: string) => void; poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps }) {
+function CancelledTable({ meta, rows, busy, onReopen, onReason, excItems, onExcReason, onExcRemove, onExcPatch, today, poSearch, docCounts, onDocs, kaProps }: { meta: StageMeta; rows: OpsRow[]; busy: string | null; onReopen: (id: number, key: string) => void; onReason: (l: OpsRow, key: string) => void; excItems: { e: PoException; l: OpsRow }[]; onExcReason: (e: PoException, key: string) => void; onExcRemove: (e: PoException, key: string) => void; onExcPatch: (e: PoException, patch: Partial<Pick<PoException, 'resend_ship_date' | 'resend_delivery_date'>>, key: string) => void; today: string; poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps }) {
+  const [resendDate, setResendDate] = useState<Record<number, string>>({})
   return (
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
@@ -882,19 +929,66 @@ function CancelledTable({ meta, rows, busy, onReopen, onReason, poSearch, docCou
             </tr>
           )
         })}
-        {!rows.length && <tr><td colSpan={12} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
+        {excItems.map(({ e, l }) => {
+          const ek = `exc:${e.id}`
+          return (
+            <tr key={ek} className="hover:bg-gray-50/60 bg-amber-50/30">
+              <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{l.po_number ?? '–'}<DocsBadge po={l.po_number} count={docCounts[l.po_number ?? ''] ?? 0} onDocs={onDocs} /></td>
+              <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{l.country_flag} {l.country_code}</span></td>
+              <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{l.ka_name ?? '-'}</span></td>
+              <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{l.sku_code}</td>
+              <td className="px-3 py-2 text-gray-600">{l.sku_name || '-'}</td>
+              <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtNum(e.qty)}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-gray-500 whitespace-nowrap">{fmtMoney(l.fd_buying_price, l.currency)}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-gray-700 whitespace-nowrap">{l.fd_buying_price != null ? fmtMoney(l.fd_buying_price * e.qty, l.currency) : '—'}</td>
+              <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{e.occurred_on}</td>
+              <td className="px-3 py-2 text-[12px] max-w-[260px]">
+                <button onClick={() => onExcReason(e, ek)} disabled={busy === ek} title="点击编辑原因"
+                  className={`text-left hover:underline ${e.reason ? 'text-gray-700' : 'text-gray-300'}`}>{e.reason || '＋ 填写原因'}</button>
+              </td>
+              <td className="px-3 py-2 text-[11px]">
+                <span className="inline-block px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">⚠ 异常 · 丢货</span>
+                <div className="mt-1 text-gray-500">
+                  {e.resend_delivery_date ? <>补发已送达 <span className="font-mono">{e.resend_delivery_date}</span>（发 <span className="font-mono">{e.resend_ship_date}</span>）</>
+                    : e.resend_ship_date ? <>补发在途 · 发出 <span className="font-mono">{e.resend_ship_date}</span></>
+                    : <span className="text-rose-600">待补发</span>}
+                </div>
+              </td>
+              <td className="px-3 py-2 text-center">
+                <div className="flex items-center gap-1.5 justify-center flex-wrap">
+                  {!e.resend_delivery_date && (
+                    <>
+                      <input type="date" value={resendDate[e.id] ?? today} max={today} min={e.resend_ship_date ?? undefined}
+                        onChange={ev => setResendDate(p => ({ ...p, [e.id]: ev.target.value }))} className="lg-date" />
+                      {!e.resend_ship_date
+                        ? <button onClick={() => onExcPatch(e, { resend_ship_date: resendDate[e.id] ?? today }, ek)} disabled={busy === ek} className="btn b-green whitespace-nowrap">🚚 补发发货</button>
+                        : <button onClick={() => onExcPatch(e, { resend_delivery_date: resendDate[e.id] ?? today }, ek)} disabled={busy === ek} className="btn b-green whitespace-nowrap">📬 补发送达</button>}
+                    </>
+                  )}
+                  {e.resend_delivery_date
+                    ? <button onClick={() => onExcPatch(e, { resend_delivery_date: null }, ek)} disabled={busy === ek} className="btn b-grey" title="撤回送达日">↩ 撤回送达</button>
+                    : e.resend_ship_date
+                      ? <button onClick={() => onExcPatch(e, { resend_ship_date: null }, ek)} disabled={busy === ek} className="btn b-grey" title="撤回补发发货日">↩ 撤回发货</button>
+                      : <button onClick={() => onExcRemove(e, ek)} disabled={busy === ek} className="btn b-grey" title="删除这条丢货记录">↩ 撤销</button>}
+                </div>
+              </td>
+            </tr>
+          )
+        })}
+        {!rows.length && !excItems.length && <tr><td colSpan={12} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
       </tbody>
     </table>
   )
 }
 
 // ===== Shipped：按 PO # 归并（📎 挂 PO 主行），展开逐 SKU 逐批录送达日 + Reopen =====
-function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, today, onReopen, onPatchBatch, onSaveNotes, onDeliverGroup, poSearch, docCounts, onDocs, kaProps }: {
+function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, today, onReopen, onPatchBatch, onSaveNotes, onDeliverGroup, excByLine, onLoss, poSearch, docCounts, onDocs, kaProps }: {
   meta: StageMeta; rows: OpsRow[]; batchesByPo: Map<number, Batch[]>; open: Set<string>; toggle: (k: string) => void; busy: string | null; today: string
   onReopen: (id: number, key: string) => void
   onPatchBatch: (batchId: number, patch: Record<string, any>, key: string) => void
   onSaveNotes: (id: number, notes: string, key: string) => void
   onDeliverGroup: (lineIds: number[], date: string, key: string) => void
+  excByLine: Map<number, PoException[]>; onLoss: (grp: Grp, pre: number | null) => void
   poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps
 }) {
   const [gdate, setGdate] = useState<Record<string, string>>({})
@@ -929,11 +1023,12 @@ function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, toda
                 <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                   {g.undelivered > 0 ? (
                     <div className="flex items-center gap-1.5 justify-center">
+                      <button onClick={() => onLoss(g, null)} className="btn b-red whitespace-nowrap" title="本 PO 丢货补发：自选 SKU 和数量，记入 Cancelled / Exception">⚠ 丢货补发</button>
                       <input type="date" value={gdate[g.key] ?? today} max={today} onChange={e => setGdate(p => ({ ...p, [g.key]: e.target.value }))} className="lg-date" />
                       <button onClick={() => { if (confirm(`把整张 PO 的 ${g.undelivered} 个未录批次全部标记为 ${gdate[g.key] ?? today} 送达？`)) onDeliverGroup(g.lines.map(l => l.id), gdate[g.key] ?? today, gk) }}
                         disabled={busy === gk} className="btn b-green whitespace-nowrap">{busy === gk ? '…' : `📬 整单送达 (${g.undelivered})`}</button>
                     </div>
-                  ) : <div className="text-center"><span className="inline-block px-2 py-0.5 rounded text-[11px] bg-emerald-50 text-emerald-700">✓ 全部已达</span></div>}
+                  ) : <div className="flex items-center gap-1.5 justify-center"><button onClick={() => onLoss(g, null)} className="btn b-red whitespace-nowrap">⚠ 丢货补发</button><span className="inline-block px-2 py-0.5 rounded text-[11px] bg-emerald-50 text-emerald-700">✓ 全部已达</span></div>}
                 </td>
               </tr>
               {o && (
@@ -952,6 +1047,7 @@ function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, toda
                           const lk = `line:${l.id}`
                           const bs = batchesByPo.get(l.id) ?? []
                           const undelivered = bs.filter(b => !b.delivery_date).length
+                          const lostQty = (excByLine.get(l.id) ?? []).reduce((s, e) => s + e.qty, 0)
                           return (
                             <Fragment key={l.id}>
                               <tr className="border-b border-gray-100 last:border-0 align-top">
@@ -959,10 +1055,12 @@ function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, toda
                                 <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-700 whitespace-nowrap">{l.sku_code}</td>
                                 <td className="py-1.5 pr-3 text-gray-600">{l.sku_name || '-'}</td>
                                 <td className="py-1.5 pr-3 text-right tabular-nums font-medium">{fmtNum(l.qty)}</td>
-                                <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-500 whitespace-nowrap">{l.ship_date ?? '–'}<span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500">{bs.length}批</span></td>
+                                <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-500 whitespace-nowrap">{l.ship_date ?? '–'}<span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500">{bs.length}批</span>
+                                  {lostQty > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-rose-50 text-rose-700 font-sans" title="已记录丢货，详见 Cancelled / Exception">⚠ 丢 {fmtNum(lostQty)}</span>}</td>
                                 <td className="py-1.5">
                                   <div className="flex gap-1.5 justify-end">
                                     <button onClick={() => toggle(`l${l.id}`)} className="btn b-blue" title="展开逐批录入送达日">📬 录送达日 ({undelivered})</button>
+                                    <button onClick={() => onLoss(g, l.id)} className="btn b-red" title="记录丢货补发（转入 Cancelled / Exception）">⚠ 丢货补发</button>
                                     <button onClick={() => onReopen(l.id, lk)} disabled={busy === lk} className="btn b-grey">↩ Reopen</button>
                                   </div>
                                 </td>
@@ -1151,7 +1249,7 @@ function FreightCell({ po, rec, viewCcy, onSave, busy, fxToEur }: {
 }
 
 // ===== Export Excel: pick POs → one row per SKU, batches expanded across, unknown ETA left blank to fill =====
-const STAGE_LABEL: Record<Stage, string> = { new: 'New PO', toship: 'To Ship', shipped: 'Shipped', delivered: 'Delivered', partial: 'Partial', cancelled: 'Cancelled' }
+const STAGE_LABEL: Record<Stage, string> = { new: 'New PO', toship: 'To Ship', shipped: 'Shipped', delivered: 'Delivered', partial: 'Partial', cancelled: 'Cancelled / Exception' }
 
 // 交期表每行的格位(slot)与默认值。SKU/PO 等为身份列，其余可覆盖。orange=待填 ETA。
 type LtCell = { slot: string; def: string; num?: boolean; orange?: boolean }
@@ -1665,6 +1763,81 @@ const lineTurnover = (l: PoLine): number | null => {
 }
 
 // ===== 选择发货弹窗：勾选 PO 内的 SKU + 填发货数量，一次性提交（各行独立结算）=====
+// ===== 丢货补发：按 PO 自选 SKU 与数量，原因默认「补发」，写入 po_exception（Cancelled / Exception 车道展示）=====
+function LossModal({ grp, pre, today, busy, batchesByPo, excByLine, onClose, onSubmit }: {
+  grp: Grp; pre: number | null; today: string; busy: string | null
+  batchesByPo: Map<number, Batch[]>; excByLine: Map<number, PoException[]>
+  onClose: () => void
+  onSubmit: (items: { po_line_id: number; qty: number }[], reason: string, date: string, key: string) => void
+}) {
+  const gk = `loss:${grp.key}`
+  // 可记丢货的上限 = 该行已发批次合计 − 已记丢货
+  const cap = (l: OpsRow) => (batchesByPo.get(l.id) ?? []).reduce((s, b) => s + b.qty, 0) - (excByLine.get(l.id) ?? []).reduce((s, e) => s + e.qty, 0)
+  const lines = grp.lines.filter(l => cap(l) > 0)
+  const [date, setDate] = useState(today)
+  const [reason, setReason] = useState('补发')
+  const [pick, setPick] = useState<Record<number, { on: boolean; qty: number }>>(
+    () => Object.fromEntries(lines.map(l => [l.id, { on: l.id === pre, qty: l.id === pre ? 1 : 0 }])))
+  const setLine = (id: number, patch: Partial<{ on: boolean; qty: number }>) => setPick(p => ({ ...p, [id]: { ...p[id], ...patch } }))
+  const selected = lines.filter(l => pick[l.id]?.on && (pick[l.id]?.qty ?? 0) > 0)
+  const total = selected.reduce((s, l) => s + pick[l.id].qty, 0)
+  const submit = () => onSubmit(selected.map(l => ({ po_line_id: l.id, qty: Math.min(Math.floor(pick[l.id].qty), cap(l)) })), reason, date, gk)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[760px] p-5 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-lg font-semibold text-gray-900">⚠ 丢货补发 · <span className="font-mono text-base">{grp.po_number ?? '（无 PO #）'}</span></div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="text-xs text-gray-400 mb-3">{grp.country_flag} {grp.country_code} · {grp.ka_name ?? '-'} · 勾选丢失的 SKU 并填数量。记录进入 <span className="text-rose-600">Cancelled / Exception</span>，不改 PO 数量与金额。</div>
+
+        <div className="flex-1 overflow-y-auto border border-gray-200 rounded-xl">
+          <table className="w-full text-[12.5px]">
+            <thead className="sticky top-0 bg-gray-50">
+              <tr className="text-left text-[11px] text-gray-500 border-b border-gray-200">
+                <th className="py-1.5 px-3 font-semibold w-8"></th>
+                <th className="py-1.5 px-2 font-semibold">SKU</th><th className="py-1.5 px-2 font-semibold">Product</th>
+                <th className="py-1.5 px-2 font-semibold text-right">可记丢货</th><th className="py-1.5 px-2 font-semibold text-right">丢失数量</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {lines.map(l => {
+                const c = cap(l); const p = pick[l.id]
+                return (
+                  <tr key={l.id} className={p?.on ? 'bg-rose-50/40' : ''}>
+                    <td className="py-1.5 px-3"><input type="checkbox" checked={!!p?.on} onChange={e => setLine(l.id, { on: e.target.checked, qty: e.target.checked ? Math.max(p?.qty ?? 0, 1) : 0 })} /></td>
+                    <td className="py-1.5 px-2 font-mono text-[11px] text-gray-700 whitespace-nowrap">{l.sku_code}</td>
+                    <td className="py-1.5 px-2 text-gray-600">{l.sku_name || '-'}</td>
+                    <td className="py-1.5 px-2 text-right tabular-nums text-gray-500">{fmtNum(c)}</td>
+                    <td className="py-1.5 px-2 text-right">
+                      <input type="number" min={0} max={c} disabled={!p?.on} value={p?.qty ?? 0}
+                        onChange={e => setLine(l.id, { qty: Math.max(0, Math.min(Math.floor(Number(e.target.value) || 0), c)) })}
+                        className="w-24 text-right border border-gray-300 rounded-md px-2 py-1 text-[12px] disabled:bg-gray-50 disabled:text-gray-300" />
+                    </td>
+                  </tr>
+                )
+              })}
+              {!lines.length && <tr><td colSpan={5} className="py-8 text-center text-gray-300">这张 PO 没有可记录丢货的已发数量</td></tr>}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center gap-3 mt-3 flex-wrap">
+          <label className="text-sm text-gray-500">原因</label>
+          <input value={reason} onChange={e => setReason(e.target.value)} placeholder="补发 / 丢货情况说明"
+            className="flex-1 min-w-[200px] border border-gray-300 rounded-md px-2 py-1.5 text-[13px]" />
+          <input type="date" value={date} max={today} onChange={e => setDate(e.target.value)} className="border border-gray-300 rounded-md px-2 py-1 text-[13px]" />
+        </div>
+        <div className="flex items-center justify-end gap-3 mt-3">
+          <span className="text-xs text-gray-500 tabular-nums">已选 <b className="text-gray-800">{selected.length}</b> SKU · <b className="text-gray-800">{fmtNum(total)}</b> 件</span>
+          <button onClick={submit} disabled={busy === gk || !selected.length} className="btn b-red px-4 py-2 text-[13px]">{busy === gk ? '记录中…' : `⚠ 记录丢货补发 (${selected.length})`}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function BulkShipModal({ grp, today, busy, onClose, onSubmit }: {
   grp: Grp; today: string; busy: string | null
   onClose: () => void

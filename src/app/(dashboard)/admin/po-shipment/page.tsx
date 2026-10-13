@@ -80,6 +80,10 @@ export default async function AdminPoShipmentPage() {
   const cancelReason = new Map<number, string>()
   ;(cancelList ?? []).forEach((c: any) => { if (c.value) cancelReason.set(c.po_line_id, c.value) })
 
+  // 丢货等异常记录(po_exception)：与 Cancelled 同车道展示
+  const { data: excList } = await supabase.from('po_exception').select('id, po_line_id, kind, qty, occurred_on, reason, resend_ship_date, resend_delivery_date').order('occurred_on', { ascending: false })
+  const exceptions = (excList ?? []).map((e: any) => ({ id: e.id, po_line_id: e.po_line_id, kind: e.kind, qty: Number(e.qty), occurred_on: e.occurred_on, reason: e.reason ?? null, resend_ship_date: e.resend_ship_date ?? null, resend_delivery_date: e.resend_delivery_date ?? null }))
+
   const rows: OpsRow[] = (pos ?? []).map((r: any) => ({
     id: r.id,
     po_date: r.po_date,
@@ -121,7 +125,7 @@ export default async function AdminPoShipmentPage() {
   // 各币种 → EUR 的换算因子（EUR=1），供运费币种切换用
   const fxToEur: Record<string, number> = { EUR: 1, PLN: plnToEur, CNY: cnyToEur }
 
-  return <PoShipmentView rows={rows} batches={batches} docCounts={docCounts} plnToEur={plnToEur} skus={skus} skuAlias={skuAlias} countries={countries} kas={kas} freight={freight} fxToEur={fxToEur} fdPrice={fdPrice} />
+  return <PoShipmentView rows={rows} batches={batches} docCounts={docCounts} plnToEur={plnToEur} skus={skus} skuAlias={skuAlias} countries={countries} kas={kas} freight={freight} fxToEur={fxToEur} fdPrice={fdPrice} exceptions={exceptions} />
 }
 
 export const metadata = { title: 'Shipment Workflow · INIU ERP' }
