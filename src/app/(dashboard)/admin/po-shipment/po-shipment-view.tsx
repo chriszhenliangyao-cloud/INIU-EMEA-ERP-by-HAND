@@ -896,6 +896,27 @@ function LineNotes({ line, busy, onSave }: { line: OpsRow; busy: string | null; 
 
 function CancelledTable({ meta, rows, busy, onReopen, onReason, excItems, onExcReason, onExcRemove, onExcPatch, today, poSearch, docCounts, onDocs, kaProps }: { meta: StageMeta; rows: OpsRow[]; busy: string | null; onReopen: (id: number, key: string) => void; onReason: (l: OpsRow, key: string) => void; excItems: { e: PoException; l: OpsRow }[]; onExcReason: (e: PoException, key: string) => void; onExcRemove: (e: PoException, key: string) => void; onExcPatch: (e: PoException, patch: Partial<Pick<PoException, 'resend_ship_date' | 'resend_delivery_date'>>, key: string) => void; today: string; poSearch: string; docCounts: Record<string, number>; onDocs: (po: string) => void; kaProps: KaProps }) {
   const [resendDate, setResendDate] = useState<Record<number, string>>({})
+  // 同一 PO 的「取消行」和「丢货异常行」合并到一起：按 PO 分组（组间按 PO 日期倒序），组内取消在前、异常在后；PO/国家/KA 只在组首行显示
+  type CBase = { kind: 'c'; l: OpsRow } | { kind: 'e'; e: PoException; l: OpsRow }
+  type CItem = CBase & { first: boolean }
+  const items = useMemo(() => {
+    const groups = new Map<string, { date: string; po: string; list: CBase[] }>()
+    const put = (l: OpsRow, it: CBase) => {
+      const k = l.po_number ? `po:${l.po_number}` : `id:${l.id}`
+      const g = groups.get(k) ?? { date: l.po_date ?? '', po: l.po_number ?? '', list: [] }
+      g.list.push(it); groups.set(k, g)
+    }
+    rows.forEach(l => put(l, { kind: 'c', l }))
+    excItems.forEach(({ e, l }) => put(l, { kind: 'e', e, l }))
+    const out: CItem[] = []
+    Array.from(groups.values())
+      .sort((a, z) => z.date.localeCompare(a.date) || a.po.localeCompare(z.po))
+      .forEach(g => {
+        const ordered = [...g.list.filter(x => x.kind === 'c'), ...g.list.filter(x => x.kind === 'e')]
+        ordered.forEach((x, idx) => out.push({ ...x, first: idx === 0 } as CItem))
+      })
+    return out
+  }, [rows, excItems])
   return (
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
@@ -905,13 +926,15 @@ function CancelledTable({ meta, rows, busy, onReopen, onReason, excItems, onExcR
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
-        {rows.map(l => {
+        {items.map(it => {
+          if (it.kind === 'c') {
+          const { l, first } = it
           const lk = `line:${l.id}`
           return (
-            <tr key={l.id} className="hover:bg-gray-50/60">
-              <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{l.po_number ?? '–'}<DocsBadge po={l.po_number} count={docCounts[l.po_number ?? ''] ?? 0} onDocs={onDocs} /></td>
-              <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{l.country_flag} {l.country_code}</span></td>
-              <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{l.ka_name ?? '-'}</span></td>
+            <tr key={`c${l.id}`} className={`hover:bg-gray-50/60 ${first ? 'border-t-2 border-gray-200' : ''}`}>
+              <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{first ? <>{l.po_number ?? '–'}<DocsBadge po={l.po_number} count={docCounts[l.po_number ?? ''] ?? 0} onDocs={onDocs} /></> : <span className="text-gray-200 font-normal">└</span>}</td>
+              <td className="px-3 py-2 whitespace-nowrap">{first && <span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{l.country_flag} {l.country_code}</span>}</td>
+              <td className="px-3 py-2">{first && <span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{l.ka_name ?? '-'}</span>}</td>
               <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{l.sku_code}</td>
               <td className="px-3 py-2 text-gray-600">{l.sku_name || '-'}</td>
               <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtNum(l.qty)}</td>
@@ -928,14 +951,14 @@ function CancelledTable({ meta, rows, busy, onReopen, onReason, excItems, onExcR
               </td>
             </tr>
           )
-        })}
-        {excItems.map(({ e, l }) => {
+          }
+          const { e, l, first } = it
           const ek = `exc:${e.id}`
           return (
-            <tr key={ek} className="hover:bg-gray-50/60 bg-amber-50/30">
-              <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{l.po_number ?? '–'}<DocsBadge po={l.po_number} count={docCounts[l.po_number ?? ''] ?? 0} onDocs={onDocs} /></td>
-              <td className="px-3 py-2 whitespace-nowrap"><span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{l.country_flag} {l.country_code}</span></td>
-              <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{l.ka_name ?? '-'}</span></td>
+            <tr key={ek} className={`hover:bg-gray-50/60 bg-amber-50/30 ${first ? 'border-t-2 border-gray-200' : ''}`}>
+              <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{first ? <>{l.po_number ?? '–'}<DocsBadge po={l.po_number} count={docCounts[l.po_number ?? ''] ?? 0} onDocs={onDocs} /></> : <span className="text-gray-200 font-normal">└</span>}</td>
+              <td className="px-3 py-2 whitespace-nowrap">{first && <span className="inline-block px-2 py-0.5 rounded text-xs bg-red-50 text-red-600">{l.country_flag} {l.country_code}</span>}</td>
+              <td className="px-3 py-2">{first && <span className="inline-block px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">{l.ka_name ?? '-'}</span>}</td>
               <td className="px-3 py-2 font-mono text-xs text-gray-700 whitespace-nowrap">{l.sku_code}</td>
               <td className="px-3 py-2 text-gray-600">{l.sku_name || '-'}</td>
               <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtNum(e.qty)}</td>
@@ -975,7 +998,7 @@ function CancelledTable({ meta, rows, busy, onReopen, onReason, excItems, onExcR
             </tr>
           )
         })}
-        {!rows.length && !excItems.length && <tr><td colSpan={12} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
+        {!items.length && <tr><td colSpan={12} className="py-12 text-center text-gray-300">{poSearch ? `没有匹配「${poSearch}」的 PO` : '没有记录'}</td></tr>}
       </tbody>
     </table>
   )
