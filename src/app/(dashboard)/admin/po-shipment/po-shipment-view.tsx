@@ -132,9 +132,14 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
   const buckets = useMemo(() => {
     const b: Record<Stage, OpsRow[]> = { new: [], toship: [], shipped: [], delivered: [], partial: [], cancelled: [] }
     rows.forEach(r => b[stageOf(r)].push(r))
+    // 已有发货批次的部分发货行：已发出的那部分同时出现在 Shipped（可录送达日），余量仍在 Partial 继续跟
+    b.partial.forEach(r => {
+      const sent = (batchesByPo.get(r.id) ?? []).reduce((t, x) => t + x.qty, 0)
+      if (sent > 0) b.shipped.push({ ...r, qty: sent, partial_total: r.qty })
+    })
     Object.values(b).forEach(arr => arr.sort((a, z) => (z.po_date ?? '').localeCompare(a.po_date ?? '')))
     return b
-  }, [rows])
+  }, [rows, batchesByPo])
 
   // KA 筛选（表头下拉，跨车道保留）。选项 = 当前车道里出现的 KA
   const kaOptions = useMemo(
@@ -727,7 +732,7 @@ function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, date
       <thead className="sticky top-0 z-10" style={{ background: meta.bg }}>
         <tr className="border-b border-gray-200">
           <Th> </Th><Th>PO #</Th><Th>Country</Th><KaTh {...kaProps} /><Th center>SKUs</Th>
-          <Th right>Ordered</Th><Th right className="text-emerald-600">Delivered</Th><Th right className="text-amber-600">Remaining ⏳</Th>
+          <Th right>Ordered</Th><Th right className="text-emerald-600" >Shipped 已发</Th><Th right className="text-amber-600">Remaining ⏳</Th>
           <Th>PO Date</Th><Th center>整单发余量 / 逐 SKU</Th>
         </tr>
       </thead>
@@ -763,7 +768,7 @@ function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, date
                     <table className="w-full text-[12px]">
                       <thead><tr className="text-left text-[10.5px] text-gray-500 border-b border-gray-200">
                         <th className="py-1 pr-3 font-semibold w-5"></th><th className="py-1 pr-3 font-semibold">SKU</th><th className="py-1 pr-3 font-semibold">Product</th>
-                        <th className="py-1 pr-3 font-semibold text-right">Ordered</th><th className="py-1 pr-3 font-semibold text-right">Delivered</th>
+                        <th className="py-1 pr-3 font-semibold text-right">Ordered</th><th className="py-1 pr-3 font-semibold text-right">Shipped 已发</th><th className="py-1 pr-3 font-semibold text-right">Delivered 已送达</th>
                         <th className="py-1 pr-3 font-semibold text-right">Remaining</th><th className="py-1 pr-3 font-semibold">🚚 Ship Date</th>
                         <th className="py-1 font-semibold text-right">Action</th>
                       </tr></thead>
@@ -782,6 +787,7 @@ function PartialGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, date
                                 <td className="py-1.5 pr-3 text-gray-600">{l.sku_name || '-'}</td>
                                 <td className="py-1.5 pr-3 text-right tabular-nums font-medium">{fmtNum(l.qty)}</td>
                                 <td className="py-1.5 pr-3 text-right tabular-nums font-semibold text-emerald-700">{fmtNum(l.delivered_qty ?? 0)}</td>
+                                <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{fmtNum(bs.reduce((t, x) => t + (x.delivery_date ? x.qty : 0), 0))}</td>
                                 <td className="py-1.5 pr-3 text-right tabular-nums font-bold text-amber-700">{fmtNum(remaining)}</td>
                                 <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-500 whitespace-nowrap">{l.ship_date ?? '–'}<span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500" title={`${bs.length} 批发运，${undelivered} 批未录送达日`}>{bs.length}批</span></td>
                                 <td className="py-1.5">
@@ -1121,6 +1127,7 @@ function ShippedGroupedTable({ meta, rows, batchesByPo, open, toggle, busy, toda
                                 <td className="py-1.5 pr-3 text-gray-600">{l.sku_name || '-'}</td>
                                 <td className="py-1.5 pr-3 text-right tabular-nums font-medium">{fmtNum(l.qty)}</td>
                                 <td className="py-1.5 pr-3 font-mono text-[11px] text-gray-500 whitespace-nowrap">{l.ship_date ?? '–'}<span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500">{bs.length}批</span>
+                                  {l.partial_total != null && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-sky-50 text-sky-700 font-sans" title="这一行只发出了一部分，余量仍在 Partial 车道继续跟">◑ 订购 {fmtNum(l.partial_total)} · 余 {fmtNum(l.partial_total - l.qty)} 待发</span>}
                                   {lostQty > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-rose-50 text-rose-700 font-sans" title="已记录丢货，详见 Cancelled / Exception">⚠ 丢 {fmtNum(lostQty)}</span>}</td>
                                 <td className="py-1.5">
                                   <div className="flex gap-1.5 justify-end">

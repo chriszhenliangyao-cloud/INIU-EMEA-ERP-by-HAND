@@ -34,6 +34,8 @@ export type OpsRow = {
   sku_code: string; sku_name: string; ean: string | null
   country_code: string; country_flag: string; ka_name: string | null
   cancel_reason?: string | null
+  /** Shipped 车道里展示的「部分发货行」：qty = 已发合计，partial_total = 订购量（余量仍在 Partial 车道） */
+  partial_total?: number
   qty: number; delivered_qty: number | null
   fd_buying_price: number | null; turnover: number | null; currency: string | null
 }
