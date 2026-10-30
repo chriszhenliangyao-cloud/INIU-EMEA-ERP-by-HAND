@@ -67,17 +67,58 @@ function Row({ r, firstColMonth }: { r: BpDetailRow; firstColMonth?: boolean }) 
   )
 }
 
-const HEAD = (first: string) => (
-  <thead>
-    <tr className="text-[11px] font-bold uppercase tracking-wide text-gray-500 bg-slate-50">
-      <th className="text-left font-bold px-3 py-2 border-b border-slate-200">{first}</th>
-      <th className="text-right font-bold px-3 py-2 border-b border-l border-slate-200">SI Target</th>
-      <th className="text-right font-bold px-3 py-2 border-b border-slate-200">SI Unit <span className="text-gray-300">(ach%)</span></th>
-      <th className="text-right font-bold px-3 py-2 border-b border-l border-slate-200">Value Target</th>
-      <th className="text-right font-bold px-3 py-2 border-b border-slate-200">SI Value <span className="text-gray-300">(ach%)</span></th>
-    </tr>
-  </thead>
-)
+// ── 排序：点表头排序（降序 → 升序 → 恢复默认）；SI Unit / SI Value 旁的 (ach%) 单独点可按达成率排 ──
+type SortKey = 'name' | 'siTgt' | 'siAct' | 'siAch' | 'valTgt' | 'valAct' | 'valAch'
+type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
+const ach = (a: number | null, t: number) => (a == null || !(t > 0)) ? null : a / t
+const sortVal = (r: BpDetailRow, k: SortKey): number | string | null => {
+  switch (k) {
+    case 'name': return r.name.toLowerCase()
+    case 'siTgt': return r.siTgt > 0 ? r.siTgt : null
+    case 'siAct': return r.siAct
+    case 'siAch': return ach(r.siAct, r.siTgt)
+    case 'valTgt': return r.valTgt > 0 ? r.valTgt : null
+    case 'valAct': return r.valAct
+    case 'valAch': return ach(r.valAct, r.valTgt)
+  }
+}
+function sortRows(rows: BpDetailRow[], st: SortState): BpDetailRow[] {
+  if (!st) return rows
+  const m = st.dir === 'asc' ? 1 : -1
+  return [...rows].sort((x, y) => {
+    const a = sortVal(x, st.key), b = sortVal(y, st.key)
+    if (a == null && b == null) return 0
+    if (a == null) return 1            // 空值永远排最后
+    if (b == null) return -1
+    return (typeof a === 'string' ? a.localeCompare(b as string) : a - (b as number)) * m
+  })
+}
+const nextSort = (st: SortState, key: SortKey): SortState =>
+  !st || st.key !== key ? { key, dir: key === 'name' ? 'asc' : 'desc' }
+    : st.dir === (key === 'name' ? 'asc' : 'desc') ? { key, dir: key === 'name' ? 'desc' : 'asc' } : null
+const arrow = (st: SortState, key: SortKey) => st?.key === key ? (st.dir === 'asc' ? ' ▲' : ' ▼') : ''
+
+const HEAD = (first: string, st: SortState, onSort: (k: SortKey) => void) => {
+  const cls = 'font-bold px-3 py-2 border-b border-slate-200 cursor-pointer select-none hover:text-gray-800 whitespace-nowrap'
+  const on = (k: SortKey) => st?.key === k ? 'text-blue-700' : ''
+  return (
+    <thead>
+      <tr className="text-[11px] font-bold uppercase tracking-wide text-gray-500 bg-slate-50">
+        <th onClick={() => onSort('name')} className={`text-left ${cls} ${on('name')}`}>{first}{arrow(st, 'name')}</th>
+        <th onClick={() => onSort('siTgt')} className={`text-right ${cls} border-l ${on('siTgt')}`}>SI Target{arrow(st, 'siTgt')}</th>
+        <th className={`text-right ${cls} cursor-default hover:text-gray-500`}>
+          <span onClick={() => onSort('siAct')} className={`cursor-pointer hover:text-gray-800 ${on('siAct')}`}>SI Unit{arrow(st, 'siAct')}</span>{' '}
+          <span onClick={() => onSort('siAch')} title="按达成率排序" className={`cursor-pointer ${st?.key === 'siAch' ? 'text-blue-700' : 'text-gray-300 hover:text-gray-600'}`}>(ach%){arrow(st, 'siAch')}</span>
+        </th>
+        <th onClick={() => onSort('valTgt')} className={`text-right ${cls} border-l ${on('valTgt')}`}>Value Target{arrow(st, 'valTgt')}</th>
+        <th className={`text-right ${cls} cursor-default hover:text-gray-500`}>
+          <span onClick={() => onSort('valAct')} className={`cursor-pointer hover:text-gray-800 ${on('valAct')}`}>SI Value{arrow(st, 'valAct')}</span>{' '}
+          <span onClick={() => onSort('valAch')} title="按达成率排序" className={`cursor-pointer ${st?.key === 'valAch' ? 'text-blue-700' : 'text-gray-300 hover:text-gray-600'}`}>(ach%){arrow(st, 'valAch')}</span>
+        </th>
+      </tr>
+    </thead>
+  )
+}
 
 function TotalRow({ rows, label }: { rows: BpDetailRow[]; label: string }) {
   const T = sum(rows)
@@ -95,6 +136,8 @@ function TotalRow({ rows, label }: { rows: BpDetailRow[]; label: string }) {
 // 一个可折叠的季度区块
 function QuarterSection({ q, year, rows, open, onToggle }: { q: number; year: number; rows: BpDetailRow[]; open: boolean; onToggle: () => void }) {
   const T = sum(rows)
+  const [st, setSt] = useState<SortState>(null)
+  const shown = sortRows(rows, st)
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden">
       <button onClick={onToggle}
@@ -113,8 +156,8 @@ function QuarterSection({ q, year, rows, open, onToggle }: { q: number; year: nu
             <div className="py-6 text-center text-gray-400 text-sm">No BP or PO for Q{q}.</div>
           ) : (
             <table className="w-full min-w-[720px] text-sm tabular-nums border-collapse">
-              {HEAD('Product')}
-              <tbody>{rows.map(r => <Row key={r.key} r={r} />)}</tbody>
+              {HEAD('Product', st, k => setSt(p => nextSort(p, k)))}
+              <tbody>{shown.map(r => <Row key={r.key} r={r} />)}</tbody>
               <tfoot><TotalRow rows={rows} label={`Q${q} total`} /></tfoot>
             </table>
           )}
@@ -126,6 +169,7 @@ function QuarterSection({ q, year, rows, open, onToggle }: { q: number; year: nu
 
 export function BpDetails({ scope, quarter, year, data }: { scope: string; quarter: number; year: number; data?: BpDetail }) {
   const [view, setView] = useState<'sku' | 'month'>('sku')
+  const [monthSt, setMonthSt] = useState<SortState>(null)
   const [openQ, setOpenQ] = useState<Set<number>>(new Set([quarter]))
   const toggleQ = (q: number) => setOpenQ(prev => { const s = new Set(prev); s.has(q) ? s.delete(q) : s.add(q); return s })
 
@@ -165,8 +209,8 @@ export function BpDetails({ scope, quarter, year, data }: { scope: string; quart
       ) : (
         <div className="overflow-x-auto border border-slate-200 rounded-xl">
           <table className="w-full min-w-[720px] text-sm tabular-nums border-collapse">
-            {HEAD('Month')}
-            <tbody>{month.map(r => <Row key={r.key} r={r} firstColMonth />)}</tbody>
+            {HEAD('Month', monthSt, k => setMonthSt(p => nextSort(p, k)))}
+            <tbody>{sortRows(month, monthSt).map(r => <Row key={r.key} r={r} firstColMonth />)}</tbody>
             <tfoot><TotalRow rows={month} label="Year total" /></tfoot>
           </table>
         </div>
