@@ -67,19 +67,16 @@ function Row({ r, firstColMonth }: { r: BpDetailRow; firstColMonth?: boolean }) 
   )
 }
 
-// ── 排序：点表头排序（降序 → 升序 → 恢复默认）；SI Unit / SI Value 旁的 (ach%) 单独点可按达成率排 ──
-type SortKey = 'name' | 'siTgt' | 'siAct' | 'siAch' | 'valTgt' | 'valAct' | 'valAch'
+// ── 排序：点表头排序（降序 → 升序 → 恢复默认）；SI Unit 按实际台数排、SI Value 按实际金额排（不是按百分比） ──
+type SortKey = 'name' | 'siTgt' | 'siAct' | 'valTgt' | 'valAct'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
-const ach = (a: number | null, t: number) => (a == null || !(t > 0)) ? null : a / t
 const sortVal = (r: BpDetailRow, k: SortKey): number | string | null => {
   switch (k) {
     case 'name': return r.name.toLowerCase()
     case 'siTgt': return r.siTgt > 0 ? r.siTgt : null
     case 'siAct': return r.siAct
-    case 'siAch': return ach(r.siAct, r.siTgt)
     case 'valTgt': return r.valTgt > 0 ? r.valTgt : null
     case 'valAct': return r.valAct
-    case 'valAch': return ach(r.valAct, r.valTgt)
   }
 }
 function sortRows(rows: BpDetailRow[], st: SortState): BpDetailRow[] {
@@ -106,15 +103,9 @@ const HEAD = (first: string, st: SortState, onSort: (k: SortKey) => void) => {
       <tr className="text-[11px] font-bold uppercase tracking-wide text-gray-500 bg-slate-50">
         <th onClick={() => onSort('name')} className={`text-left ${cls} ${on('name')}`}>{first}{arrow(st, 'name')}</th>
         <th onClick={() => onSort('siTgt')} className={`text-right ${cls} border-l ${on('siTgt')}`}>SI Target{arrow(st, 'siTgt')}</th>
-        <th className={`text-right ${cls} cursor-default hover:text-gray-500`}>
-          <span onClick={() => onSort('siAct')} className={`cursor-pointer hover:text-gray-800 ${on('siAct')}`}>SI Unit{arrow(st, 'siAct')}</span>{' '}
-          <span onClick={() => onSort('siAch')} title="按达成率排序" className={`cursor-pointer ${st?.key === 'siAch' ? 'text-blue-700' : 'text-gray-300 hover:text-gray-600'}`}>(ach%){arrow(st, 'siAch')}</span>
-        </th>
+        <th onClick={() => onSort('siAct')} className={`text-right ${cls} ${on('siAct')}`}>SI Unit <span className="text-gray-300">(ach%)</span>{arrow(st, 'siAct')}</th>
         <th onClick={() => onSort('valTgt')} className={`text-right ${cls} border-l ${on('valTgt')}`}>Value Target{arrow(st, 'valTgt')}</th>
-        <th className={`text-right ${cls} cursor-default hover:text-gray-500`}>
-          <span onClick={() => onSort('valAct')} className={`cursor-pointer hover:text-gray-800 ${on('valAct')}`}>SI Value{arrow(st, 'valAct')}</span>{' '}
-          <span onClick={() => onSort('valAch')} title="按达成率排序" className={`cursor-pointer ${st?.key === 'valAch' ? 'text-blue-700' : 'text-gray-300 hover:text-gray-600'}`}>(ach%){arrow(st, 'valAch')}</span>
-        </th>
+        <th onClick={() => onSort('valAct')} className={`text-right ${cls} ${on('valAct')}`}>SI Value <span className="text-gray-300">(ach%)</span>{arrow(st, 'valAct')}</th>
       </tr>
     </thead>
   )
