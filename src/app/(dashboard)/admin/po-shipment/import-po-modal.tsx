@@ -85,18 +85,11 @@ export function ImportPoModal({ today, skus, skuAlias, countries, kas, supabase,
     } finally { setBusy(false) }
   }
 
-  // 同 SKU + 同单价的多行(Bigben 常把同 SKU 拆多批交期)合并成一行，数量/净额相加 —— 沿用既定口径
-  const mergedRows = () => {
+  // 逐行导入，不合并：同 SKU 因交期不同被拆成多行时，ERP 里也保持多行（交期写进备注），与 PO 原件一致
+  const importRows = () => {
     if (!parsed) return []
-    const m = new Map<string, { sku_id: number; qty: number; price: number; net: number; n: number }>()
-    parsed.lines.forEach((l, i) => {
-      const k = `${pick[i]}|${l.price}`
-      const cur = m.get(k)
-      if (cur) { cur.qty += l.qty; cur.net += l.net; cur.n++ } else m.set(k, { sku_id: pick[i]!, qty: l.qty, price: l.price, net: l.net, n: 1 })
-    })
-    return Array.from(m.values())
+    return parsed.lines.map((l, i) => ({ sku_id: pick[i]!, qty: l.qty, price: l.price, net: l.net, delivery: l.delivery ?? parsed.delivery ?? null }))
   }
-  const mergedCount = parsed ? parsed.lines.length - mergedRows().length : 0
 
   const submit = async () => {
     if (!parsed || !file) return
@@ -111,9 +104,10 @@ export function ImportPoModal({ today, skus, skuAlias, countries, kas, supabase,
     if (dupErr) { setSaving(false); alert(`查重失败：${dupErr.message}`); return }
     if ((count ?? 0) > 0) { setSaving(false); alert(`ERP 里已有 PO「${poNumber.trim()}」（${count} 行），不重复导入。`); return }
     // ② 写入（po_status 不写 → 默认 'new'）
-    const rows = mergedRows().map(r => ({
+    const rows = importRows().map(r => ({
       country_id: countryId, ka_id: kaId, sku_id: r.sku_id, po_number: poNumber.trim(), po_date: poDate,
       qty_ordered: Math.round(r.qty), currency, fd_buying_price: r.price, turnover: r2(r.net), source_file: file.name,
+      notes: r.delivery ? `PO原件交期 ${r.delivery}` : null,
     }))
     const { error } = await supabase.from('channel_po').insert(rows)
     if (error) { setSaving(false); alert(`导入失败：${error.message}`); return }
@@ -225,7 +219,6 @@ export function ImportPoModal({ today, skus, skuAlias, countries, kas, supabase,
                 })}
               </div>
             </div>
-            {mergedCount > 0 && <div className="mt-2 text-xs text-indigo-600">其中 {mergedCount} 行与「同 SKU、同单价」的行合并（数量相加），共写入 {mergedRows().length} 行。</div>}
 
             <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
               {parsed.checks.map((c, i) => (
@@ -243,7 +236,7 @@ export function ImportPoModal({ today, skus, skuAlias, countries, kas, supabase,
           {parsed && <span className="text-xs mr-auto text-gray-500">{pending > 0 ? <>还有 <b className="text-amber-600">{pending}</b> 行货号待确认</> : <span className="text-emerald-600">货号全部就绪</span>}</span>}
           <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Cancel</button>
           <button onClick={submit} disabled={saving || !parsed || pending > 0 || (!parsed.ok && !override)} className="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
-            {saving ? 'Importing…' : parsed ? `Import PO · ${mergedRows().length} line${mergedRows().length > 1 ? 's' : ''}` : 'Import PO'}
+            {saving ? 'Importing…' : parsed ? `Import PO · ${parsed.lines.length} line${parsed.lines.length > 1 ? 's' : ''}` : 'Import PO'}
           </button>
         </div>
       </div>
