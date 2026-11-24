@@ -73,7 +73,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     supabase.from('sku').select('id, code, name, category, sort_order, bom_cost_rmb').eq('is_active', true).order('sort_order').order('code'),
     supabase.from('country').select('id, code, name_en, flag_emoji, region, sort_order').eq('region', 'EU').eq('is_active', true).order('sort_order'),
     supabase.from('forecast_cell').select('run_id, sku_id, ka_id, month, qty').gte('month', periodStart).lt('month', endExclusive).range(0, 49999),
-    supabase.from('channel_po').select('sku_id, country_id, po_date, qty_ordered, turnover, currency, po_number, ka_id').gte('po_date', periodStart).lt('po_date', endExclusive).range(0, 49999),
+    supabase.from('channel_po').select('sku_id, country_id, po_date, qty_ordered, turnover, currency, po_number, ka_id').or('po_status.is.null,po_status.neq.cancelled').gte('po_date', periodStart).lt('po_date', endExclusive).range(0, 49999),
     supabase.from('channel_quarterly_review').select('*').eq('year', year).eq('quarter', q),
     supabase.from('channel_quarterly_review').select('country_id, channel_name, target').eq('year', prevY).eq('quarter', prevQ),
   ])
@@ -119,7 +119,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
     supabase.from('po_freight').select('po_number, delivery_fee, currency').range(0, 9999),
     supabase.from('credit_note').select('country_id, base_model, product, amount, currency').gte('cn_date', periodStart).lt('cn_date', endExclusive).range(0, 9999),
     supabase.from('business_plan').select('country_id, month, category, si_value').eq('year', year).range(0, 9999),
-    supabase.from('channel_po').select('country_id, po_date, turnover, currency, sku_id, qty_ordered').gte('po_date', `${year}-01-01`).lt('po_date', `${year + 1}-01-01`).range(0, 49999),
+    supabase.from('channel_po').select('country_id, po_date, turnover, currency, sku_id, qty_ordered').or('po_status.is.null,po_status.neq.cancelled').gte('po_date', `${year}-01-01`).lt('po_date', `${year + 1}-01-01`).range(0, 49999),
     supabase.from('business_plan_detail').select('country_id, month, model_code, si_qty, si_value').eq('year', year).range(0, 9999),
     getToEur('PLN', 0.23),
     getToEur('CNY', 0.13),
@@ -162,7 +162,7 @@ export default async function PerformancePage({ searchParams }: { searchParams?:
   const stripColor = (code: string) => { const i = code.lastIndexOf('-'); return i > 0 && COLOR_WORDS.has(code.slice(i + 1)) ? code.slice(0, i) : code }
   const [{ data: planRows }, { data: yPos }, { data: skuAll }] = await Promise.all([
     supabase.from('annual_plan').select('country_id, quarter, ka_id, customer_raw, model_code, product_name, category, si_qty, so_qty, iniu_si_value, ka_si_value, gp, net_profit').eq('year', 2026).range(0, 9999),
-    supabase.from('channel_po').select('country_id, ka_id, sku_id, po_date, qty_ordered').gte('po_date', '2026-01-01').lt('po_date', '2027-01-01').range(0, 49999),
+    supabase.from('channel_po').select('country_id, ka_id, sku_id, po_date, qty_ordered').or('po_status.is.null,po_status.neq.cancelled').gte('po_date', '2026-01-01').lt('po_date', '2027-01-01').range(0, 49999),
     supabase.from('sku').select('id, code, name').range(0, 9999),
   ])
   const skuCode: Record<number, string> = {}; (skuAll ?? []).forEach((s: any) => { skuCode[s.id] = s.code })

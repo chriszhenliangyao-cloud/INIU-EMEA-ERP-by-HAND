@@ -35,6 +35,7 @@ export default async function PoPage() {
       country:country_id ( id, code, name_en, flag_emoji, region ),
       ka:ka_id ( id, name, vat )
     `)
+    .or('po_status.is.null,po_status.neq.cancelled')   // 已取消的行不计入订单数量/金额（取消记录在 Shipment Workflow 的 Cancelled 车道查看）
     .order('po_date', { ascending: false })
 
   if (error) {

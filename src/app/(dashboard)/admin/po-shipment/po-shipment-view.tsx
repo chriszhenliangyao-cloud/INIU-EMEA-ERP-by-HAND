@@ -24,7 +24,7 @@ const STAGES: Record<Stage, StageMeta> = {
   shipped:   { key: 'shipped',   icon: '✈️', label: 'Shipped',   a: '#10b981', bg: '#ecfdf5', bd: '#a7f3d0', tx: '#047857', desc: '已全部发出、在途。展开逐批录入送达日；全部批次都送达即自动归入 Delivered。' },
   delivered: { key: 'delivered', icon: '📬', label: 'Delivered', a: '#64748b', bg: '#f8fafc', bd: '#e2e8f0', tx: '#475569', desc: '发满且全部批次都已送达 = 自动完成。展开可追溯每张 PO 下每个 SKU 的每一批发运。' },
   partial:   { key: 'partial',   icon: '◑',  label: 'Partial',   a: '#0ea5e9', bg: '#f0f9ff', bd: '#bae6fd', tx: '#0369a1', desc: '部分已发，Remaining 为仍待发的未结量（open）。展开可给已发批次录送达日；可多次 Ship remaining 分批发货，发完自动归 Shipped。' },
-  cancelled: { key: 'cancelled', icon: '✗',  label: 'Cancelled / Exception', a: '#f43f5e', bg: '#fff1f2', bd: '#fecdd3', tx: '#be123c', desc: '已取消 / 异常（仍计入总额，只是状态标签）。取消的行可 Reopen 退回待发；Shipped 里记录的丢货异常也列在这里，可撤销。' },
+  cancelled: { key: 'cancelled', icon: '✗',  label: 'Cancelled / Exception', a: '#f43f5e', bg: '#fff1f2', bd: '#fecdd3', tx: '#be123c', desc: '已取消 / 异常（取消的数量和金额不计入订单总数）。取消的行可 Reopen 退回待发；Shipped 里记录的丢货异常也列在这里，可撤销。' },
 }
 
 // To Ship 账龄：距 PO 日多少天。>14 黄，>30 红。
@@ -94,7 +94,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
     }
     // 进单：按 po_date
     rows.forEach(r => {
-      if (!r.po_date) return
+      if (!r.po_date || r.po_status === 'cancelled') return   // 已取消的行不计入进单
       const s = slot(r.po_date)
       const eur = toEUR(r.turnover, r.currency, plnToEur)
       const poKey = r.po_number ?? `(no PO#)-${r.id}`
@@ -179,7 +179,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
     return supabase.from('po_leadtime').upsert(ids.map(id => ({ po_line_id: id, slot: 'b0_cancel', value: text })), { onConflict: 'po_line_id,slot' })
   }
   const cancelPo = async (ids: number[], key: string) => {
-    if (!confirm(`取消 ${ids.length} 行 PO？\n仍计入总额，只是打上 Cancelled 状态标签。`)) return
+    if (!confirm(`取消 ${ids.length} 行 PO？\n取消后的数量和金额不再计入订单总数。`)) return
     const reason = prompt('取消原因（可留空）：', '')
     if (reason == null) return
     setBusy(key)
@@ -239,7 +239,7 @@ export function PoShipmentView({ rows, batches, docCounts, plnToEur, skus, skuAl
     const n = input.trim() === '' ? max : Math.floor(Number(input))
     if (!Number.isFinite(n) || n <= 0 || n > max) { alert(`请输入 1 到 ${max} 之间的数量。`); return }
     if (n === l.qty) { cancelPo([l.id], key); return }
-    if (!confirm(`取消 ${l.sku_code} 的 ${n} 件？\n该行拆成：取消 ${n} 件（Cancelled，仍计入总额）+ 剩余 ${l.qty - n} 件继续履约。`)) return
+    if (!confirm(`取消 ${l.sku_code} 的 ${n} 件？\n该行拆成：取消 ${n} 件（Cancelled，不计入总数）+ 剩余 ${l.qty - n} 件继续履约。`)) return
     const reason = prompt('取消原因（可留空）：', '')
     if (reason == null) return
     setBusy(key)
